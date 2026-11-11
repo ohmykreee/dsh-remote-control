@@ -1,0 +1,38 @@
+# dependencies
+node_modules/
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# local test / debug artifacts
+.scratch/
+scratch/
+tmp/
+temp/
+*.log
+*.tmp
+*.bak
+
+# local runtime data and secrets
+remote-control/
+settings.json
+notification-cache.json
+*.pem
+*.key
+*.p12
+*.pfx
+.env
+.env.*
+!.env.example
+
+# editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# build output
+dist/
+coverage/
+*.tsbuildinfo
