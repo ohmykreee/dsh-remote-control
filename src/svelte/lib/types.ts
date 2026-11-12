@@ -8,6 +8,7 @@ export interface PomodoroSettings {
   focusMinutes: number;
   breakMinutes: number;
   soundPath: string;
+  loopAlarm: boolean;
 }
 
 export interface ConsoleSettings {

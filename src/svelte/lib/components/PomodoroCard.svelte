@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import {
     acquirePomodoro,
+    dismissAlarm,
     formatRemaining,
     pomodoro,
     pomodoroProgress,
@@ -21,12 +22,23 @@
       : pomodoro.phase === 'focus' ? '专注' : '休息',
   );
   const primaryLabel = $derived(
-    pomodoro.finished
-      ? pomodoro.phase === 'focus' ? '开始休息' : '开始专注'
-      : pomodoro.running ? '暂停' : '开始',
+    pomodoro.alarmActive
+      ? '停止响铃'
+      : pomodoro.finished
+        ? pomodoro.phase === 'focus' ? '开始休息' : '开始专注'
+        : pomodoro.running ? '暂停' : '开始',
   );
+  const primaryState = $derived(pomodoro.alarmActive ? 'is-alarm' : pomodoro.finished ? 'is-finished' : '');
   const time = $derived(formatRemaining(pomodoro.remainingMs));
   const percent = $derived(pomodoroProgress());
+
+  function handlePrimary(): void {
+    if (pomodoro.alarmActive) {
+      dismissAlarm();
+      return;
+    }
+    togglePomodoro();
+  }
 </script>
 
 <div
@@ -50,8 +62,8 @@
     </div>
     <div class="pomodoro-clock" aria-live="off">{time}</div>
     <div class="pomodoro-actions">
-      <button class="pomodoro-primary" type="button" onclick={togglePomodoro} title={primaryLabel}>
-        <Icon name={pomodoro.running ? 'pause' : 'play'} />
+      <button class="pomodoro-primary {primaryState}" type="button" onclick={handlePrimary} title={primaryLabel}>
+        <Icon name={pomodoro.alarmActive ? 'bell' : pomodoro.running ? 'pause' : 'play'} />
         <span>{primaryLabel}</span>
       </button>
       <button class="pomodoro-reset" type="button" onclick={resetPomodoro} aria-label="重置番茄钟" title="重置">
@@ -167,6 +179,16 @@
   transform: scale(0.96);
 }
 
+.pomodoro-primary.is-finished {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--green) 76%, #fff), var(--green));
+  color: #06241c;
+}
+
+.pomodoro-primary.is-alarm {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--red) 82%, #fff), var(--red));
+  color: #fff;
+}
+
 .pomodoro-reset {
   width: 38px;
   height: 38px;
@@ -221,6 +243,30 @@
   color: var(--green);
 }
 
+/* Narrow clock cards: stack the rows so actions never overlap the phase. */
+@container (max-width: 300px) {
+  .pomodoro-main {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "meta"
+      "clock"
+      "actions"
+      "progress";
+    justify-items: center;
+    gap: 10px;
+  }
+  .pomodoro-meta {
+    align-items: center;
+    text-align: center;
+  }
+  .pomodoro-phase {
+    text-align: center;
+  }
+  .pomodoro-actions {
+    justify-self: center;
+  }
+}
+
 @media (max-height: 620px) {
   .pomodoro-card {
     margin-top: 10px;
@@ -239,6 +285,41 @@
   .pomodoro-reset {
     width: 32px;
     height: 32px;
+  }
+}
+
+/* Very short landscape cards: keep one compact row so the card never spills
+   into the clock or weather sections. */
+@media (max-height: 500px) {
+  .pomodoro-card {
+    padding: 8px 2px 12px;
+  }
+  .pomodoro-main {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "clock actions"
+      "progress progress";
+    justify-items: stretch;
+    gap: 8px 10px;
+  }
+  .pomodoro-meta {
+    display: none;
+  }
+  .pomodoro-clock {
+    justify-self: start;
+    font-size: clamp(32px, 10cqw, 44px);
+  }
+  .pomodoro-actions {
+    justify-self: end;
+  }
+  .pomodoro-primary {
+    min-height: 30px;
+    padding: 0 9px;
+    font-size: 10px;
+  }
+  .pomodoro-reset {
+    width: 30px;
+    height: 30px;
   }
 }
 </style>

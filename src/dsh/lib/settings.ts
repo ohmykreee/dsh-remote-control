@@ -50,6 +50,8 @@ export interface PomodoroSettings {
   focusMinutes: number;
   breakMinutes: number;
   soundPath: string;
+  /** Keep ringing until the console user explicitly dismisses the alarm. */
+  loopAlarm: boolean;
 }
 
 export interface RemoteControlSettings {
@@ -153,6 +155,7 @@ export function defaultSettings(): RemoteControlSettings {
       focusMinutes: 25,
       breakMinutes: 5,
       soundPath: '',
+      loopAlarm: false,
     },
     pageOrder: ['home', 'sessions', 'music', 'performance'],
     pageEnabled: { home: true, sessions: true, music: true, performance: true },
@@ -199,6 +202,7 @@ function normalize(raw: unknown): RemoteControlSettings {
     focusMinutes: Number.isFinite(focusMinutes) ? Math.max(1, Math.min(180, focusMinutes)) : 25,
     breakMinutes: Number.isFinite(breakMinutes) ? Math.max(1, Math.min(120, breakMinutes)) : 5,
     soundPath: typeof pomodoro.soundPath === 'string' ? pomodoro.soundPath.slice(0, 2048) : '',
+    loopAlarm: pomodoro.loopAlarm === true,
   };
   const requestedOrder = Array.isArray(input.pageOrder)
     ? input.pageOrder.filter((key): key is PageKey => typeof key === 'string' && (PAGE_KEYS as readonly string[]).includes(key))

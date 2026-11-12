@@ -135,6 +135,7 @@ interface PomodoroSettings {
   focusMinutes?: number;
   breakMinutes?: number;
   soundPath?: string;
+  loopAlarm?: boolean;
 }
 
 /** Settings object from `/api/settings`; every section is optional on the wire. */
@@ -218,7 +219,7 @@ interface SavePatch {
   temperatureUnit: string;
   theme: string;
   navPosition: string;
-  pomodoro: { enabled: boolean; focusMinutes: number; breakMinutes: number; soundPath: string };
+  pomodoro: { enabled: boolean; focusMinutes: number; breakMinutes: number; soundPath: string; loopAlarm: boolean };
   pageOrder: string[];
   pageEnabled?: Record<string, boolean>;
   tls: { enabled: boolean; certPath: string; keyPath: string };
@@ -594,6 +595,8 @@ const extraZh: Record<string, string> = {
   pomodoroSoundHint: '留空则使用内置的轻柔提示音；也可以填写本机音频文件路径或 http(s) 链接。',
   pomodoroSoundPlaceholder: '例如：D:\\sounds\\chime.mp3',
   pomodoroBuiltin: '内置提示音',
+  pomodoroLoop: '循环响铃直到停止',
+  pomodoroLoopHint: '开启后，时间到的提示音会循环播放，直到在手机端点击「停止响铃」才停止；关闭时只播放一次。',
   peakValley: '显示梁文峰 / 梁文谷',
   peakValleyHint: '在余额卡片右下角按当前计费时段显示淡色图标：工作日 9:00–12:00、14:00–18:00 为梁文峰（高峰），其余时间及节假日全天为梁文谷（空闲，价格为高峰的一半）。判断在手机浏览器中完成，节假日数据从 timor.tech 获取。',
 };
@@ -615,6 +618,8 @@ const extraEn: Record<string, string> = {
   pomodoroSoundHint: 'Leave empty for the built-in gentle chime, or use a local audio file path or http(s) URL.',
   pomodoroSoundPlaceholder: 'e.g. D:\\sounds\\chime.mp3',
   pomodoroBuiltin: 'Built-in chime',
+  pomodoroLoop: 'Loop until stopped',
+  pomodoroLoopHint: 'When enabled, the end-of-timer sound repeats until you click Stop ringing on the phone. When disabled, it plays once.',
   peakValley: 'Show peak / valley',
   peakValleyHint: 'Show a faint tariff icon in the balance card corner: weekdays 9:00–12:00 and 14:00–18:00 are Liang Wenfeng (peak); all other times and holidays are Liang Wengu (off-peak at half price). The browser judges this and loads holiday data from timor.tech.',
 };
@@ -960,6 +965,7 @@ function RemotePanel(): React.ReactElement {
         focusMinutes: Number(draft.pomodoroFocus) || 25,
         breakMinutes: Number(draft.pomodoroBreak) || 5,
         soundPath: draft.pomodoroSound,
+        loopAlarm: Boolean(settings.pomodoro?.loopAlarm),
       },
       pageOrder: nextOrder,
       pageEnabled: settings.pageEnabled,
@@ -1179,6 +1185,11 @@ function RemotePanel(): React.ReactElement {
         h(Field, { label: t('pomodoroFocus'), value: draft.pomodoroFocus, onChange: (value) => setDraft((current) => ({ ...current, pomodoroFocus: value })), placeholder: '25', inputMode: 'numeric' }),
         h(Field, { label: t('pomodoroBreak'), value: draft.pomodoroBreak, onChange: (value) => setDraft((current) => ({ ...current, pomodoroBreak: value })), placeholder: '5', inputMode: 'numeric' }),
       ),
+      h(Row, { title: t('pomodoroLoop'), description: t('pomodoroLoopHint') }, h(Toggle, {
+        checked: Boolean(settings.pomodoro?.loopAlarm),
+        label: t('pomodoroLoop'),
+        onChange: (checked) => stage({ pomodoro: { loopAlarm: checked } }),
+      })),
     ),
     h('div', { className: 'drc-card' },
       h('h3', null, t('pomodoroSound')),

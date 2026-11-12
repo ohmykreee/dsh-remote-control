@@ -8,6 +8,7 @@ export const ICONS: Record<string, string> = {
   next: '<path d="M17 5v14M5 6.5 14.5 12 5 17.5V6.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>',
   play: '<path d="M8 5.5v13l10.5-6.5L8 5.5Z" fill="currentColor"/>',
   pause: '<path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/>',
+  bell: '<path d="M6 10a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6ZM10 20h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
   reset: '<path d="M4.2 10.2A8 8 0 1 1 6.4 16M4.2 4.6v5.6h5.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
   volume: '<path d="M4 10v4h4l5 4V6l-5 4H4Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M16 9.2a4 4 0 0 1 0 5.6M18.5 6.8a7.2 7.2 0 0 1 0 10.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
   'volume-off': '<path d="M4 10v4h4l5 4V6l-5 4H4Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m16 10 4 4m0-4-4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',

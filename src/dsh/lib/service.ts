@@ -141,6 +141,7 @@ export interface RemoteSettingsPayload {
     focusMinutes: number;
     breakMinutes: number;
     soundPath: string;
+    loopAlarm: boolean;
   };
   pageOrder: string[];
   pageEnabled: Record<string, boolean>;

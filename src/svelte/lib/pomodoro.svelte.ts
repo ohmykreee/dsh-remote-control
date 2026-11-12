@@ -19,6 +19,8 @@ export interface PomodoroRuntime {
   endsAt: number;
   finished: boolean;
   rounds: number;
+  /** True while the end-of-timer alarm is still ringing (loop mode). */
+  alarmActive: boolean;
 }
 
 export const pomodoro = $state<PomodoroRuntime>({
@@ -28,6 +30,7 @@ export const pomodoro = $state<PomodoroRuntime>({
   endsAt: 0,
   finished: false,
   rounds: 0,
+  alarmActive: false,
 });
 
 let refs = 0;
@@ -38,6 +41,9 @@ let originalIcon = '';
 let alerting = false;
 let audioContext: AudioContext | null = null;
 let scheduled: { endsAt: number; nodes: OscillatorNode[] } | null = null;
+let loopTimer: ReturnType<typeof setTimeout> | null = null;
+let alarmAudio: HTMLAudioElement | null = null;
+let activeChimeNodes: OscillatorNode[] = [];
 
 function settings(): PomodoroSettings {
   return app.pomodoro;
@@ -75,7 +81,7 @@ function resetRuntime(): void {
   pomodoro.endsAt = 0;
   pomodoro.finished = false;
   pomodoro.rounds = 0;
-  setTabAlert(false);
+  stopAlarm();
 }
 
 function startEngine(): void {
@@ -105,6 +111,7 @@ function tick(): void {
     return;
   }
   syncDuration();
+  if (pomodoro.alarmActive && !settings().loopAlarm) stopAlarm();
   if (!pomodoro.running) return;
   const remaining = pomodoro.endsAt - Date.now();
   if (remaining <= 0) {
@@ -139,8 +146,7 @@ export function startPomodoro(): void {
   if (pomodoro.remainingMs <= 0) pomodoro.remainingMs = phaseDurationMs();
   pomodoro.running = true;
   pomodoro.endsAt = Date.now() + pomodoro.remainingMs;
-  setTabAlert(false);
-  cancelScheduled();
+  stopAlarm();
   if (!settings().soundPath.trim()) scheduleChime(Math.max(0.06, (pomodoro.endsAt - Date.now()) / 1000), pomodoro.endsAt);
 }
 
@@ -164,8 +170,7 @@ export function resetPomodoro(): void {
   pomodoro.rounds = 0;
   pomodoro.endsAt = 0;
   pomodoro.remainingMs = phaseDurationMs('focus');
-  cancelScheduled();
-  setTabAlert(false);
+  stopAlarm();
 }
 
 /** Switch focus/break while idle (the label in the card is a button). */
@@ -174,8 +179,12 @@ export function switchPomodoroPhase(): void {
   pomodoro.phase = pomodoro.phase === 'focus' ? 'break' : 'focus';
   pomodoro.finished = false;
   pomodoro.remainingMs = phaseDurationMs();
-  cancelScheduled();
-  setTabAlert(false);
+  stopAlarm();
+}
+
+/** Acknowledge the end-of-timer alarm and stop the looping sound. */
+export function dismissAlarm(): void {
+  stopAlarm();
 }
 
 function finish(): void {
@@ -183,10 +192,16 @@ function finish(): void {
   pomodoro.running = false;
   pomodoro.remainingMs = 0;
   pomodoro.finished = true;
+  pomodoro.alarmActive = false;
   if (finishedPhase === 'focus') pomodoro.rounds += 1;
-  const scheduledForRun = scheduled !== null && scheduled.endsAt === pomodoro.endsAt;
+  const hasScheduledChime = scheduled !== null && scheduled.endsAt === pomodoro.endsAt;
   scheduled = null;
-  if (!scheduledForRun) playAlarm();
+  if (settings().loopAlarm) {
+    pomodoro.alarmActive = true;
+    startLoopingAlarm(hasScheduledChime);
+  } else if (!hasScheduledChime) {
+    playAlarm();
+  }
   setTabAlert(true);
   try {
     navigator.vibrate?.([140, 90, 180]);
@@ -278,24 +293,44 @@ function cancelScheduled(): void {
   scheduled = null;
 }
 
+function stopActiveChime(): void {
+  for (const node of activeChimeNodes) {
+    try {
+      node.stop(0);
+    } catch {
+      /* already stopped */
+    }
+  }
+  activeChimeNodes = [];
+}
+
+/** Start one built-in chime that can be cut off immediately on dismiss. */
+function playChimeNow(): void {
+  stopActiveChime();
+  activeChimeNodes = buildChime(0.02);
+}
+
 function scheduleChime(delaySeconds: number, endsAt: number): void {
   const nodes = buildChime(delaySeconds);
   if (nodes.length > 0) scheduled = { endsAt, nodes };
 }
 
+function soundSource(path: string): string {
+  const direct = /^(https?:)?\/\//i.test(path) || /^(data|blob):/i.test(path);
+  return direct ? path : `/api/pomodoro/sound?v=${Date.now()}`;
+}
+
 function playAlarm(): void {
   const path = settings().soundPath.trim();
   if (path) {
-    const direct = /^(https?:)?\/\//i.test(path) || /^(data|blob):/i.test(path);
-    const source = direct ? path : `/api/pomodoro/sound?v=${Date.now()}`;
     try {
-      const audio = new Audio(source);
+      const audio = new Audio(soundSource(path));
       audio.volume = 0.72;
       let fellBack = false;
       const fallback = (): void => {
         if (fellBack) return;
         fellBack = true;
-        buildChime(0.02);
+        playChimeNow();
       };
       audio.addEventListener('error', fallback, { once: true });
       const playing = audio.play();
@@ -308,11 +343,79 @@ function playAlarm(): void {
         }
       }, 30_000);
     } catch {
-      buildChime(0.02);
+      playChimeNow();
     }
     return;
   }
-  buildChime(0.02);
+  playChimeNow();
+}
+
+function stopLoopTimer(): void {
+  if (!loopTimer) return;
+  clearTimeout(loopTimer);
+  loopTimer = null;
+}
+
+function startBuiltinLoop(delayMs: number): void {
+  stopLoopTimer();
+  loopTimer = setTimeout(() => {
+    loopTimer = null;
+    if (!pomodoro.alarmActive) return;
+    playChimeNow();
+    startBuiltinLoop(4400);
+  }, Math.max(0, delayMs));
+}
+
+/** Loop the configured audio file until dismissed; false means fall back. */
+function startCustomLoop(path: string): boolean {
+  try {
+    const audio = new Audio(soundSource(path));
+    audio.loop = true;
+    audio.volume = 0.72;
+    alarmAudio = audio;
+    let failed = false;
+    const fallback = (): void => {
+      if (failed || !pomodoro.alarmActive) return;
+      failed = true;
+      if (alarmAudio === audio) alarmAudio = null;
+      startBuiltinLoop(0);
+    };
+    audio.addEventListener('error', fallback, { once: true });
+    const playing = audio.play();
+    if (playing && typeof playing.catch === 'function') playing.catch(fallback);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function startLoopingAlarm(skipFirst: boolean): void {
+  stopLoopTimer();
+  const path = settings().soundPath.trim();
+  if (path && startCustomLoop(path)) return;
+  if (skipFirst) startBuiltinLoop(4400);
+  else {
+    playChimeNow();
+    startBuiltinLoop(4400);
+  }
+}
+
+/** Stop every alarm source and clear the page-tab indicator. */
+function stopAlarm(): void {
+  stopLoopTimer();
+  if (alarmAudio) {
+    try {
+      alarmAudio.pause();
+      alarmAudio.currentTime = 0;
+    } catch {
+      /* ignore */
+    }
+    alarmAudio = null;
+  }
+  cancelScheduled();
+  stopActiveChime();
+  pomodoro.alarmActive = false;
+  setTabAlert(false);
 }
 
 /* ------------------------------------------------------- page-tab indicator */

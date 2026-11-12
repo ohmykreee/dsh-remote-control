@@ -31,6 +31,7 @@ export function normalizePomodoro(input: Partial<PomodoroSettings> | undefined, 
     focusMinutes: minutes(input?.focusMinutes, base.focusMinutes, 180),
     breakMinutes: minutes(input?.breakMinutes, base.breakMinutes, 120),
     soundPath: typeof input?.soundPath === 'string' ? input.soundPath : base.soundPath,
+    loopAlarm: input?.loopAlarm === true,
   };
 }
 
@@ -46,7 +47,7 @@ export const app: ConsoleState = $state({
   theme: 'dark',
   temperatureUnit: 'celsius',
   navPosition: 'left',
-  pomodoro: { enabled: false, focusMinutes: 25, breakMinutes: 5, soundPath: '' },
+  pomodoro: { enabled: false, focusMinutes: 25, breakMinutes: 5, soundPath: '', loopAlarm: false },
   balanceDisplay: { showPeakValley: true },
   pageOrder: [...DEFAULT_ORDER],
   pageEnabled: { home: true, sessions: true, music: true, performance: true },
