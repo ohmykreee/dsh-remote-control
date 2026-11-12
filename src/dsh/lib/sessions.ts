@@ -36,6 +36,8 @@ export interface SessionSummary {
   model: string;
   status: SessionStatus;
   agentStatus: string;
+  /** Start time of the currently open turn, read from the DSH session log. */
+  runningSince: number | null;
   error: string;
   pending: {
     kind: PendingInfo['kind'];
@@ -46,6 +48,8 @@ export interface SessionSummary {
     count: number;
   } | null;
   isSubagent: boolean;
+  /** Parent session id for a subagent session (durable lineage). */
+  parentId: string;
 }
 
 /** One event as returned by `session.snapshotEvents`. */
@@ -61,7 +65,8 @@ interface SessionLike {
   id: string | number;
   seq?: number | string;
   snapshotEvents?(from: number): SessionEvent[];
-  header?: { cwd?: string; createdAt?: number; origin?: string };
+  eventAt?(seq: number): SessionEvent | undefined;
+  header?: { cwd?: string; createdAt?: number; origin?: string; parentSession?: string };
 }
 
 /** Minimal `sessions` service: only the list projection is used. */
@@ -86,7 +91,10 @@ interface AgentService {
   list?(): AgentLike[];
   get?(id: string): AgentLike | undefined;
   currentInitiator?(): AgentLike | undefined;
-  turnBoundaryOf?(session: SessionLike): { lastTurn?: number | string } | null | undefined;
+  turnBoundaryOf?(session: SessionLike): {
+    lastTurn?: number | string;
+    openTurnStartSeq?: number | string | null;
+  } | null | undefined;
 }
 
 /** Minimal `sessionTitle` service. */
@@ -336,6 +344,23 @@ export function collectSessions(ctx: DshContext, pendingTracker?: PendingTracker
       if (event?.type === 'turn/start') lastTurnStart = event;
       else if (event?.type === 'turn/end') lastTurnEnd = event;
     }
+
+    // Prefer the DSH projection's open-turn marker; fall back to the recent
+    // event window so the console can show a live elapsed time while running.
+    let runningSince: number | null = null;
+    try {
+      const boundary = agents?.turnBoundaryOf?.(session);
+      const openSeq = finiteNumber(boundary?.openTurnStartSeq, null);
+      if (openSeq !== null) {
+        runningSince = finiteNumber(session.eventAt?.(openSeq)?.time, null);
+      }
+    } catch {
+      /* boundary projection may not be available */
+    }
+    if (runningSince === null && agent?.status === 'running' && lastTurnStart) {
+      runningSince = finiteNumber(lastTurnStart.time, null);
+    }
+
     const reason = lastTurnEnd?.data?.reason;
     const errorReason = lastTurnEnd
       && isTurnErrorReason(reason)
@@ -381,6 +406,7 @@ export function collectSessions(ctx: DshContext, pendingTracker?: PendingTracker
       model,
       status,
       agentStatus: agent?.status || 'inactive',
+      runningSince,
       error: errorMessage,
       pending: primaryPending
         ? {
@@ -393,6 +419,7 @@ export function collectSessions(ctx: DshContext, pendingTracker?: PendingTracker
           }
         : null,
       isSubagent: session.header?.origin === 'subagent',
+      parentId: session.header?.parentSession ? String(session.header.parentSession) : '',
     });
   }
 

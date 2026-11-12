@@ -16,6 +16,7 @@ export type DshTheme = 'light' | 'dark';
 export type TemperatureUnit = 'celsius' | 'fahrenheit';
 export type ForecastMode = 'hourly' | 'daily';
 export type SpendWindow = 'calendar' | 'rolling';
+export type NavPosition = 'left' | 'right' | 'top' | 'bottom';
 
 export interface WeatherSettings {
   mode: 'auto' | 'manual';
@@ -28,6 +29,8 @@ export interface WeatherSettings {
 export interface BalanceSettings {
   spendWindow: SpendWindow;
   lowThreshold: number | null;
+  /** Show the peak/valley tariff icon on the console balance card. */
+  showPeakValley: boolean;
 }
 
 export interface NotificationSettings {
@@ -39,6 +42,14 @@ export interface TlsSettings {
   enabled: boolean;
   certPath: string;
   keyPath: string;
+}
+
+/** Browser-side tomato timer configuration; only the console runs the timer. */
+export interface PomodoroSettings {
+  enabled: boolean;
+  focusMinutes: number;
+  breakMinutes: number;
+  soundPath: string;
 }
 
 export interface RemoteControlSettings {
@@ -54,6 +65,8 @@ export interface RemoteControlSettings {
   balance: BalanceSettings;
   notifications: NotificationSettings;
   tls: TlsSettings;
+  navPosition: NavPosition;
+  pomodoro: PomodoroSettings;
   pageOrder: PageKey[];
   pageEnabled: Record<PageKey, boolean>;
   updatedAt: number;
@@ -70,6 +83,8 @@ export interface PublicSettings {
   balance: BalanceSettings;
   notifications: NotificationSettings;
   tls: TlsSettings;
+  navPosition: NavPosition;
+  pomodoro: PomodoroSettings;
   pageOrder: PageKey[];
   pageEnabled: Record<PageKey, boolean>;
   updatedAt: number;
@@ -121,6 +136,7 @@ export function defaultSettings(): RemoteControlSettings {
     balance: {
       spendWindow: 'calendar',
       lowThreshold: null,
+      showPeakValley: true,
     },
     notifications: {
       enabledApps: [],
@@ -130,6 +146,13 @@ export function defaultSettings(): RemoteControlSettings {
       enabled: false,
       certPath: '',
       keyPath: '',
+    },
+    navPosition: 'left',
+    pomodoro: {
+      enabled: false,
+      focusMinutes: 25,
+      breakMinutes: 5,
+      soundPath: '',
     },
     pageOrder: ['home', 'sessions', 'music', 'performance'],
     pageEnabled: { home: true, sessions: true, music: true, performance: true },
@@ -149,6 +172,7 @@ function normalize(raw: unknown): RemoteControlSettings {
   const balance: JsonRecord = isRecord(input.balance) ? input.balance : {};
   const notifications: JsonRecord = isRecord(input.notifications) ? input.notifications : {};
   const tls: JsonRecord = isRecord(input.tls) ? input.tls : {};
+  const pomodoro: JsonRecord = isRecord(input.pomodoro) ? input.pomodoro : {};
   const latitudeInput = weather.latitude;
   const longitudeInput = weather.longitude;
   const latitude = latitudeInput === null || latitudeInput === undefined || latitudeInput === '' ? NaN : Number(latitudeInput);
@@ -164,6 +188,18 @@ function normalize(raw: unknown): RemoteControlSettings {
   const dshThemeInput = input.dshTheme;
   const theme: ThemeSetting = oneOf(themeInput, ['dsh', 'light', 'dark'] as const) ? themeInput : 'dsh';
   const dshTheme: DshTheme = oneOf(dshThemeInput, ['light', 'dark'] as const) ? dshThemeInput : 'dark';
+  const navPositionInput = input.navPosition;
+  const navPosition: NavPosition = oneOf(navPositionInput, ['left', 'right', 'top', 'bottom'] as const)
+    ? navPositionInput
+    : 'left';
+  const focusMinutes = Math.round(Number(pomodoro.focusMinutes));
+  const breakMinutes = Math.round(Number(pomodoro.breakMinutes));
+  const pomodoroSettings: PomodoroSettings = {
+    enabled: pomodoro.enabled === true,
+    focusMinutes: Number.isFinite(focusMinutes) ? Math.max(1, Math.min(180, focusMinutes)) : 25,
+    breakMinutes: Number.isFinite(breakMinutes) ? Math.max(1, Math.min(120, breakMinutes)) : 5,
+    soundPath: typeof pomodoro.soundPath === 'string' ? pomodoro.soundPath.slice(0, 2048) : '',
+  };
   const requestedOrder = Array.isArray(input.pageOrder)
     ? input.pageOrder.filter((key): key is PageKey => typeof key === 'string' && (PAGE_KEYS as readonly string[]).includes(key))
     : [];
@@ -201,6 +237,7 @@ function normalize(raw: unknown): RemoteControlSettings {
           : Number.isFinite(lowThreshold) && lowThreshold >= 0
             ? lowThreshold
             : null,
+      showPeakValley: balance.showPeakValley !== false,
     },
     notifications: {
       enabledApps: normalizeStringArray(notifications.enabledApps),
@@ -211,6 +248,8 @@ function normalize(raw: unknown): RemoteControlSettings {
       certPath: typeof tls.certPath === 'string' ? tls.certPath.slice(0, 4096) : '',
       keyPath: typeof tls.keyPath === 'string' ? tls.keyPath.slice(0, 4096) : '',
     },
+    navPosition,
+    pomodoro: pomodoroSettings,
     pageOrder: normalizedOrder,
     pageEnabled,
     updatedAt: Number.isFinite(Number(input.updatedAt)) ? Number(input.updatedAt) : Date.now(),
@@ -250,6 +289,7 @@ export function createSettingsStore(): SettingsStore {
         ...(isRecord(source.notifications) ? source.notifications : {}),
       },
       tls: { ...current.tls, ...(isRecord(source.tls) ? source.tls : {}) },
+      pomodoro: { ...current.pomodoro, ...(isRecord(source.pomodoro) ? source.pomodoro : {}) },
     };
     return save(next);
   }
@@ -276,6 +316,8 @@ export function createSettingsStore(): SettingsStore {
       balance: { ...current.balance },
       notifications: { ...current.notifications, enabledApps: [...current.notifications.enabledApps] },
       tls: { ...current.tls },
+      navPosition: current.navPosition,
+      pomodoro: { ...current.pomodoro },
       pageOrder: [...current.pageOrder],
       pageEnabled: { ...current.pageEnabled },
       updatedAt: current.updatedAt,

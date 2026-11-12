@@ -166,3 +166,274 @@
     <span class="volume-label">{Math.round(displayVolume * 100)}%</span>
   </div>
 </div>
+
+<style>
+.music-controls {
+min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.track-copy h1 {
+margin: 6px 0 5px;
+  padding: 3px 0 5px;
+  font-size: clamp(28px, 3.4vw, 46px);
+  line-height: 1.22;
+  letter-spacing: -0.025em;
+  font-weight: 590;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  text-overflow: ellipsis;
+}
+
+.track-copy p {
+margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.track-tools {
+display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.like-badge {
+display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card) 60%, transparent);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  user-select: none;
+}
+
+.like-badge :global(svg) {
+width: 17px;
+  height: 17px;
+}
+
+.like-badge.is-liked {
+color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 32%, transparent);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+}
+
+.like-badge.is-liked :global(svg) {
+fill: currentColor;
+}
+
+.progress-block {
+width: 100%;
+}
+
+.range {
+--p: 0%;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.range::-webkit-slider-runnable-track {
+height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent) var(--p), color-mix(in srgb, var(--text) 12%, transparent) var(--p), color-mix(in srgb, var(--text) 12%, transparent) 100%);
+}
+
+.range::-moz-range-track {
+height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.range::-moz-range-progress {
+height: 5px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.range::-webkit-slider-thumb {
+-webkit-appearance: none;
+  width: 17px;
+  height: 17px;
+  margin-top: -6px;
+  border-radius: 50%;
+  border: 0;
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3), 0 0 0 5px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.range::-moz-range-thumb {
+width: 17px;
+  height: 17px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.time-row {
+display: flex;
+  justify-content: space-between;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.transport {
+display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.transport-button {
+width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--card) 70%, transparent);
+  color: var(--text);
+  transition: transform 0.16s ease, background 0.16s ease, opacity 0.16s ease;
+}
+
+.transport-button :global(svg) {
+width: 24px;
+  height: 24px;
+}
+
+.transport-button:hover {
+background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.transport-button:active {
+transform: scale(0.94);
+}
+
+.transport-button:disabled {
+opacity: 0.28;
+  cursor: default;
+}
+
+.play-button {
+width: 64px;
+  height: 64px;
+  border: 0;
+  background: linear-gradient(145deg, var(--accent-2), var(--accent));
+  color: #fff;
+  box-shadow: 0 18px 44px color-mix(in srgb, var(--accent) 34%, transparent);
+}
+
+.play-button :global(svg) {
+width: 27px;
+  height: 27px;
+}
+
+.volume-row {
+display: grid;
+  grid-template-columns: 34px minmax(120px, 240px) 42px;
+  align-items: center;
+  gap: 10px;
+}
+
+.volume-button {
+width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--muted);
+}
+
+.volume-button:hover {
+color: var(--text);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.volume-button :global(svg) {
+width: 20px;
+  height: 20px;
+}
+
+.range-volume {
+height: 24px;
+}
+
+.range-volume::-webkit-slider-runnable-track {
+height: 4px;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent) var(--p), color-mix(in srgb, var(--text) 12%, transparent) var(--p), color-mix(in srgb, var(--text) 12%, transparent) 100%);
+}
+
+.range-volume::-moz-range-progress {
+background: var(--accent);
+}
+
+.range-volume::-webkit-slider-thumb {
+width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.range:disabled {
+cursor: default;
+}
+
+.range:disabled::-webkit-slider-thumb {
+opacity: 0;
+  box-shadow: none;
+}
+
+.range:disabled::-moz-range-thumb {
+opacity: 0;
+}
+
+.volume-label {
+color: var(--faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-align: right;
+}
+
+@media (max-height: 760px) {
+  .music-controls {
+    gap: 12px;
+  }
+  .track-copy h1 {
+    font-size: clamp(27px, 3.25vw, 40px);
+    line-height: 1.24;
+    padding: 4px 0 5px;
+  }
+  .transport-button {
+    width: 50px;
+    height: 50px;
+  }
+  .transport {
+    gap: 16px;
+  }
+  .like-badge {
+    height: 31px;
+  }
+}
+</style>

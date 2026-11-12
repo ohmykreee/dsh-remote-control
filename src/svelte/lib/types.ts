@@ -1,10 +1,21 @@
 export type PageKey = 'home' | 'sessions' | 'music' | 'performance';
 export type TemperatureUnit = 'celsius' | 'fahrenheit';
 export type Theme = 'dark' | 'light';
+export type NavPosition = 'left' | 'right' | 'top' | 'bottom';
+
+export interface PomodoroSettings {
+  enabled: boolean;
+  focusMinutes: number;
+  breakMinutes: number;
+  soundPath: string;
+}
 
 export interface ConsoleSettings {
   theme?: string;
   temperatureUnit?: string;
+  navPosition?: string;
+  balance?: { spendWindow?: string; lowThreshold?: number | null; showPeakValley?: boolean };
+  pomodoro?: Partial<PomodoroSettings>;
   pageOrder?: string[];
   pageEnabled?: Partial<Record<PageKey, boolean>>;
 }
@@ -67,6 +78,7 @@ export interface NotificationsData {
 }
 
 export interface SessionItem {
+  id?: string;
   title?: string;
   status?: string;
   error?: string;
@@ -75,6 +87,10 @@ export interface SessionItem {
   cwd?: string;
   turn?: number;
   isSubagent?: boolean;
+  /** Parent session id for a subagent dispatched by another agent. */
+  parentId?: string;
+  /** Open turn start time from DSH, used for the live running duration. */
+  runningSince?: number | null;
   lastActiveAt?: number;
 }
 
@@ -183,6 +199,9 @@ export interface ConsoleState {
   online: boolean | null;
   theme: Theme;
   temperatureUnit: TemperatureUnit;
+  navPosition: NavPosition;
+  pomodoro: PomodoroSettings;
+  balanceDisplay: { showPeakValley: boolean };
   pageOrder: PageKey[];
   pageEnabled: Record<PageKey, boolean>;
   pageRevision: number;

@@ -102,6 +102,16 @@ export function formatDuration(seconds: unknown): string {
   return `${Math.floor(total / 60)}:${pad(total % 60)}`;
 }
 
+/** Elapsed time since the open DSH turn started (`h:mm:ss` past an hour). */
+export function runningDuration(since: number | null | undefined, now = Date.now()): string {
+  if (!Number.isFinite(since)) return '';
+  const total = Math.max(0, Math.floor((now - (since as number)) / 1000));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${pad(minutes)}:${pad(seconds)}`;
+}
+
 export function formatBytes(value: unknown): string {
   const bytes = Number(value);
   if (!Number.isFinite(bytes) || bytes <= 0) return '—';

@@ -46,6 +46,7 @@ const WEB_DIR = fileURLToPath(new URL('../web/', import.meta.url));
 const DEFAULT_PORT = 38765;
 const COOKIE_NAME = 'dsh_rc';
 const BODY_LIMIT = 64 * 1024;
+const POMODORO_SOUND_PATH = '/api/pomodoro/sound';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -61,6 +62,14 @@ const MIME: Record<string, string> = {
   '.otf': 'font/otf',
   '.png': 'image/png',
   '.txt': 'text/plain; charset=utf-8',
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.flac': 'audio/flac',
+  '.webm': 'audio/webm',
   '.webmanifest': 'application/manifest+json; charset=utf-8',
 };
 
@@ -121,6 +130,18 @@ export interface RemoteSettingsPayload {
   theme: string;
   temperatureUnit: string;
   notificationLimit: number;
+  navPosition: string;
+  balance: {
+    spendWindow: string;
+    lowThreshold: number | null;
+    showPeakValley: boolean;
+  };
+  pomodoro: {
+    enabled: boolean;
+    focusMinutes: number;
+    breakMinutes: number;
+    soundPath: string;
+  };
   pageOrder: string[];
   pageEnabled: Record<string, boolean>;
 }
@@ -544,6 +565,9 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
       theme: effectiveTheme(),
       temperatureUnit: settings().temperatureUnit,
       notificationLimit: settings().notifications.limit,
+      navPosition: settings().navPosition,
+      balance: { ...settings().balance },
+      pomodoro: { ...settings().pomodoro },
       pageOrder: [...settings().pageOrder],
       pageEnabled: { ...settings().pageEnabled },
     };
@@ -603,7 +627,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
         'x-content-type-options': 'nosniff',
         'referrer-policy': 'no-referrer',
         'content-security-policy':
-          "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws: wss:; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+          "default-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob: https: http:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws: wss: https:; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
         ...extraHeaders,
       });
       res.end(req.method === 'HEAD' ? undefined : body);
@@ -619,8 +643,54 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     }
   }
 
-  function sameOrigin(req: IncomingMessage): boolean {
-    const origin = req.headers.origin;
+  /**
+   * Stream the configured pomodoro sound file to an authorized console tab.
+   *
+   * The console never learns host filesystem paths; it only asks this route for
+   * the currently configured file. Remote URLs are configured on the phone
+   * side and played directly, so this route is only for local files.
+   */
+  async function servePomodoroSound(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const configured = settings().pomodoro.soundPath.trim();
+    if (!configured) {
+      jsonResponse(res, 404, { ok: false, error: 'no pomodoro sound configured' });
+      return;
+    }
+    if (/^(https?:)?\/\//i.test(configured) || /^(data|blob):/i.test(configured)) {
+      jsonResponse(res, 404, { ok: false, error: 'remote sound urls are played directly by the console' });
+      return;
+    }
+    const absolute = path.resolve(configured);
+    try {
+      const stat = await fs.stat(absolute);
+      if (!stat.isFile()) {
+        jsonResponse(res, 404, { ok: false, error: 'pomodoro sound is not a file' });
+        return;
+      }
+      if (stat.size > 64 * 1024 * 1024) {
+        jsonResponse(res, 413, { ok: false, error: 'pomodoro sound is too large' });
+        return;
+      }
+      const body = await fs.readFile(absolute);
+      res.writeHead(200, {
+        'content-type': MIME[path.extname(absolute).toLowerCase()] || 'application/octet-stream',
+        'content-length': body.length,
+        'cache-control': 'no-store',
+        'x-content-type-options': 'nosniff',
+        'referrer-policy': 'no-referrer',
+      });
+      res.end(req.method === 'HEAD' ? undefined : body);
+    } catch (errorValue) {
+      const code = isRecord(errorValue) ? errorValue.code : undefined;
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        jsonResponse(res, 404, { ok: false, error: 'pomodoro sound file not found' });
+      } else {
+        jsonResponse(res, 500, { ok: false, error: serializeError(errorValue) });
+      }
+    }
+  }
+
+  function sameOrigin(req: IncomingMessage): boolean {    const origin = req.headers.origin;
     if (!origin) return true;
     const host = req.headers.host;
     return origin === `http://${host}` || origin === `https://${host}`;
@@ -652,6 +722,18 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
         || pathname.startsWith('/weather-icons/');
       if (staticPath && !authorized) {
         textResponse(res, 401, 'Pairing required');
+        return;
+      }
+      if (pathname === POMODORO_SOUND_PATH) {
+        if (!authorized) {
+          textResponse(res, 401, 'Pairing required');
+          return;
+        }
+        if (req.method !== 'GET' && req.method !== 'HEAD') {
+          textResponse(res, 405, 'Method not allowed');
+          return;
+        }
+        await servePomodoroSound(req, res);
         return;
       }
       if (req.method === 'GET' || req.method === 'HEAD') {

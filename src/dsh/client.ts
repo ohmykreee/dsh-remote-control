@@ -116,6 +116,7 @@ interface WeatherSettings {
 interface BalanceSettings {
   spendWindow?: string;
   lowThreshold?: number | null;
+  showPeakValley?: boolean;
 }
 
 interface NotificationSettings {
@@ -129,12 +130,21 @@ interface TlsSettings {
   keyPath?: string;
 }
 
+interface PomodoroSettings {
+  enabled?: boolean;
+  focusMinutes?: number;
+  breakMinutes?: number;
+  soundPath?: string;
+}
+
 /** Settings object from `/api/settings`; every section is optional on the wire. */
 interface RemoteSettings {
   tokenEnabled: boolean;
   allowedInterfaces: string[] | null;
   theme: string;
   temperatureUnit: string;
+  navPosition?: string;
+  pomodoro?: PomodoroSettings;
   pageOrder?: string[];
   pageEnabled?: Record<string, boolean>;
   weather?: WeatherSettings;
@@ -181,6 +191,9 @@ interface DraftState {
   longitude: string | number;
   threshold: string | number;
   notificationLimit: string;
+  pomodoroFocus: string;
+  pomodoroBreak: string;
+  pomodoroSound: string;
 }
 
 /** Nested patch accumulated until the user presses "save settings". */
@@ -188,6 +201,8 @@ interface StagedSettings {
   tokenEnabled?: boolean;
   temperatureUnit?: string;
   theme?: string;
+  navPosition?: string;
+  pomodoro?: PomodoroSettings;
   pageOrder?: string[];
   pageEnabled?: Record<string, boolean>;
   tls?: TlsSettings;
@@ -202,11 +217,13 @@ interface SavePatch {
   tokenEnabled: boolean;
   temperatureUnit: string;
   theme: string;
+  navPosition: string;
+  pomodoro: { enabled: boolean; focusMinutes: number; breakMinutes: number; soundPath: string };
   pageOrder: string[];
   pageEnabled?: Record<string, boolean>;
   tls: { enabled: boolean; certPath: string; keyPath: string };
   weather: WeatherSettings;
-  balance: { spendWindow: string; lowThreshold: number | null };
+  balance: { spendWindow: string; lowThreshold: number | null; showPeakValley: boolean };
   notifications: { enabledApps: string[]; limit: number };
 }
 
@@ -559,6 +576,51 @@ const zh: Record<string, string> = {
 };
 const en: Record<string, string> = { ...zh, title: 'Remote control', heading: 'Remote control', subtitle: 'Connection, display, and data preferences for the phone console.', running: 'Running', stopped: 'Stopped', refresh: 'Refresh', save: 'Save', saved: 'Saved', error: 'Action failed', loading: 'Reading settings…', pairing: 'Scan to connect', pairingHint: 'Connect the phone to the same LAN and scan the QR code.', open: 'Open on this computer', copy: 'Copy link', copied: 'Copied', connection: 'Connection', menuPlugin: 'Plugin settings', menuNetwork: 'Open interfaces', menuAccess: 'Access verification', menuTheme: 'Theme & pages', menuTls: 'HTTPS certificate', menuWeather: 'Weather', menuBalance: 'Balance display', menuNotifications: 'Notifications', menuSystem: 'System information', menuStatus: 'Service status', menuClients: 'Connected devices', menuDiagnostics: 'Diagnostics', network: 'Open network interfaces', networkHint: 'Only devices on the checked interface subnets can access the console.', pluginHint: 'Access, temperature unit, theme, page order, and HTTPS for the phone console; changes apply after Save.', access: 'Access verification', accessHint: 'When enabled, the first open requires a link with a verification token.', token: 'Link verification', rotate: 'Rotate verification token', rotateHint: 'Rotating disconnects existing devices; scan again to reconnect.', theme: 'Theme & pages', themeHint: 'Follow DSH, or force light or dark mode on the phone console.', temperatureUnit: 'Temperature unit', temperatureUnitHint: 'Temperature unit used by the phone weather and performance pages.', celsius: 'Celsius (°C)', fahrenheit: 'Fahrenheit (°F)', followDsh: 'Follow DSH', light: 'Light', dark: 'Dark', pageOrder: 'Page order', pageOrderHint: 'Drag to reorder the four phone pages; disabled pages stop polling.', tls: 'HTTPS certificate', tlsHint: 'Optional. Provide PEM certificate and key paths, then enable HTTPS. Saving briefly drops connections.', certPath: 'Certificate path', keyPath: 'Private key path', saveTls: 'Save certificate', tlsOn: 'HTTPS enabled', tlsOff: 'HTTPS disabled', tlsError: 'Certificate error; still serving HTTP', weather: 'Weather', weatherHint: 'Automatic uses this computer location; or pin a city.', auto: 'This computer', manual: 'Manual', locationName: 'Location name', latitude: 'Latitude', longitude: 'Longitude', saveLocation: 'Save location', balance: 'Balance display', balanceHint: 'Choose the 7-day spend mode and the low-balance warning.', calendar: 'This week (calendar)', rolling: 'Last 7 days (rolling)', lowThreshold: 'Low-balance warning', lowThresholdHint: 'Show the phone balance in red below this amount. Leave empty to disable.', saveThreshold: 'Save warning', notifications: 'Notifications', notificationsHint: 'Seen apps are cached locally. Unchecked apps are hidden on the phone.', allApps: 'Show all', limit: 'Visible count', noApps: 'No notification apps recorded yet.', status: 'Service status', statusHint: 'Current system service capabilities.', clients: 'Connected devices', clientsHint: 'Phones or browsers currently using the console.', noClients: 'No device is connected.', disconnect: 'Disconnect', diagnostics: 'Diagnostics', systemName: 'System', version: 'Version', protocol: 'Transport', clientCount: 'Devices', notificationsStatus: 'Notifications', mediaStatus: 'Media', volumeStatus: 'Volume', weatherStatus: 'Weather', healthy: 'Healthy', unavailable: 'Unavailable', checking: 'Not checked', pageHome: 'Home', pageSessions: 'Sessions', pageMusic: 'Music', moveUp: 'Move up', moveDown: 'Move down', noWebServer: 'This deployment has no webServer.', serviceRunning: 'Service running', serviceStopped: 'Service stopped', forecastDisplay: 'Weather card', hourly: 'Hourly', daily: '7 days', saveSettings: 'Save settings', pagePerformance: 'Performance' };
 
+const extraZh: Record<string, string> = {
+  menuPlugin: '偏好设置',
+  menuPomodoro: '番茄钟设置',
+  connectionHint: '扫码配对、可访问的网卡与 HTTPS 证书。',
+  preferencesHint: '手机端的温度单位、主题、页面顺序与导航栏位置；修改后点击保存设置生效。',
+  navPosition: '导航栏位置',
+  navPositionHint: '选择手机控制台导航栏停靠在屏幕的哪一侧。',
+  navLeft: '左侧', navRight: '右侧', navTop: '上方', navBottom: '下方',
+  pomodoro: '番茄钟设置',
+  pomodoroHint: '番茄钟显示在手机控制台的时钟下方，计时只在手机浏览器中进行。关闭后会从手机端整个卸载。',
+  pomodoroEnable: '启用番茄钟',
+  pomodoroEnableHint: '开启后，时钟下方会出现番茄钟卡片。',
+  pomodoroFocus: '专注时长（分钟）',
+  pomodoroBreak: '休息时长（分钟）',
+  pomodoroSound: '提示音文件',
+  pomodoroSoundHint: '留空则使用内置的轻柔提示音；也可以填写本机音频文件路径或 http(s) 链接。',
+  pomodoroSoundPlaceholder: '例如：D:\\sounds\\chime.mp3',
+  pomodoroBuiltin: '内置提示音',
+  peakValley: '显示梁文峰 / 梁文谷',
+  peakValleyHint: '在余额卡片右下角按当前计费时段显示淡色图标：工作日 9:00–12:00、14:00–18:00 为梁文峰（高峰），其余时间及节假日全天为梁文谷（空闲，价格为高峰的一半）。判断在手机浏览器中完成，节假日数据从 timor.tech 获取。',
+};
+const extraEn: Record<string, string> = {
+  menuPlugin: 'Preferences',
+  menuPomodoro: 'Pomodoro',
+  connectionHint: 'Pairing, reachable interfaces, and the HTTPS certificate.',
+  preferencesHint: 'Temperature unit, theme, page order, and navigation placement for the phone console; save to apply.',
+  navPosition: 'Navigation bar',
+  navPositionHint: 'Choose which screen edge hosts the phone console navigation bar.',
+  navLeft: 'Left', navRight: 'Right', navTop: 'Top', navBottom: 'Bottom',
+  pomodoro: 'Pomodoro',
+  pomodoroHint: 'The timer sits below the clock on the phone console and only runs in that browser. Disabling it unmounts the widget entirely.',
+  pomodoroEnable: 'Enable pomodoro',
+  pomodoroEnableHint: 'Show a pomodoro card below the clock.',
+  pomodoroFocus: 'Focus minutes',
+  pomodoroBreak: 'Break minutes',
+  pomodoroSound: 'Alert sound',
+  pomodoroSoundHint: 'Leave empty for the built-in gentle chime, or use a local audio file path or http(s) URL.',
+  pomodoroSoundPlaceholder: 'e.g. D:\\sounds\\chime.mp3',
+  pomodoroBuiltin: 'Built-in chime',
+  peakValley: 'Show peak / valley',
+  peakValleyHint: 'Show a faint tariff icon in the balance card corner: weekdays 9:00–12:00 and 14:00–18:00 are Liang Wenfeng (peak); all other times and holidays are Liang Wengu (off-peak at half price). The browser judges this and loads holiday data from timor.tech.',
+};
+Object.assign(zh, extraZh);
+Object.assign(en, extraEn);
+
 const C = {
   text: 'var(--dsw-alias-label-primary)',
   muted: 'var(--dsw-alias-label-secondary)',
@@ -586,6 +648,7 @@ const MENU_ICONS: Record<string, string> = {
   cloud: '<path d="M6.5 18h10.2a4.3 4.3 0 0 0 .7-8.5A5.5 5.5 0 0 0 7 8.6 4.7 4.7 0 0 0 6.5 18Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>',
   wallet: '<rect x="3.5" y="6" width="17" height="13" rx="3" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 10h17M16 14.5h2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
   bell: '<path d="M6 10a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6ZM10 20h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
+  timer: '<circle cx="12" cy="13.5" r="7" stroke="currentColor" stroke-width="1.7"/><path d="M12 9.5v4l2.8 1.7M9 2.8h6M12 2.8v2.2M18.8 6.2l1.5-1.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
   info: '<circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><path d="M12 11v6M12 7.2v.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
 };
 
@@ -637,7 +700,7 @@ function RemotePanel(): React.ReactElement {
   const [notice, setNotice] = useState('');
   const [copied, setCopied] = useState(false);
   const [section, setSection] = useState('connection');
-  const [draft, setDraft] = useState<DraftState>({ certPath: '', keyPath: '', locationName: '', latitude: '', longitude: '', threshold: '', notificationLimit: '5' });
+  const [draft, setDraft] = useState<DraftState>({ certPath: '', keyPath: '', locationName: '', latitude: '', longitude: '', threshold: '', notificationLimit: '5', pomodoroFocus: '25', pomodoroBreak: '5', pomodoroSound: '' });
   const [selectedInterfaces, setSelectedInterfaces] = useState<string[]>([]);
   const [selectedApps, setSelectedApps] = useState<string[]>([]);
   const [staged, setStaged] = useState<StagedSettings>({});
@@ -668,6 +731,9 @@ function RemotePanel(): React.ReactElement {
       longitude: payload.settings.weather?.longitude ?? '',
       threshold: payload.settings.balance?.lowThreshold ?? '',
       notificationLimit: String(payload.settings.notifications?.limit ?? 5),
+      pomodoroFocus: String(payload.settings.pomodoro?.focusMinutes ?? 25),
+      pomodoroBreak: String(payload.settings.pomodoro?.breakMinutes ?? 5),
+      pomodoroSound: payload.settings.pomodoro?.soundPath ?? '',
     });
   }, []);
 
@@ -789,6 +855,7 @@ function RemotePanel(): React.ReactElement {
     balance: { ...(baseSettings.balance ?? {}), ...(staged.balance ?? {}) },
     notifications: { ...(baseSettings.notifications ?? {}), ...(staged.notifications ?? {}) },
     tls: { ...(baseSettings.tls ?? {}), ...(staged.tls ?? {}) },
+    pomodoro: { ...(baseSettings.pomodoro ?? {}), ...(staged.pomodoro ?? {}) },
     pageEnabled: { ...(baseSettings.pageEnabled ?? {}), ...(staged.pageEnabled ?? {}) },
   };
   const info: RemoteInfo = data.info ?? {};
@@ -887,11 +954,18 @@ function RemotePanel(): React.ReactElement {
       tokenEnabled: settings.tokenEnabled,
       temperatureUnit: settings.temperatureUnit === 'fahrenheit' ? 'fahrenheit' : 'celsius',
       theme: settings.theme,
+      navPosition: settings.navPosition ?? 'left',
+      pomodoro: {
+        enabled: Boolean(settings.pomodoro?.enabled),
+        focusMinutes: Number(draft.pomodoroFocus) || 25,
+        breakMinutes: Number(draft.pomodoroBreak) || 5,
+        soundPath: draft.pomodoroSound,
+      },
       pageOrder: nextOrder,
       pageEnabled: settings.pageEnabled,
       tls: { enabled: Boolean(settings.tls?.enabled), certPath: draft.certPath, keyPath: draft.keyPath },
       weather: nextWeather,
-      balance: { spendWindow: settings.balance?.spendWindow ?? 'calendar', lowThreshold: draft.threshold === '' ? null : Number(draft.threshold) },
+      balance: { spendWindow: settings.balance?.spendWindow ?? 'calendar', lowThreshold: draft.threshold === '' ? null : Number(draft.threshold), showPeakValley: settings.balance?.showPeakValley !== false },
       notifications: {
         enabledApps: selectedApps.length === (data.apps ?? []).length ? [] : selectedApps,
         limit: Number(draft.notificationLimit),
@@ -903,8 +977,9 @@ function RemotePanel(): React.ReactElement {
   const sectionHead = (title: string, desc: string): React.ReactElement => h('div', null, h('h2', null, title), h('p', { className: 'drc-desc' }, desc));
 
   const renderConnection = (): React.ReactElement => h('div', { className: 'drc-section' },
-    sectionHead(t('pairing'), ''),
+    sectionHead(t('connection'), t('connectionHint')),
     h('div', { className: 'drc-card' },
+      h('h3', null, t('pairing')),
       h('p', { className: 'drc-desc' }, t('pairingHint')),
       h('div', { className: 'drc-qr' },
         h('div', { className: 'drc-qr-frame' }, h('img', { src: info.qrPath, alt: t('pairing'), width: 150, height: 150 })),
@@ -918,6 +993,9 @@ function RemotePanel(): React.ReactElement {
         ),
       ),
     ),
+    networkBlock(),
+    accessBlock(),
+    tlsBlock(),
   );
 
   const networkBlock = (): React.ReactElement => h('div', { className: 'drc-card' },
@@ -1005,6 +1083,21 @@ function RemotePanel(): React.ReactElement {
     h('div', { className: 'drc-list', ref: orderListRef }, orderRows()),
   );
 
+  const navBlock = (): React.ReactElement => h('div', { className: 'drc-card' },
+    h('h3', null, t('navPosition')),
+    h('p', { className: 'drc-desc' }, t('navPositionHint')),
+    h(Seg, {
+      options: [
+        { value: 'left', label: t('navLeft') },
+        { value: 'right', label: t('navRight') },
+        { value: 'top', label: t('navTop') },
+        { value: 'bottom', label: t('navBottom') },
+      ],
+      value: settings.navPosition ?? 'left',
+      onChange: (value) => stage({ navPosition: value }),
+    }),
+  );
+
   const tlsBlock = (): React.ReactElement => h('div', { className: 'drc-card' },
     h(Row, { title: t('tls'), description: t('tlsHint') }, h(Toggle, {
       checked: settings.tls?.enabled, label: t('tls'), onChange: (checked) => {
@@ -1044,6 +1137,13 @@ function RemotePanel(): React.ReactElement {
       h('div', { className: 'drc-fields' }, h(Field, { label: t('lowThreshold'), value: draft.threshold, onChange: (value) => setDraft((current) => ({ ...current, threshold: value })), placeholder: '例如：5', inputMode: 'decimal' })),
       h('p', { className: 'drc-desc' }, t('lowThresholdHint')),
     ),
+    h('div', { className: 'drc-card' },
+      h(Row, { title: t('peakValley'), description: t('peakValleyHint') }, h(Toggle, {
+        checked: settings.balance?.showPeakValley !== false,
+        label: t('peakValley'),
+        onChange: (checked) => stage({ balance: { showPeakValley: checked } }),
+      })),
+    ),
   );
 
   const renderNotifications = (): React.ReactElement => h('div', { className: 'drc-section' },
@@ -1060,13 +1160,36 @@ function RemotePanel(): React.ReactElement {
     ),
   );
 
-  const renderPlugin = (): React.ReactElement => h('div', { className: 'drc-section' },
-    sectionHead(t('menuPlugin'), t('pluginHint')),
-    networkBlock(),
-    accessBlock(),
+  const renderPreferences = (): React.ReactElement => h('div', { className: 'drc-section' },
+    sectionHead(t('menuPlugin'), t('preferencesHint')),
     unitBlock(),
     themeBlock(),
-    tlsBlock(),
+    navBlock(),
+  );
+
+  const renderPomodoro = (): React.ReactElement => h('div', { className: 'drc-section' },
+    sectionHead(t('pomodoro'), t('pomodoroHint')),
+    h('div', { className: 'drc-card' },
+      h(Row, { title: t('pomodoroEnable'), description: t('pomodoroEnableHint') }, h(Toggle, {
+        checked: Boolean(settings.pomodoro?.enabled),
+        label: t('pomodoroEnable'),
+        onChange: (checked) => stage({ pomodoro: { enabled: checked } }),
+      })),
+      h('div', { className: 'drc-fields' },
+        h(Field, { label: t('pomodoroFocus'), value: draft.pomodoroFocus, onChange: (value) => setDraft((current) => ({ ...current, pomodoroFocus: value })), placeholder: '25', inputMode: 'numeric' }),
+        h(Field, { label: t('pomodoroBreak'), value: draft.pomodoroBreak, onChange: (value) => setDraft((current) => ({ ...current, pomodoroBreak: value })), placeholder: '5', inputMode: 'numeric' }),
+      ),
+    ),
+    h('div', { className: 'drc-card' },
+      h('h3', null, t('pomodoroSound')),
+      h('p', { className: 'drc-desc' }, t('pomodoroSoundHint')),
+      h('div', { className: 'drc-fields' },
+        h(Field, { label: t('pomodoroSound'), value: draft.pomodoroSound, onChange: (value) => setDraft((current) => ({ ...current, pomodoroSound: value })), placeholder: t('pomodoroSoundPlaceholder') }),
+      ),
+      h('div', { className: 'drc-actions' },
+        h('span', { className: 'drc-muted' }, draft.pomodoroSound.trim() ? draft.pomodoroSound : t('pomodoroBuiltin')),
+      ),
+    ),
   );
 
   const statusBlock = (): React.ReactElement => h('div', { className: 'drc-card' },
@@ -1102,15 +1225,17 @@ function RemotePanel(): React.ReactElement {
   );
 
   const content: React.ReactElement = section === 'connection' ? renderConnection()
-    : section === 'plugin' ? renderPlugin()
-      : section === 'weather' ? renderWeather()
-        : section === 'balance' ? renderBalance()
-          : section === 'notifications' ? renderNotifications()
-            : renderSystem();
+    : section === 'preferences' ? renderPreferences()
+      : section === 'pomodoro' ? renderPomodoro()
+        : section === 'weather' ? renderWeather()
+          : section === 'balance' ? renderBalance()
+            : section === 'notifications' ? renderNotifications()
+              : renderSystem();
 
   const menu: Array<{ key: string; label: string; icon: string }> = [
     { key: 'connection', label: t('connection'), icon: 'link' },
-    { key: 'plugin', label: t('menuPlugin'), icon: 'sliders' },
+    { key: 'preferences', label: t('menuPlugin'), icon: 'sliders' },
+    { key: 'pomodoro', label: t('menuPomodoro'), icon: 'timer' },
     { key: 'weather', label: t('menuWeather'), icon: 'cloud' },
     { key: 'balance', label: t('menuBalance'), icon: 'wallet' },
     { key: 'notifications', label: t('menuNotifications'), icon: 'bell' },

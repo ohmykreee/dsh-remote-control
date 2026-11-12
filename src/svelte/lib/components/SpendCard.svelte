@@ -41,3 +41,119 @@
   </div>
   <p class="muted-line spend-caption">{caption}</p>
 </article>
+
+<style>
+.spend-card {
+position: relative;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  align-items: start;
+  gap: 0 8px;
+  min-height: 0;
+  padding: 24px 20px 18px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 8%, transparent), transparent 68%),
+    var(--card);
+}
+
+.spend-row {
+position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.spend-row span {
+color: color-mix(in srgb, var(--text) 62%, transparent);
+  letter-spacing: 0.06em;
+  text-shadow: 0 1px 7px color-mix(in srgb, var(--bg) 72%, transparent);
+}
+
+.spend-row strong {
+color: var(--text);
+  font-size: 24px;
+  line-height: 1.05;
+  font-weight: 590;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 10px color-mix(in srgb, var(--bg) 55%, transparent);
+}
+
+.spend-chart {
+position: absolute;
+  z-index: 0;
+  inset: 0;
+  top: 44%;
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  margin: 0;
+  padding: 12px 16px 8px;
+  border-radius: inherit;
+  background: none;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.spend-bar {
+flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0;
+  height: 100%;
+}
+
+.spend-bar i {
+display: block;
+  width: 100%;
+  max-width: 26px;
+  min-height: 2px;
+  border-radius: 5px 5px 2px 2px;
+  background: linear-gradient(0deg, color-mix(in srgb, var(--accent-2) 78%, #fff) 0%, color-mix(in srgb, var(--accent) 74%, #fff) 46%, color-mix(in srgb, var(--accent) 26%, transparent) 100%);
+  opacity: 0.55;
+}
+
+.spend-bar.is-today i {
+background: linear-gradient(0deg, color-mix(in srgb, var(--accent-2) 62%, #fff) 0%, color-mix(in srgb, var(--accent-2) 82%, #fff) 45%, color-mix(in srgb, var(--accent) 30%, transparent) 100%);
+  opacity: 0.72;
+  box-shadow: none;
+}
+
+.spend-bar span {
+display: none;
+}
+
+.spend-caption {
+display: none;
+}
+
+@media (max-height: 760px) {
+  .spend-card {
+    min-height: 0;
+    padding: 12px 14px;
+  }
+  .spend-row {
+    gap: 3px;
+  }
+  .spend-row strong {
+    font-size: 18px;
+  }
+}
+
+@media (orientation: portrait) {
+  .spend-card {
+    min-height: 150px;
+  }
+}
+</style>

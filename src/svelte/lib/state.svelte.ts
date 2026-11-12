@@ -5,13 +5,34 @@ import type {
   ConsoleSettings,
   ConsoleState,
   MediaPayload,
+  NavPosition,
   NotificationsData,
   OverviewData,
   PerformanceData,
+  PomodoroSettings,
   ServerMessage,
   SessionItem,
   WeatherData,
 } from './types';
+
+const NAV_POSITIONS: readonly NavPosition[] = ['left', 'right', 'top', 'bottom'];
+
+export function normalizeNavPosition(value: unknown): NavPosition {
+  return NAV_POSITIONS.includes(value as NavPosition) ? (value as NavPosition) : 'left';
+}
+
+export function normalizePomodoro(input: Partial<PomodoroSettings> | undefined, base: PomodoroSettings): PomodoroSettings {
+  const minutes = (value: unknown, fallback: number, max: number): number => {
+    const number = Math.round(Number(value));
+    return Number.isFinite(number) ? Math.max(1, Math.min(max, number)) : fallback;
+  };
+  return {
+    enabled: input?.enabled === true,
+    focusMinutes: minutes(input?.focusMinutes, base.focusMinutes, 180),
+    breakMinutes: minutes(input?.breakMinutes, base.breakMinutes, 120),
+    soundPath: typeof input?.soundPath === 'string' ? input.soundPath : base.soundPath,
+  };
+}
 
 /**
  * Shared live state for the mobile console.
@@ -24,6 +45,9 @@ export const app: ConsoleState = $state({
   online: null,
   theme: 'dark',
   temperatureUnit: 'celsius',
+  navPosition: 'left',
+  pomodoro: { enabled: false, focusMinutes: 25, breakMinutes: 5, soundPath: '' },
+  balanceDisplay: { showPeakValley: true },
   pageOrder: [...DEFAULT_ORDER],
   pageEnabled: { home: true, sessions: true, music: true, performance: true },
   pageRevision: 0,
@@ -93,6 +117,9 @@ export function applySettings(settings: ConsoleSettings | undefined): void {
   if (settings.temperatureUnit) {
     app.temperatureUnit = settings.temperatureUnit === 'fahrenheit' ? 'fahrenheit' : 'celsius';
   }
+  if (settings.navPosition) app.navPosition = normalizeNavPosition(settings.navPosition);
+  if (settings.pomodoro) app.pomodoro = normalizePomodoro(settings.pomodoro, app.pomodoro);
+  if (settings.balance) app.balanceDisplay = { showPeakValley: settings.balance.showPeakValley !== false };
   let pageChanged = false;
   if (settings.pageOrder) {
     app.pageOrder = normalizeOrder(settings.pageOrder);

@@ -227,7 +227,7 @@
   });
 </script>
 
-<div class="app">
+<div class="app nav-{app.navPosition}">
   <Rail
     {order}
     activeKey={app.activeKey}
@@ -269,3 +269,138 @@
 {/if}
 
 <Toast />
+
+<style>
+.app {
+display: flex;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(80% 60% at 0% 0%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 58%),
+    var(--bg);
+}
+
+/* Navigation placement: the rail itself is styled from Rail.svelte. */
+.app.nav-right {
+  flex-direction: row-reverse;
+}
+
+.app.nav-top {
+  flex-direction: column;
+}
+
+.app.nav-bottom {
+  flex-direction: column-reverse;
+}
+
+.app.nav-top .pager,
+.app.nav-bottom .pager {
+  height: auto;
+  min-height: 0;
+}
+
+.app.nav-top .page,
+.app.nav-bottom .page {
+  padding: 14px 18px;
+}
+
+.pager {
+flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: auto;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+
+.pager::-webkit-scrollbar {
+display: none;
+}
+
+.page {
+position: relative;
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  padding: 20px 22px 20px 20px;
+  overflow: hidden;
+  scroll-snap-align: start;
+  scroll-snap-stop: normal;
+}
+
+.page-music {
+padding: 0;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.offline {
+position: fixed;
+  z-index: 50;
+  left: 112px;
+  top: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--red) 28%, transparent);
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  color: var(--red);
+  font-size: 11px;
+  font-weight: 600;
+  backdrop-filter: blur(16px);
+}
+
+.offline-dot {
+width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--red);
+  animation: blink 1.2s ease-in-out infinite;
+}
+
+@keyframes blink {
+0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+.page-performance {
+overflow: hidden;
+}
+
+@media (max-height: 760px) {
+  .page {
+    padding: 10px 12px;
+  }
+}
+
+@media (orientation: portrait) {
+  .page {
+    padding: 14px;
+  }
+  .page-home {
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+  .page-sessions {
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+  .page-performance {
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+  .page-music {
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+  .offline {
+    left: 88px;
+  }
+}
+</style>

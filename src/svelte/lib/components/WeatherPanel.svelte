@@ -84,3 +84,333 @@
     <span><Icon name="cloud" />明日 <b>{tomorrowText}</b></span>
   </div>
 {/if}
+
+<style>
+.weather-line {
+display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto auto;
+  gap: 14px;
+  align-items: center;
+  margin-top: auto;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.weather-art {
+width: 92px;
+  height: 92px;
+  display: grid;
+  place-items: center;
+  justify-self: center;
+}
+
+.weather-art img {
+width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  overflow: visible;
+}
+
+.weather-copy {
+min-width: 0;
+}
+
+.temperature {
+justify-self: end;
+  font-size: 58px;
+  line-height: 0.9;
+  letter-spacing: -0.06em;
+  font-weight: 590;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.temperature span {
+color: var(--accent-2);
+  font-size: 0.42em;
+  vertical-align: top;
+  letter-spacing: 0;
+}
+
+.weather-condition {
+display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.weather-condition span:last-child {
+color: var(--muted);
+  font-size: 12px;
+}
+
+.weather-condition span {
+max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.weather-metrics {
+display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  min-width: 148px;
+}
+
+.weather-metrics span {
+display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.weather-metrics b {
+font-size: 12px;
+  font-weight: 580;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.weather-metrics small {
+color: var(--faint);
+  font-size: 9px;
+}
+
+.hourly {
+display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 0;
+}
+
+.hourly.is-daily {
+grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.hour-chip {
+display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 9px 4px;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  background: color-mix(in srgb, var(--text) 3.5%, transparent);
+}
+
+.hour-chip.is-now {
+border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.hour-chip span {
+color: var(--faint);
+  font-size: 9px;
+}
+
+.hour-chip :global(svg) {
+width: 20px;
+  height: 20px;
+  color: var(--accent-2);
+}
+
+.hour-chip b {
+font-size: 11px;
+  font-weight: 560;
+}
+
+.hour-chip small {
+color: var(--faint);
+  font-size: 9px;
+}
+
+.weather-extra {
+display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.weather-extra span {
+display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.weather-extra :global(svg) {
+width: 13px;
+  height: 13px;
+  color: var(--accent-2);
+}
+
+.weather-extra b {
+color: var(--muted);
+  font-weight: 550;
+}
+
+@media (max-height: 760px) {
+  .weather-line {
+    grid-template-columns: 76px minmax(0, 1fr) auto auto;
+    gap: 9px;
+    margin-top: auto;
+    padding-top: 10px;
+  }
+  .weather-art {
+    width: 76px;
+    height: 76px;
+  }
+  .temperature {
+    font-size: 42px;
+  }
+  .weather-metrics {
+    gap: 7px 12px;
+    min-width: 132px;
+  }
+  .hourly {
+    margin-top: 10px;
+    padding-top: 0;
+    gap: 4px;
+  }
+  .weather-extra {
+    display: none;
+  }
+  .hour-chip {
+    padding: 6px 2px;
+    border-radius: 11px;
+    gap: 3px;
+  }
+  .hour-chip b {
+    font-size: 10px;
+  }
+}
+
+@media (max-height: 620px) {
+  .weather-line {
+    padding-top: 8px;
+  }
+  .temperature {
+    font-size: 34px;
+  }
+  .weather-condition {
+    gap: 1px;
+    font-size: 12px;
+  }
+  .weather-condition span:last-child {
+    font-size: 9px;
+  }
+  .weather-metrics {
+    min-width: 112px;
+    gap: 4px 10px;
+  }
+  .weather-metrics b {
+    font-size: 10px;
+  }
+  .weather-metrics small {
+    font-size: 8px;
+  }
+  .hourly {
+    margin-top: 8px;
+  }
+  .hour-chip {
+    padding: 3px 2px;
+    border-radius: 10px;
+    gap: 1px;
+  }
+  .hour-chip :global(svg) {
+    width: 15px;
+    height: 15px;
+  }
+  .hour-chip b {
+    font-size: 9px;
+  }
+  .hour-chip small {
+    font-size: 8px;
+  }
+  .weather-extra {
+    display: flex;
+    margin-top: 6px;
+    font-size: 9px;
+  }
+  .weather-extra :global(svg) {
+    width: 11px;
+    height: 11px;
+  }
+}
+
+@media (max-width: 980px) {
+  .weather-line {
+    grid-template-columns: 84px minmax(0, 1fr) auto;
+  }
+  .weather-art {
+    grid-column: 1;
+    grid-row: 1;
+    width: 84px;
+    height: 84px;
+  }
+  .weather-copy {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .temperature {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .weather-metrics {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    grid-template-columns: repeat(4, 1fr);
+    min-width: 0;
+  }
+}
+
+@container (min-width: 290px) and (max-width: 460px) {
+  .weather-line {
+    grid-template-columns: 64px minmax(0, 1fr) auto auto;
+    gap: 8px;
+    padding-top: 8px;
+  }
+  .weather-art {
+    grid-column: 1;
+    grid-row: 1;
+    width: 64px;
+    height: 64px;
+  }
+  .weather-copy {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .weather-metrics {
+    grid-column: 3;
+    grid-row: 1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+    gap: 4px 8px;
+  }
+  .temperature {
+    grid-column: 4;
+    grid-row: 1;
+    font-size: 34px;
+  }
+  .weather-condition {
+    font-size: 12px;
+  }
+  .weather-condition span:last-child {
+    font-size: 9px;
+  }
+  .weather-metrics b {
+    font-size: 10px;
+  }
+  .weather-metrics small {
+    font-size: 8px;
+  }
+}
+</style>
