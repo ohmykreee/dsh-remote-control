@@ -128,6 +128,7 @@ interface BalanceSettings {
 interface NotificationSettings {
   enabledApps?: string[];
   limit?: number;
+  pushQuestions?: boolean;
 }
 
 interface TlsSettings {
@@ -231,7 +232,7 @@ interface SavePatch {
   tls: { enabled: boolean; certPath: string; keyPath: string };
   weather: WeatherSettings;
   balance: { spendWindow: string; lowThreshold: number | null; showPeakValley: boolean };
-  notifications: { enabledApps: string[]; limit: number };
+  notifications: { enabledApps: string[]; limit: number; pushQuestions: boolean };
 }
 
 type ColorScheme = 'light' | 'dark';
@@ -641,6 +642,8 @@ const extraZh: Record<string, string> = {
   locationFailed: '定位权限请求失败，请稍后重试。',
   locationStatus: '当前状态',
   accessAllowed: '已授权', accessDenied: '已拒绝', accessUnspecified: '未授权', accessUnknown: '未知',
+  pushQuestions: '推送问询',
+  pushQuestionsHint: '开启后，会话进入等待回答时会推送完整的问题和选项。手机控制台的会话页点击该会话，会弹出悬浮框，可直接点选选项或填写自定义回复。',
 };
 const extraEn: Record<string, string> = {
   menuPlugin: 'Preferences',
@@ -681,6 +684,8 @@ const extraEn: Record<string, string> = {
   locationFailed: 'The location permission request failed; try again later.',
   locationStatus: 'Current status',
   accessAllowed: 'Allowed', accessDenied: 'Denied', accessUnspecified: 'Not granted', accessUnknown: 'Unknown',
+  pushQuestions: 'Push inquiries',
+  pushQuestionsHint: 'When enabled, a session waiting for an answer pushes the complete question and options. Tapping that session on the phone opens a floating sheet where you can choose an option or type a custom reply.',
 };
 Object.assign(zh, extraZh);
 Object.assign(en, extraEn);
@@ -1093,6 +1098,7 @@ function RemotePanel(): React.ReactElement {
       notifications: {
         enabledApps: notificationApps.length > 0 && selectedApps.length === notificationApps.length ? [] : selectedApps,
         limit: Number(draft.notificationLimit),
+        pushQuestions: Boolean(settings.notifications?.pushQuestions),
       },
     };
     void save(patch);
@@ -1291,6 +1297,13 @@ function RemotePanel(): React.ReactElement {
 
   const renderNotifications = (): React.ReactElement => h('div', { className: 'drc-section' },
     sectionHead(t('notifications'), ''),
+    h('div', { className: 'drc-card' },
+      h(Row, { title: t('pushQuestions'), description: t('pushQuestionsHint') }, h(Toggle, {
+        checked: Boolean(settings.notifications?.pushQuestions),
+        label: t('pushQuestions'),
+        onChange: (checked) => stage({ notifications: { pushQuestions: checked } }),
+      })),
+    ),
     h('div', { className: 'drc-card' },
       h('p', { className: 'drc-desc' }, t('notificationsHint')),
       notificationApps.length === 0 ? h('p', { className: 'drc-muted' }, t('noApps')) : h('div', { className: 'drc-apps' }, notificationApps.map((app) => h('button', { key: app.key, type: 'button', className: `drc-app${selectedApps.includes(app.key) ? ' is-on' : ''}`, onClick: () => toggleApp(app.key) }, h('i'), app.name))),

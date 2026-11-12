@@ -36,6 +36,8 @@ export interface BalanceSettings {
 export interface NotificationSettings {
   enabledApps: string[];
   limit: number;
+  /** Push complete pending questions so the phone can answer them. */
+  pushQuestions: boolean;
 }
 
 export interface TlsSettings {
@@ -143,6 +145,7 @@ export function defaultSettings(): RemoteControlSettings {
     notifications: {
       enabledApps: [],
       limit: 5,
+      pushQuestions: false,
     },
     tls: {
       enabled: false,
@@ -246,6 +249,7 @@ function normalize(raw: unknown): RemoteControlSettings {
     notifications: {
       enabledApps: normalizeStringArray(notifications.enabledApps),
       limit: Math.max(1, Math.min(20, Number.isFinite(Number(notifications.limit)) ? Math.round(Number(notifications.limit)) : 5)),
+      pushQuestions: notifications.pushQuestions === true,
     },
     tls: {
       enabled: tls.enabled === true,

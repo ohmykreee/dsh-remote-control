@@ -1,5 +1,5 @@
 import { DEFAULT_ORDER, enabledOrder, normalizeOrder } from './pages';
-import { configureLive, connectLive, disposeLive, sendLive } from './ws';
+import { configureLive, connectLive, disposeLive, isLiveOpen, sendLive } from './ws';
 import type {
   AccountData,
   ConsoleSettings,
@@ -10,6 +10,7 @@ import type {
   OverviewData,
   PerformanceData,
   PomodoroSettings,
+  QuestionAnswerItem,
   ServerMessage,
   SessionItem,
   WeatherData,
@@ -46,6 +47,7 @@ export const app: ConsoleState = $state({
   online: null,
   theme: 'dark',
   temperatureUnit: 'celsius',
+  pushQuestions: false,
   navPosition: 'left',
   pomodoro: { enabled: false, focusMinutes: 25, breakMinutes: 5, soundPath: '', loopAlarm: false },
   balanceDisplay: { showPeakValley: true },
@@ -82,6 +84,7 @@ export const app: ConsoleState = $state({
   initialKey: null,
   hasNavigated: false,
   fullscreen: false,
+  answerSessionId: null,
 });
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -108,6 +111,79 @@ export function sendAction(action: string, value?: number | boolean): boolean {
   return true;
 }
 
+interface AnswerWaiter {
+  resolve: () => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+const answerWaiters = new Map<string, AnswerWaiter>();
+
+function answerKey(sessionId: string, requestId: string): string {
+  return `${sessionId}\u0000${requestId}`;
+}
+
+/** Open the quick-reply sheet for a session waiting on a question. */
+export function openQuestion(sessionId: string): void {
+  const session = app.sessions.find((item) => item.id === sessionId);
+  if (!session) return;
+  if (!app.pushQuestions) {
+    toast('「推送问询」已关闭，请在 DSH 的通知设置中开启');
+    return;
+  }
+  if (session.pending?.kind === 'approval') {
+    toast('该会话正在等待批准，请在 DSH 中处理');
+    return;
+  }
+  if (session.pending?.answerable === false) {
+    toast('这个问题需要在 DSH 中回答');
+    return;
+  }
+  if (!session.pending?.questions?.length) {
+    toast('这个问题需要在 DSH 中回答');
+    return;
+  }
+  app.answerSessionId = sessionId;
+}
+
+/** Close the quick-reply sheet without answering. */
+export function closeQuestion(): void {
+  app.answerSessionId = null;
+}
+
+/** Submit one complete answer batch and wait for the Host acknowledgement. */
+export function submitQuestionAnswer(
+  sessionId: string,
+  requestId: string,
+  answers: QuestionAnswerItem[],
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (!isLiveOpen()) {
+      reject(new Error('连接已断开，请稍后重试'));
+      return;
+    }
+    const key = answerKey(sessionId, requestId);
+    const previous = answerWaiters.get(key);
+    if (previous) {
+      clearTimeout(previous.timer);
+      answerWaiters.delete(key);
+      previous.reject(new Error('答复已被新的回答替换'));
+    }
+    const timer = setTimeout(() => {
+      const waiter = answerWaiters.get(key);
+      if (!waiter) return;
+      answerWaiters.delete(key);
+      waiter.reject(new Error('回答超时，请重试'));
+    }, 12_000);
+    answerWaiters.set(key, { resolve, reject, timer });
+    if (!sendLive({ type: 'answer-question', sessionId, requestId, answers })) {
+      answerWaiters.delete(key);
+      clearTimeout(timer);
+      reject(new Error('连接已断开，请稍后重试'));
+    }
+  });
+}
+
 export function applyTheme(theme: string): void {
   app.theme = theme === 'light' ? 'light' : 'dark';
 }
@@ -118,6 +194,7 @@ export function applySettings(settings: ConsoleSettings | undefined): void {
   if (settings.temperatureUnit) {
     app.temperatureUnit = settings.temperatureUnit === 'fahrenheit' ? 'fahrenheit' : 'celsius';
   }
+  app.pushQuestions = settings.pushQuestions === true;
   if (settings.navPosition) app.navPosition = normalizeNavPosition(settings.navPosition);
   if (settings.pomodoro) app.pomodoro = normalizePomodoro(settings.pomodoro, app.pomodoro);
   if (settings.balance) app.balanceDisplay = { showPeakValley: settings.balance.showPeakValley !== false };
@@ -187,6 +264,16 @@ function handleMessage(message: ServerMessage): void {
     case 'action-result':
       if (!message.ok) toast(message.error || '操作失败');
       break;
+    case 'answer-result': {
+      const key = answerKey(message.sessionId || '', message.requestId || '');
+      const waiter = answerWaiters.get(key);
+      if (!waiter) break;
+      answerWaiters.delete(key);
+      clearTimeout(waiter.timer);
+      if (message.ok) waiter.resolve();
+      else waiter.reject(new Error(message.error || '回答失败'));
+      break;
+    }
     case 'error':
       toast(message.error || '服务异常');
       break;

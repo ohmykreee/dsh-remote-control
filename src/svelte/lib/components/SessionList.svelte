@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { app } from '../state.svelte';
+  import { app, openQuestion } from '../state.svelte';
   import type { SessionItem } from '../types';
   import { runningDuration, timeAgo } from '../format';
   import { buildSessionTree, type SessionNode } from '../session-tree';
   import EmptyState from './EmptyState.svelte';
+  import Icon from './Icon.svelte';
 
   let { sessions = [], error = null }: { sessions?: SessionItem[]; error?: string | null } = $props();
 
@@ -37,6 +38,28 @@
       session.isSubagent && depth === 0 ? '子代理' : '',
     ].filter((item): item is string => Boolean(item));
   }
+
+  function isWaiting(session: SessionItem): boolean {
+    return statusOf(session) === 'question';
+  }
+
+  function canQuickAnswer(session: SessionItem): boolean {
+    return isWaiting(session)
+      && app.pushQuestions
+      && session.pending?.answerable !== false
+      && (session.pending?.questions?.length ?? 0) > 0;
+  }
+
+  function openSession(session: SessionItem): void {
+    if (!isWaiting(session) || !session.id) return;
+    openQuestion(session.id);
+  }
+
+  function openSessionFromKey(event: KeyboardEvent, session: SessionItem): void {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    openSession(session);
+  }
 </script>
 
 {#snippet sessionNode(node: SessionNode, depth: number)}
@@ -47,27 +70,43 @@
     class="session-card is-{status}"
     class:is-subagent={depth > 0}
     class:has-children={node.children.length > 0}
+    class:is-clickable={isWaiting(session)}
     style={depth > 0 ? `--session-depth:${Math.min(depth, 4)}` : undefined}
   >
-    <div class="session-row">
-      <div class="session-icon">{Array.from(session.title || '新')[0] || '新'}</div>
-      <div class="session-main">
-        <h3 class="session-title">{session.title || '新会话'}</h3>
-        <p class="session-preview">{previewOf(session)}</p>
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <div
+      class="session-hit"
+      role={isWaiting(session) ? 'button' : undefined}
+      tabindex={isWaiting(session) ? 0 : undefined}
+      aria-label={isWaiting(session) ? `回答会话 ${session.title || '新会话'}` : undefined}
+      onclick={() => openSession(session)}
+      onkeydown={(event) => openSessionFromKey(event, session)}
+    >
+      <div class="session-row">
+        <div class="session-icon">{Array.from(session.title || '新')[0] || '新'}</div>
+        <div class="session-main">
+          <h3 class="session-title">{session.title || '新会话'}</h3>
+          <p class="session-preview">{previewOf(session)}</p>
+        </div>
+        <div class="session-side">
+          <span class="status-badge is-{status}"><i></i>{labels[status]}</span>
+        </div>
       </div>
-      <div class="session-side">
-        <span class="status-badge is-{status}"><i></i>{labels[status]}</span>
+      <div class="session-footer">
+        <div class="session-meta">
+          {#each metaOf(session, depth) as item, metaIndex (metaIndex)}<span>{item}</span>{/each}
+        </div>
+        <div class="session-footer-end">
+          {#if canQuickAnswer(session)}
+            <span class="session-answer"><Icon name="chat" /> 点击回答</span>
+          {/if}
+          {#if runningSince !== null}
+            <span class="session-time is-running" title="本轮用时">{runningDuration(runningSince, app.clockNow)}</span>
+          {:else}
+            <span class="session-time">{timeAgo(session.lastActiveAt, app.clockNow)}</span>
+          {/if}
+        </div>
       </div>
-    </div>
-    <div class="session-footer">
-      <div class="session-meta">
-        {#each metaOf(session, depth) as item, metaIndex (metaIndex)}<span>{item}</span>{/each}
-      </div>
-      {#if runningSince !== null}
-        <span class="session-time is-running" title="本轮用时">{runningDuration(runningSince, app.clockNow)}</span>
-      {:else}
-        <span class="session-time">{timeAgo(session.lastActiveAt, app.clockNow)}</span>
-      {/if}
     </div>
     {#if node.children.length > 0}
       <div class="session-children">
@@ -228,6 +267,19 @@ display: flex;
 border-color: var(--line-strong);
 }
 
+.session-hit {
+  border-radius: 12px;
+}
+
+.session-card.is-clickable .session-hit {
+  cursor: pointer;
+}
+
+.session-hit:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+
 .session-card.is-running {
 border-color: color-mix(in srgb, var(--green) 22%, transparent);
   background: color-mix(in srgb, var(--green) 9%, var(--card));
@@ -341,6 +393,31 @@ display: flex;
   padding-left: 48px;
 }
 
+.session-footer-end {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
+.session-answer {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--amber) 15%, transparent);
+  color: var(--amber);
+  font-size: 8.5px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.session-answer :global(svg) {
+  width: 10px;
+  height: 10px;
+}
 .session-card.is-subagent .session-footer {
   padding-left: 40px;
 }

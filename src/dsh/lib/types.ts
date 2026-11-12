@@ -23,6 +23,12 @@ export type DshLoggerFactory = (id: string) => DshLogger;
 /** A DSH lifecycle hook handler (`user-questions/request`, `approval/request`). */
 export type DshEventHandler = (request: unknown, next: () => Promise<unknown>) => Promise<unknown>;
 
+/** Registration options accepted by the Cordis event bus. */
+export interface DshEventListenerOptions {
+  /** Run this listener before listeners registered earlier on the same event. */
+  prepend?: boolean;
+}
+
 /**
  * The subset of the Cordis plugin context this plugin uses. Everything is
  * optional so the service can also run against a minimal composition in tests.
@@ -30,7 +36,11 @@ export type DshEventHandler = (request: unknown, next: () => Promise<unknown>) =
 export interface DshContext {
   logger?: DshLoggerFactory | DshLogger;
   get?: (name: string) => unknown;
-  on?: (event: string, handler: DshEventHandler) => (() => void) | void;
+  on?: (
+    event: string,
+    handler: DshEventHandler,
+    options?: DshEventListenerOptions | boolean,
+  ) => (() => void) | void;
   effect?: (fn: () => (() => void) | void, label?: string) => unknown;
 }
 

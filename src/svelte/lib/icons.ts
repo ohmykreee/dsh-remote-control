@@ -27,6 +27,7 @@ export const ICONS: Record<string, string> = {
   'heart-filled': '<path d="M12 20.2 4.8 13a4.8 4.8 0 0 1 6.8-6.8L12 7l.4-.8A4.8 4.8 0 0 1 19.2 13L12 20.2Z" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>',
   cpu: '<rect x="7" y="7" width="10" height="10" rx="2.5" stroke="currentColor" stroke-width="1.7"/><path d="M10 3v3M14 3v3M10 18v3M14 18v3M3 10h3M3 14h3M18 10h3M18 14h3M10 10h4v4h-4z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>',
   thermometer: '<path d="M10 4.5a2 2 0 0 1 4 0v9.1a4.5 4.5 0 1 1-4 0V4.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 9v7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 6.5v1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
+  chat: '<path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H9l-5 3.2V15.5A7.5 7.5 0 0 1 11.5 4h1A7.5 7.5 0 0 1 20 11.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8.5 11.5h.01M12 11.5h.01M15.5 11.5h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
 };
 
 export function iconMarkup(name: string): string {

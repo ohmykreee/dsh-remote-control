@@ -14,6 +14,7 @@ export interface PomodoroSettings {
 export interface ConsoleSettings {
   theme?: string;
   temperatureUnit?: string;
+  pushQuestions?: boolean;
   navPosition?: string;
   balance?: { spendWindow?: string; lowThreshold?: number | null; showPeakValley?: boolean };
   pomodoro?: Partial<PomodoroSettings>;
@@ -78,12 +79,38 @@ export interface NotificationsData {
   notifications?: NotificationItem[];
 }
 
+export interface SessionQuestionOption {
+  label: string;
+  description?: string;
+}
+
+export interface SessionQuestion {
+  id: string;
+  question: string;
+  header?: string;
+  detail?: string;
+  options?: SessionQuestionOption[];
+  multiSelect?: boolean;
+}
+
+export interface SessionPending {
+  kind?: string;
+  question?: string;
+  header?: string;
+  detail?: string;
+  count?: number;
+  since?: number;
+  requestId?: string;
+  questions?: SessionQuestion[];
+  answerable?: boolean;
+}
+
 export interface SessionItem {
   id?: string;
   title?: string;
   status?: string;
   error?: string;
-  pending?: { question?: string };
+  pending?: SessionPending;
   preview?: string;
   cwd?: string;
   turn?: number;
@@ -204,10 +231,17 @@ export interface OverviewData {
   performance?: PerformanceData | null;
 }
 
+export interface QuestionAnswerItem {
+  id: string;
+  selected: string[];
+  custom?: string;
+}
+
 export interface ConsoleState {
   online: boolean | null;
   theme: Theme;
   temperatureUnit: TemperatureUnit;
+  pushQuestions: boolean;
   navPosition: NavPosition;
   pomodoro: PomodoroSettings;
   balanceDisplay: { showPeakValley: boolean };
@@ -244,12 +278,15 @@ export interface ConsoleState {
   initialKey: PageKey | null;
   hasNavigated: boolean;
   fullscreen: boolean;
+  /** Session id whose pending question sheet is open, or null. */
+  answerSessionId: string | null;
 }
 
 export type ClientMessage =
   | { type: 'settings' }
   | { type: 'refresh' }
-  | { type: 'action'; action: string; value?: number | boolean };
+  | { type: 'action'; action: string; value?: number | boolean }
+  | { type: 'answer-question'; sessionId: string; requestId: string; answers: QuestionAnswerItem[] };
 
 export interface ServerMessage {
   type?: string;
@@ -257,4 +294,6 @@ export interface ServerMessage {
   settings?: ConsoleSettings;
   ok?: boolean;
   error?: string;
+  sessionId?: string;
+  requestId?: string;
 }

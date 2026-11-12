@@ -16,7 +16,8 @@ import { createPerformanceService } from './performance.js';
 import { createPlatformAdapters } from './platform/index.js';
 import { probeInfo, runProbe } from './probe.js';
 import { qrSvg } from './qr.js';
-import { collectSessions, createPendingTracker } from './sessions.js';
+import { collectSessions, createPendingTracker, parsePendingAnswer } from './sessions.js';
+import type { PendingAnswer } from './sessions.js';
 import { createSettingsStore } from './settings.js';
 import {
   APP_NAMES_PATH,
@@ -87,7 +88,6 @@ type WeatherService = ReturnType<typeof createWeatherService>;
 type PerformanceService = ReturnType<typeof createPerformanceService>;
 type PlatformAdapters = ReturnType<typeof createPlatformAdapters>;
 type AppMapping = ReturnType<typeof createAppMapping>;
-type PendingTracker = ReturnType<typeof createPendingTracker>;
 type SessionList = ReturnType<typeof collectSessions>;
 type WeatherSnapshot = Awaited<ReturnType<WeatherService['getWeather']>>;
 type AccountSnapshot = Awaited<ReturnType<AccountService['getAccount']>>;
@@ -134,6 +134,8 @@ export interface RemoteSettingsPayload {
   theme: string;
   temperatureUnit: string;
   notificationLimit: number;
+  /** Whether the phone may show and answer pending session questions. */
+  pushQuestions: boolean;
   navPosition: string;
   balance: {
     spendWindow: string;
@@ -421,7 +423,12 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
   const locale = options.locale || 'zh';
   const settingsStore: SettingsStore = createSettingsStore();
   const appMapping: AppMapping = createAppMapping(settingsStore.dir);
-  const pending: PendingTracker = createPendingTracker(ctx);
+  let hub: WebSocketHub | null = null;
+  const pending = createPendingTracker(ctx, {
+    onChange: () => {
+      void pushSessions(true);
+    },
+  });
   const weather: WeatherService = createWeatherService();
   const performance: PerformanceService = createPerformanceService();
   const adapters: PlatformAdapters = createPlatformAdapters({ limit: 8 });
@@ -430,7 +437,6 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
   const startedAt = Date.now();
 
   let server: HttpServer | HttpsServer | null = null;
-  let hub: WebSocketHub | null = null;
   let port: number | null = null;
   let running = false;
   let protocol: 'http' | 'https' = 'http';
@@ -572,6 +578,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
       theme: effectiveTheme(),
       temperatureUnit: settings().temperatureUnit,
       notificationLimit: settings().notifications.limit,
+      pushQuestions: settings().notifications.pushQuestions,
       navPosition: settings().navPosition,
       balance: { ...settings().balance },
       pomodoro: { ...settings().pomodoro },
@@ -874,6 +881,15 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     }
   }
 
+  /** Session list sent to the phone, with question details only when enabled. */
+  function consoleSessions(): SessionList {
+    const sessions = collectSessions(ctx, pending);
+    if (settings().notifications.pushQuestions) return sessions;
+    return sessions.map((session) => session.pending
+      ? { ...session, pending: { ...session.pending, questions: [], answerable: false } }
+      : session);
+  }
+
   async function buildOverview(): Promise<OverviewPayload> {
     const enabled = settings().pageEnabled;
     const [weatherResult, notificationsResult, accountResult, performanceResult] = await Promise.allSettled([
@@ -886,7 +902,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     let sessionsError: string | null = null;
     if (enabled.sessions) {
       try {
-        sessions = collectSessions(ctx, pending);
+        sessions = consoleSessions();
       } catch (errorValue) {
         sessionsError = serializeError(errorValue);
       }
@@ -959,7 +975,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     if (!hub || hub.size() === 0 || !settings().pageEnabled.sessions) return;
     let sessions: SessionList = [];
     try {
-      sessions = collectSessions(ctx, pending);
+      sessions = consoleSessions();
     } catch {
       return;
     }
@@ -1126,6 +1142,23 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     }
     if (message.type === 'settings') {
       client.send({ type: 'settings', data: remoteSettings() });
+      return;
+    }
+    if (message.type === 'answer-question') {
+      const sessionId = safeString(message.sessionId, 200);
+      const requestId = safeString(message.requestId, 200);
+      if (!settings().notifications.pushQuestions) {
+        client.send({ type: 'answer-result', ok: false, sessionId, requestId, error: '推送问询已关闭' });
+        return;
+      }
+      const answer: PendingAnswer | null = parsePendingAnswer(message);
+      if (!sessionId || !requestId || !answer) {
+        client.send({ type: 'answer-result', ok: false, sessionId, requestId, error: '回答格式无效' });
+        return;
+      }
+      const result = await pending.respond(sessionId, requestId, answer);
+      client.send({ type: 'answer-result', ok: result.ok, sessionId, requestId, error: result.error });
+      if (result.ok) await pushSessions(true);
       return;
     }
     if (message.type === 'ping') {
@@ -1331,6 +1364,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
         void pushAccount(true);
         void pushSessions(true);
       }
+      if (JSON.stringify(before.notifications) !== JSON.stringify(next.notifications)) void pushSessions(true);
     }
     if (next.pageEnabled.music && !before.pageEnabled.music) void pushMedia(true);
     if (next.pageEnabled.performance && !before.pageEnabled.performance) void pushPerformance(true);

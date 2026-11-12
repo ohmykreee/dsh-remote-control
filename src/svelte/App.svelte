@@ -7,6 +7,7 @@
   import HomePage from './lib/components/HomePage.svelte';
   import MusicPage from './lib/components/MusicPage.svelte';
   import PerformancePage from './lib/components/PerformancePage.svelte';
+  import QuestionSheet from './lib/components/QuestionSheet.svelte';
   import Rail from './lib/components/Rail.svelte';
   import SessionsPage from './lib/components/SessionsPage.svelte';
   import Toast from './lib/components/Toast.svelte';
@@ -269,6 +270,7 @@
 {/if}
 
 <Toast />
+<QuestionSheet />
 
 <style>
 .app {
