@@ -154,6 +154,7 @@ export interface PublicMedia {
   provider: 'system' | 'private' | 'accessibility';
   providerDetail: string | null;
   thumbnail: string | null;
+  thumbnailUrl: string | null;
   thumbnailType: string | null;
   liked: boolean | null;
   canLike: boolean;

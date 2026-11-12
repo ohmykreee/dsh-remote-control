@@ -209,6 +209,7 @@ export interface MediaInfo {
   canLike?: boolean;
   canSetLiked?: boolean;
   thumbnail?: string | null;
+  thumbnailUrl?: string | null;
 }
 
 export interface MediaPayload {

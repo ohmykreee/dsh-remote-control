@@ -421,7 +421,7 @@ struct CdpTrack {
     title: String,
     artist: String,
     album: String,
-    cover: Option<String>,
+    cover_url: Option<String>,
     position: Option<f64>,
     duration: Option<f64>,
     playing: Option<bool>,
@@ -431,28 +431,25 @@ struct CdpTrack {
     can_play_pause: bool,
     can_next: bool,
     can_previous: bool,
-    can_seek: bool,
 }
 
 const CDP_DEFAULT_PORT: u16 = 2015;
 const CDP_CONNECT_TIMEOUT: Duration = Duration::from_millis(250);
-const CDP_IO_TIMEOUT: Duration = Duration::from_millis(900);
+const CDP_IO_TIMEOUT: Duration = Duration::from_millis(1500);
 
-/// The page exposes the play bar as a range input; the like button uses the
-/// filled/outline heart icon to signal its state.
-const CDP_STATE_EXPRESSION: &str = r#"
-(() => {
-  const footer = document.querySelector('footer') || document.querySelector('.page-footer') || document;
-  const range = footer.querySelector('.slider-default input[type="range"]')
-    || footer.querySelector('input[type="range"]');
-  const button = footer.querySelector('button[data-testid="tid_redstar_btn"]')
-    || document.querySelector('button[data-testid="tid_redstar_btn"]');
-  const liked = !!(button && button.querySelector('[aria-label="likenumber_red"]'));
-  const unliked = !!(button && button.querySelector('[aria-label="like_number"]'));
+/// Progress from the internal audio progress stream; liked state from the
+/// single control the client store does not expose. The like picker is shared
+/// with the media snapshot and accepts every visible duplicate (mini, expanded
+/// and comment-area layouts).
+const CDP_STATE_TEMPLATE: &str = r#"
+(async () => {
+__STORE_HELPER__
+  const position = await readProgress();
+  const button = pickLikeButton(false);
   return {
-    position: range ? Number(range.value) : null,
-    duration: range ? Number(range.max) : null,
-    liked: liked ? true : (unliked ? false : null),
+    position,
+    duration: duration || null,
+    liked: readLiked(button),
     canLike: !!button,
     canSetLiked: !!button && button.getAttribute('aria-disabled') !== 'true'
   };
@@ -462,72 +459,225 @@ const CDP_STATE_EXPRESSION: &str = r#"
 #[allow(dead_code)] // called by the platform adapters; kept cross-platform.
 const CDP_CLICK_LIKE_EXPRESSION: &str = r#"
 (() => {
-  const footer = document.querySelector('footer');
-  const button = (footer || document).querySelector('button[data-testid="tid_redstar_btn"]');
+  const all = Array.from(document.querySelectorAll(
+    'button[data-testid="tid_redstar_btn"]'
+  ));
+  const visible = all.filter((button) => {
+    const rect = button.getBoundingClientRect();
+    const style = window.getComputedStyle(button);
+    return rect.width > 0 && rect.height > 0
+      && style.display !== 'none' && style.visibility !== 'hidden';
+  });
+  const pool = visible.length ? visible : all;
+  const button = pool.find(
+    (candidate) => candidate.getAttribute('aria-disabled') !== 'true'
+  ) || null;
   if (!button) return { ok: false };
   button.click();
   return { ok: true };
 })()
 "#;
 
-/// Full CDP snapshot for the no-SMTC case. Metadata and cover art come from
-/// the same page as the progress bar, and the play/next/previous/seek controls
-/// are exposed through the page buttons/slider.
-#[allow(dead_code)] // called by `cdp_media` on every platform.
-const CDP_MEDIA_EXPRESSION: &str = r#"
-(async () => {
-  const footer = document.querySelector('footer');
-  if (!footer) return null;
-  const range = footer.querySelector('.slider-default input[type="range"]')
-    || footer.querySelector('input[type="range"]');
-  const titleNode = footer.querySelector('[data-testid="tid_minibar_title"] .main-title');
-  const authorNode = footer.querySelector('[data-testid="tid_minibar_title"] .author');
-  const playButton = footer.querySelector('button[data-testid="tid_playbar_play_btn"]');
-  const nextButton = footer.querySelector('button[data-testid="tid_playbar_next_btn"]');
-  const previousButton = footer.querySelector('button[data-testid="tid_playbar_prev_btn"]');
-  const likeButton = footer.querySelector('button[data-testid="tid_redstar_btn"]');
-  const playIcon = playButton && playButton.querySelector('[role="img"]');
-  const playLabel = playIcon ? playIcon.getAttribute('aria-label') : null;
-  const img = footer.querySelector('[data-testid="tid_btn_pc_minibar_vinyl"] img');
-  let cover = null;
-  if (img) {
-    const src = img.currentSrc || img.src;
-    const remote = src
-      .replace(/^orpheus:\/\/cache\/\?/, '')
-      .replace('thumbnail=50y50', 'thumbnail=300y300');
-    const read = (url) => new Promise((resolve) => {
-      fetch(url).then((response) => response.blob()).then((blob) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
-        reader.onerror = () => resolve(null);
-        reader.readAsDataURL(blob);
-      }).catch(() => resolve(null));
-    });
-    const withTimeout = (promise, ms) => Promise.race([
-      promise,
-      new Promise((resolve) => setTimeout(() => resolve(null), ms)),
-    ]);
-    cover = await withTimeout(read(remote), 600);
-    if (!cover && remote !== src) cover = await withTimeout(read(src), 300);
+/// Resolve the live store through the NetEase webpack runtime. The module id
+/// changes between client builds, so inspect the loaded module cache instead of
+/// hard-coding one id; the resulting store is stable across the list and player
+/// views. `__STORE_HELPER__` is replaced before evaluating the expression.
+const CDP_STORE_HELPER: &str = r#"
+  const req = (() => {
+    if (window.__dsh_cm_require__) return window.__dsh_cm_require__;
+    try {
+      webpackJsonp.push([[987660], { 987660: function(module, exports, require) {
+        window.__dsh_cm_require__ = require;
+      } }]);
+    } catch (error) {}
+    return window.__dsh_cm_require__;
+  })();
+  const findStoreApi = () => {
+    if (!req) return null;
+    const cache = req.c || {};
+    for (const id of Object.keys(cache)) {
+      let exports;
+      try { exports = cache[id] && cache[id].exports; } catch (error) { continue; }
+      if (!exports) continue;
+      const api = typeof exports.getStore === 'function'
+        ? exports
+        : (exports.a && typeof exports.a.getStore === 'function' ? exports.a : null);
+      if (api) return api;
+    }
+    return null;
+  };
+  const knownStoreApi = (id) => {
+    try {
+      const module = req(id);
+      return module && typeof module.getStore === 'function'
+        ? module
+        : (module && module.a && typeof module.a.getStore === 'function' ? module.a : null);
+    } catch (error) { return null; }
+  };
+  let storeApi = window.__dsh_cm_store_api__;
+  if (!storeApi) {
+    storeApi = knownStoreApi(7) || knownStoreApi(12) || findStoreApi();
+    if (storeApi) window.__dsh_cm_store_api__ = storeApi;
   }
+  let store = null;
+  try { store = storeApi ? storeApi.getStore() : null; } catch (error) { store = null; }
+  const playing = (store && store.playing) || {};
+  const cur = playing.curPlaying || {};
+  const track = cur.track || {};
+  const storeArtists = Array.isArray(playing.resourceArtists) ? playing.resourceArtists : [];
+  const artistList = (Array.isArray(track.artists) ? track.artists : storeArtists)
+    .map((item) => typeof item === 'string' ? item : (item && item.name) || '')
+    .filter(Boolean);
+  const storeTitle = String(track.name || playing.resourceName || '').trim();
+  const storeArtist = artistList.join(' / ');
+  const storeAlbum = String((track.album && track.album.name) || '');
+  const coverUrl = String(
+    (track.album && (track.album.picUrl || track.album.cover))
+    || playing.resourceCoverUrl
+    || ''
+  ).trim().replace(/^http:/, 'https:');
+  const rawDuration = Number(track.duration || 0);
+  const storeDuration = Number(playing.resourceDuration || 0);
+  const duration = rawDuration > 1000 ? rawDuration / 1000 : (storeDuration || rawDuration || 0);
+  const storePlaying = Number(playing.playingState);
+
+  const findAudio = () => {
+    if (!req) return null;
+    const cache = req.c || {};
+    for (const id of Object.keys(cache)) {
+      let exports;
+      try { exports = cache[id] && cache[id].exports; } catch (error) { continue; }
+      if (!exports) continue;
+      const api = exports.a || exports;
+      if (api && api.audioPlayerPlayProgress$
+        && typeof api.audioPlayerPlayProgress$.subscribe === 'function') {
+        return api;
+      }
+    }
+    return null;
+  };
+  let audio = window.__dsh_cm_audio__;
+  if (!audio || !audio.audioPlayerPlayProgress$) {
+    const audioApi = (id) => {
+      try {
+        const module = req(id);
+        const api = module && (module.a || module);
+        return api && api.audioPlayerPlayProgress$
+          && typeof api.audioPlayerPlayProgress$.subscribe === 'function'
+          ? api : null;
+      } catch (error) { return null; }
+    };
+    audio = audioApi(1195) || audioApi(12) || findAudio();
+    if (audio) window.__dsh_cm_audio__ = audio;
+  }
+  const progressFrom = (value) => {
+    let key = '';
+    let seconds = null;
+    if (Array.isArray(value) && value.length >= 2) {
+      key = String(value[0] || '');
+      seconds = Number(value[1]);
+    } else if (value && typeof value === 'object') {
+      key = String(value.key || value.trackId || '');
+      seconds = Number(value.position ?? value.currentTime ?? value.seconds);
+    } else if (typeof value === 'number') {
+      seconds = value;
+    }
+    return key && Number.isFinite(seconds) ? { key, position: seconds } : null;
+  };
+  if (!window.__dsh_cm_progress_sub__ && audio
+    && typeof audio.audioPlayerPlayProgress$.subscribe === 'function') {
+    try {
+      window.__dsh_cm_progress_sub__ = audio.audioPlayerPlayProgress$.subscribe((value) => {
+        const next = progressFrom(value);
+        if (next) window.__dsh_cm_progress__ = next;
+      });
+    } catch (error) {}
+  }
+  const currentProgress = () => {
+    const cached = window.__dsh_cm_progress__;
+    if (!cached || !track.id) return null;
+    return String(cached.key).startsWith(String(track.id)) ? cached.position : null;
+  };
+  const readProgress = () => {
+    const current = currentProgress();
+    // NetEase's internal IAudioPlayer state uses 2 = playing, 1 = paused.
+    if (!audio || storePlaying !== 2) return Promise.resolve(current);
+    return new Promise((resolve) => {
+      let done = false;
+      let subscription = null;
+      const finish = (value) => {
+        if (done) return;
+        done = true;
+        try { subscription && subscription.unsubscribe(); } catch (error) {}
+        const next = progressFrom(value);
+        if (next) window.__dsh_cm_progress__ = next;
+        resolve(next && track.id && next.key.startsWith(String(track.id))
+          ? next.position
+          : current);
+      };
+      try {
+        subscription = audio.audioPlayerPlayProgress$.subscribe(finish);
+      } catch (error) {
+        finish(null);
+        return;
+      }
+      setTimeout(() => finish(null), 500);
+    });
+  };
+
+  // DOM is used only for the like control, which is not exposed by the store.
+  // Pick a visible button so mini, expanded and comment-area layouts all work.
+  const allLikeButtons = () => Array.from(
+    document.querySelectorAll('button[data-testid="tid_redstar_btn"]')
+  );
+  const visibleLikeButtons = () => allLikeButtons().filter((button) => {
+    const rect = button.getBoundingClientRect();
+    const style = window.getComputedStyle(button);
+    return rect.width > 0 && rect.height > 0
+      && style.display !== 'none' && style.visibility !== 'hidden';
+  });
+  const pickLikeButton = (requireEnabled) => {
+    const all = allLikeButtons();
+    const visible = visibleLikeButtons();
+    const pool = visible.length ? visible : all;
+    const enabled = pool.filter(
+      (button) => button.getAttribute('aria-disabled') !== 'true'
+    );
+    return requireEnabled ? (enabled[0] || null) : (enabled[0] || pool[0] || null);
+  };
+  const readLiked = (button) => button
+    ? (button.querySelector('[aria-label="likenumber_red"]') ? true
+      : (button.querySelector('[aria-label="like_number"]') ? false : null))
+    : null;
+"#;
+
+/// Full CDP snapshot for the no-SMTC case. Everything except the like control
+/// comes from the client store / internal audio progress stream, so it is
+/// independent of the current page, mini/expanded layout and comment drawer.
+#[allow(dead_code)] // called by `cdp_media` on every platform.
+const CDP_MEDIA_TEMPLATE: &str = r#"
+(async () => {
+__STORE_HELPER__
+  const position = await readProgress();
+  const likeButton = pickLikeButton(false);
+  const playbackStatus = storePlaying === 2 ? 'Playing'
+    : storePlaying === 1 ? 'Paused'
+      : null;
   return {
-    title: titleNode ? (titleNode.innerText || '').trim() : '',
-    artist: authorNode ? (authorNode.innerText || '').trim() : '',
-    album: '',
-    cover: cover && cover.length < 700000 ? cover : null,
-    position: range ? Number(range.value) : null,
-    duration: range ? Number(range.max) : null,
-    playing: playLabel === 'pause' ? true : (playLabel === 'play' ? false : null),
-    liked: likeButton
-      ? (likeButton.querySelector('[aria-label="likenumber_red"]') ? true
-        : (likeButton.querySelector('[aria-label="like_number"]') ? false : null))
-      : null,
+    title: storeTitle,
+    artist: storeArtist,
+    album: storeAlbum,
+    coverUrl: coverUrl || null,
+    position,
+    duration: duration || null,
+    playing: playbackStatus === 'Playing' ? true
+      : (playbackStatus === 'Paused' ? false : null),
+    liked: readLiked(likeButton),
     canLike: !!likeButton,
     canSetLiked: !!likeButton && likeButton.getAttribute('aria-disabled') !== 'true',
-    canPlayPause: !!playButton,
-    canNext: !!nextButton,
-    canPrevious: !!previousButton,
-    canSeek: !!(range && Number(range.max) > 0)
+    canPlayPause: !!storeTitle,
+    canNext: !!storeTitle,
+    canPrevious: !!storeTitle
   };
 })()
 "#;
@@ -804,27 +954,33 @@ fn read_ws_frame(stream: &mut TcpStream) -> Result<(u8, bool, Vec<u8>), String> 
     Ok((opcode, fin, payload))
 }
 
-/// Lightweight identity query used to recognize a NetEase SMTC session that
+/// Store-backed page identity, used to recognize a NetEase SMTC session that
 /// exposes an auto-generated AUMID instead of `cloudmusic.exe`.
 #[allow(dead_code)] // called by the Windows adapter; kept cross-platform.
-const CDP_IDENTITY_EXPRESSION: &str = r#"
+const CDP_IDENTITY_TEMPLATE: &str = r#"
 (() => {
-  const footer = document.querySelector('footer');
-  if (!footer) return null;
-  const title = footer.querySelector('[data-testid="tid_minibar_title"] .main-title');
-  const artist = footer.querySelector('[data-testid="tid_minibar_title"] .author');
-  return {
-    title: title ? (title.innerText || '').trim() : '',
-    artist: artist ? (artist.innerText || '').trim() : ''
-  };
+__STORE_HELPER__
+  return { title: storeTitle, artist: storeArtist };
 })()
 "#;
+
+fn cdp_identity_expression() -> String {
+    CDP_IDENTITY_TEMPLATE.replace("__STORE_HELPER__", CDP_STORE_HELPER)
+}
+
+fn cdp_media_expression() -> String {
+    CDP_MEDIA_TEMPLATE.replace("__STORE_HELPER__", CDP_STORE_HELPER)
+}
+
+fn cdp_state_expression() -> String {
+    CDP_STATE_TEMPLATE.replace("__STORE_HELPER__", CDP_STORE_HELPER)
+}
 
 /// The current NetEase page title/artist, used to map an auto-generated SMTC
 /// AUMID back to the NetEase profile.
 #[allow(dead_code)] // used by the Windows adapter; kept cross-platform.
 pub fn cdp_identity() -> Option<(String, String)> {
-    let value = cdp_evaluate(CDP_IDENTITY_EXPRESSION).ok()?;
+    let value = cdp_evaluate(&cdp_identity_expression()).ok()?;
     let object = value.as_object()?;
     let title = object
         .get("title")
@@ -871,10 +1027,10 @@ fn parse_cdp_track(value: &Value) -> Option<CdpTrack> {
         title,
         artist,
         album: string("album"),
-        cover: object
-            .get("cover")
+        cover_url: object
+            .get("coverUrl")
             .and_then(Value::as_str)
-            .filter(|value| value.starts_with("data:") && value.len() < 700000)
+            .filter(|value| value.starts_with("http://") || value.starts_with("https://"))
             .map(str::to_string),
         position: number("position").filter(|value| *value >= 0.0),
         duration: number("duration").filter(|value| *value > 0.0),
@@ -885,18 +1041,7 @@ fn parse_cdp_track(value: &Value) -> Option<CdpTrack> {
         can_play_pause: flag("canPlayPause"),
         can_next: flag("canNext"),
         can_previous: flag("canPrevious"),
-        can_seek: flag("canSeek"),
     })
-}
-
-fn data_url_mime(value: &str) -> Option<String> {
-    let rest = value.strip_prefix("data:")?;
-    let mime = rest.split(';').next()?.trim();
-    if mime.is_empty() {
-        None
-    } else {
-        Some(mime.to_string())
-    }
 }
 
 /// Read the complete NetEase page state. Used only when SMTC is unavailable;
@@ -904,7 +1049,7 @@ fn data_url_mime(value: &str) -> Option<String> {
 /// and transport stay on the system session.
 #[allow(dead_code)] // called by `merge` on every platform; kept cross-platform.
 pub fn cdp_media() -> Option<Media> {
-    let value = cdp_evaluate(CDP_MEDIA_EXPRESSION).ok()?;
+    let value = cdp_evaluate(&cdp_media_expression()).ok()?;
     let track = parse_cdp_track(&value)?;
     let duration = track.duration.unwrap_or(0.0);
     let mut media = Media::new("cloudmusic.exe");
@@ -926,11 +1071,11 @@ pub fn cdp_media() -> Option<Media> {
     media.can_play_pause = track.can_play_pause;
     media.can_next = track.can_next;
     media.can_previous = track.can_previous;
-    // The page slider is responsive; allow seeking only when both the slider
-    // and a duration are present. Node still verifies actual position evidence.
-    media.can_seek = track.can_seek && duration > 0.0;
-    media.thumbnail = track.cover.clone();
-    media.thumbnail_type = track.cover.as_deref().and_then(data_url_mime);
+    // CDP-only has no SMTC timeline. The page slider is still used for direct
+    // transport control, but only an explicitly seekable SMTC session may
+    // report a seekable timeline to the client.
+    media.can_seek = false;
+    media.thumbnail_url = track.cover_url;
     media.liked = track.liked;
     media.can_like = track.can_like;
     media.can_set_liked = track.can_set_liked;
@@ -1029,7 +1174,7 @@ fn cdp_evaluate(expression: &str) -> Result<Value, String> {
 
 /// Same as [`cdp_state`] but preserves the failure reason for diagnostics.
 pub fn cdp_state_result() -> Result<CdpState, String> {
-    let value = cdp_evaluate(CDP_STATE_EXPRESSION)?;
+    let value = cdp_evaluate(&cdp_state_expression())?;
     parse_cdp_state(&value)
         .ok_or_else(|| format!("CDP page returned no play-bar state: {}", value.to_string()))
 }
@@ -1043,7 +1188,7 @@ pub fn cdp_diagnostic() -> Value {
                     "title": media.title,
                     "artist": media.artist,
                     "album": media.album,
-                    "hasCover": media.thumbnail.is_some(),
+                    "hasCover": media.thumbnail.is_some() || media.thumbnail_url.is_some(),
                     "thumbnailType": media.thumbnail_type,
                     "position": media.position,
                     "duration": media.end_time,
@@ -1203,7 +1348,7 @@ fn apply_cdp(media: &mut Media, seekable_system: bool) -> bool {
 pub fn cdp_set_liked(liked: Option<bool>) -> Result<CdpState, String> {
     let (_port, websocket_url) = cdp_target()?;
     let mut connection = CdpConnection::connect(&websocket_url)?;
-    let current_value = connection.evaluate(CDP_STATE_EXPRESSION)?;
+    let current_value = connection.evaluate(&cdp_state_expression())?;
     let current = parse_cdp_state(&current_value)
         .ok_or_else(|| "NetEase CDP page did not expose a play bar".to_string())?;
     let target = match liked {
@@ -1231,7 +1376,7 @@ pub fn cdp_set_liked(liked: Option<bool>) -> Result<CdpState, String> {
     let mut last = current;
     for _ in 0..20 {
         std::thread::sleep(Duration::from_millis(200));
-        if let Ok(value) = connection.evaluate(CDP_STATE_EXPRESSION) {
+        if let Ok(value) = connection.evaluate(&cdp_state_expression()) {
             if let Some(state) = parse_cdp_state(&value) {
                 last = state;
                 if state.liked == Some(target) {
@@ -1268,7 +1413,7 @@ mod tests {
         assert_eq!(media.provider_detail, "netease-cdp");
         assert!(media.thumbnail.is_some());
         assert!(media.can_play_pause);
-        assert!(media.can_seek);
+        assert!(!media.can_seek);
         assert!(media.end_time > 0.0);
     }
 

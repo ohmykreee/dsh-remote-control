@@ -560,9 +560,10 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
         };
         let complete = catalog::system_complete(Some(profile), &media);
         if media.provider_detail.contains("cdp") {
-            // CDP-only mode: the page slider is the transport; keep its seek
-            // grant only when the page reported a real duration.
-            media.can_seek = media.can_seek && media.end_time > media.start_time;
+            // CDP-only mode: the page slider is a transport, but it must not
+            // report a seekable timeline. Keep a seek grant only when the SMTC
+            // session itself is complete and explicitly seekable.
+            media.can_seek = complete && media.can_seek && media.end_time > media.start_time;
         } else {
             media.can_seek = catalog::seek_allowed(Tier::System, complete, false);
         }

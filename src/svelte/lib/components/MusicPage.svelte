@@ -7,7 +7,7 @@
   const payload = $derived(app.media);
   const media = $derived(payload?.media?.media ?? null);
   const volume = $derived(payload?.volume ?? null);
-  const thumbnail = $derived(media?.thumbnail || '');
+  const thumbnail = $derived(media?.thumbnail || media?.thumbnailUrl || '');
   const source = $derived(media ? String(media.appName || '').trim() || sourceLabel(media.appId) : '媒体');
   const backdropImage = $derived(thumbnail ? `url("${thumbnail.replace(/"/g, '\\"')}")` : '');
 </script>

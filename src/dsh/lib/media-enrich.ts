@@ -66,6 +66,7 @@ export function publicMedia(result: ProbeMediaResult | null | undefined): Public
     provider,
     providerDetail: media.providerDetail ? String(media.providerDetail) : null,
     thumbnail: media.thumbnail || null,
+    thumbnailUrl: media.thumbnailUrl || null,
     thumbnailType: media.thumbnailType || null,
     liked: typeof media.liked === 'boolean' ? media.liked : null,
     canLike: Boolean(media.canLike),
@@ -111,10 +112,6 @@ export function createMediaEnrichment(): MediaEnrichment {
     const rawPosition = Math.max(0, Number(media.position) || 0);
     const hasTimeline = rawEnd > rawStart && rawEnd > 0;
     const systemProvider = media.provider === 'system';
-    // NetEase's CDP page is a responsive private transport: when SMTC is
-    // absent it supplies metadata, progress and the play/seek controls.
-    const cdpProvider =
-      media.provider === 'private' && String(media.providerDetail || '').toLowerCase().includes('cdp');
     const playing = String(media.playbackStatus).toLowerCase() === 'playing';
     const key = mediaKey(media);
 
@@ -131,11 +128,11 @@ export function createMediaEnrichment(): MediaEnrichment {
       positionEvidence.playing = playing;
     }
     const hasPositionReport = positionEvidence.seen;
-    // Only a complete system session (SMTC/MPRIS/MediaRemote) or the explicit
-    // CDP transport may seek. Other private interfaces and accessibility
-    // readers remain display-only.
+    // Only a complete system session (SMTC/MPRIS/MediaRemote) may seek. The
+    // NetEase CDP page supplies progress and transport control, but never a
+    // seekable timeline unless the system session explicitly reports one.
     const canSeek =
-      Boolean(media.canSeek) && (systemProvider || cdpProvider) && hasTimeline && hasPositionReport;
+      Boolean(media.canSeek) && systemProvider && hasTimeline && hasPositionReport;
     const timelineSource: PublicMedia['timelineSource'] = !hasTimeline
       ? 'none'
       : systemProvider

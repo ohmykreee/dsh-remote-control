@@ -76,8 +76,8 @@ const i = await sample({
 }, t0 + 18000);
 assert.ok(i.position > 75.4 && i.position < 77.1, `stale position should advance smoothly, got ${i.position}`);
 
-// CDP-only NetEase is a responsive private transport; it may seek, but other
-// private/accessibility sources still cannot.
+// CDP-only NetEase reports progress and transport control, but never a
+// seekable timeline. Only an explicitly seekable system session may seek.
 const cdp = await sample({
   appId: 'cloudmusic.exe',
   title: 'CDP Song',
@@ -91,7 +91,7 @@ const cdp = await sample({
   provider: 'private',
   providerDetail: 'netease-cdp',
 }, t0 + 19000);
-assert.equal(cdp.canSeek, true);
+assert.equal(cdp.canSeek, false);
 assert.equal(cdp.timelineSource, 'private');
 
 // IsPlaybackPositionEnabled alone is not enough: a player may advertise seek

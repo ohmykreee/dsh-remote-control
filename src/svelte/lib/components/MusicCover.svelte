@@ -4,7 +4,7 @@
 
   let { media }: { media: MediaInfo | null } = $props();
 
-  const thumbnail = $derived(media?.thumbnail || '');
+  const thumbnail = $derived(media?.thumbnail || media?.thumbnailUrl || '');
   const fallbackText = $derived(media ? '正在播放' : '没有正在播放的媒体');
 </script>
 
