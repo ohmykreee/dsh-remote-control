@@ -53,6 +53,18 @@ const DEFAULT_APP_NAMES: Record<string, string> = {
   'microsoft.windows.photos_8wekyb3d8bbwe!app': '照片',
   'windows.defender.securitycenter': 'Windows 安全中心',
   'microsoft.zunemusic_8wekyb3d8bbwe': '媒体播放器',
+  'cloudmusic.exe': '网易云音乐',
+  'qqmusic.exe': 'QQ音乐',
+  'kugou.exe': '酷狗音乐',
+  'kgmusic.exe': '酷狗音乐',
+  'kwmusic.exe': '酷我音乐',
+  'kwservice.exe': '酷我音乐',
+  'sodamusic.exe': '汽水音乐',
+  'wesing.exe': '全民K歌',
+  'spotify.exe': 'Spotify',
+  'applemusic.exe': 'Apple Music',
+  'youtube music.exe': 'YouTube Music',
+  'cider.exe': 'Cider',
 };
 
 /** One persisted application entry, as stored in `app-mapping.json`. */
@@ -130,6 +142,15 @@ export function defaultAppName(rawKey: string): string | null {
 
   // Generic media-source heuristics (SMTC AUMIDs and browser processes).
   if (/bilibili/i.test(key)) return '哔哩哔哩';
+  if (/youtube[-_ ]?music|ytmusic/i.test(key)) return 'YouTube Music';
+  if (/cloudmusic|netease|163music|网易云/i.test(key)) return '网易云音乐';
+  if (/qqmusic|qq音乐/i.test(key)) return 'QQ音乐';
+  if (/kugou|kgmusic|酷狗/i.test(key)) return '酷狗音乐';
+  if (/kwmusic|kwservice|kuwo|酷我/i.test(key)) return '酷我音乐';
+  if (/sodamusic|汽水音乐/i.test(key)) return '汽水音乐';
+  if (/wesing|全民k歌/i.test(key)) return '全民K歌';
+  if (/cider/i.test(key)) return 'Cider';
+  if (/applemusic|apple[ .]music|com\.apple\.music/i.test(key)) return 'Apple Music';
   if (/spotify/i.test(key)) return 'Spotify';
   if (/msedge/i.test(key)) return 'Microsoft Edge';
   if (/brave/i.test(key)) return 'Brave';

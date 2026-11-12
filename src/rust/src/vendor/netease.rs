@@ -11,6 +11,8 @@ use std::time::SystemTime;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
+use super::common;
+use crate::media::catalog::ParsedTitle;
 use crate::media::Media;
 use crate::util;
 
@@ -41,6 +43,31 @@ pub fn is_netease(app_id: &str) -> bool {
     app_id.contains("cloudmusic") || app_id.contains("netease") || app_id.contains("163music")
 }
 
+/// Parse the NetEase desktop window title.
+///
+/// NetEase's SMTC session provides metadata but not playback progress, so the
+/// title fallback is only used when SMTC is missing/incomplete. Titles look like
+/// `歌名 - 歌手 - 网易云音乐`.
+pub fn parse_title(raw: &str) -> Option<ParsedTitle> {
+    const SUFFIXES: &[&str] = &[
+        " - 网易云音乐",
+        " - NetEase Cloud Music",
+        " - 网易云",
+        " - CloudMusic",
+    ];
+    const PRODUCT_NAMES: &[&str] = &["网易云音乐", "网易云", "netease cloud music", "cloudmusic"];
+    let text = common::strip_suffixes(common::normalize_spaces(raw), SUFFIXES);
+    if common::is_generic_title(&text, PRODUCT_NAMES) {
+        return None;
+    }
+    let mut parsed = common::split_title_artist(&text, false);
+    parsed.artist = common::normalize_artist(&parsed.artist, &[("/", " / ")]);
+    if parsed.title.is_empty() {
+        return None;
+    }
+    Some(parsed)
+}
+
 /// Enrich a playing media item with local NetEase cover/liked/duration data.
 pub fn enrich(media: &mut Media) {
     if !is_netease(&media.app_id) {
@@ -48,9 +75,10 @@ pub fn enrich(media: &mut Media) {
     }
     // `canLike` is a display flag: the console shows read-only liked state.
     media.can_like = true;
-    // NetEase can advertise a seekable timeline while only reporting progress.
-    // The console rule is display-only progress for NetEase: never expose seek.
-    media.can_seek = false;
+    // Seek policy is decided by the platform adapter. NetEase's SMTC provides
+    // metadata/status but not playback progress, so the Windows adapter treats
+    // it as metadata-only and never grants seek. This module only enriches
+    // metadata and must not grant seek by itself.
     let Some(local) = read_local(&media.title, &media.artist) else {
         return;
     };
@@ -454,9 +482,17 @@ mod tests {
     }
 
     #[test]
+    fn parses_netease_window_title() {
+        let parsed = parse_title("晴天 - 周杰伦 - 网易云音乐").unwrap();
+        assert_eq!(parsed.title, "晴天");
+        assert_eq!(parsed.artist, "周杰伦");
+        assert!(parse_title("网易云音乐").is_none());
+    }
+
+    #[test]
     fn netease_enrichment_never_grants_seek() {
         let mut media = Media::new("cloudmusic.exe");
-        media.can_seek = true;
+        media.can_seek = false;
         enrich(&mut media);
         assert!(!media.can_seek);
     }

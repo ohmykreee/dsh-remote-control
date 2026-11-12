@@ -142,12 +142,15 @@
 
 ## 音乐与网易云
 
-- Rust 原生探针是唯一媒体层：Windows 通过 WinRT SMTC、Linux 通过 MPRIS（zbus/D-Bus）、macOS 通过 `nowplaying-cli`/AppleScript（源码提供，未在 macOS 实机测试）。
+- Rust 原生探针是唯一媒体层，并按固定优先级选择数据源：**系统媒体接口 → 软件私有接口 → UI Automation（只读，下下策）**。Windows 的系统接口是 WinRT SMTC，Linux 是 MPRIS（zbus/D-Bus），macOS 是 `nowplaying-cli`/AppleScript（源码提供，未在 macOS 实机测试）。完整设计见 [媒体适配层](docs/media-adapters.md)。
+- 已适配网易云音乐、QQ 音乐、酷狗音乐、酷我音乐、汽水音乐、全民 K 歌、Spotify、Apple Music、YouTube Music，以及浏览器/其他 SMTC/MPRIS 播放器。适配逻辑参考了 [Widdit/now-playing-service](https://github.com/Widdit/now-playing-service) 的客户端窗口标题与 UIA 进度处理。
 - 探针二进制不存在或命令失败时，媒体/音量返回明确的错误状态，不再回退到 PowerShell SMTC、C# 封面 DLL、`playerctl` 或 `osascript`。
 - Windows SMTC 提供当前媒体、播放状态、封面、进度和可用控制；Rust 探针直接从 SMTC `Thumbnail` 流读取封面，包含 Edge/YouTube 封面。C# 辅助程序已删除。
-- 只有播放器报告完整时间轴、允许定位，并且实际收到过非零播放位置时，进度条才可拖动。该规则在 `src/dsh/lib/media-enrich.ts` 中共用。
-- 进度按 SMTC 的 `Position` 与 `LastUpdatedTime` 投影，并对轮询间的偏差做平滑修正，避免进度条回跳。
-- 网易云封面与“喜欢”状态由 Rust 读取客户端本地数据：`Library/webdb.dat`（SQLite）匹配曲目/喜欢歌单，`Statics/*.dat` 读取最新封面；不调用网易云 URL 接口、不提取 Cookie、不依赖 DevTools 调试端口。Linux 为尽力路径（客户端数据目录不固定）。
+- **只有完整系统会话才展示可拖动 seek**：需要标题、`EndTime > StartTime`、播放器允许定位，并且实际收到过非零位置（Node 侧仍要求位置证据，旧版客户端不会误开 seek）。私有窗口标题和 UI Automation 只展示播放进度，不提供 seek；该规则在 Rust 与 `src/dsh/lib/media-enrich.ts` 双重校验。
+- 网易云音乐最新版已支持 SMTC，但 SMTC 只提供歌曲元数据/播放状态与控制，不汇报播放进度；因此探针保留 SMTC 元数据，进度从 UI Automation/本地数据补齐，seek 仍不可用。SMTC 缺失或标题为空时才回退到窗口标题。QQ 音乐、酷狗、酷我、汽水、全民 K 歌同样优先完整系统会话，其次私有接口。
+- 系统会话不完整时，探针读取客户端窗口标题（酷狗/酷我的滚动标题会修正）、Cider 的 `Plugins/title.txt`、网易云本地 `webdb.dat`/`Statics` 缓存，并用 Core Audio 会话状态/峰值修正「SMTC 播放状态不刷新」的问题；仍无法解析时不伪造数据。
+- 网易云/全民 K 歌的 UI Automation 进度（`MM:SS | MM:SS`）只用于补齐只读进度，绝不用于 seek；所有无障碍读取都有超时，读不到时保留标题/本地时长，不伪造位置。
+- 不调用外部 Web API 查询歌曲/封面：网易云封面与“喜欢”状态由 Rust 读取客户端本地数据（`Library/webdb.dat` 匹配曲目/喜欢歌单，`Statics/*.dat` 读取最新封面），不调用网易云 URL 接口、不提取 Cookie、不依赖 DevTools 调试端口。Linux 为尽力路径（客户端数据目录不固定）。
 - 红心状态是**只读展示**：音乐页显示“已喜欢/未喜欢”徽标，不能点击修改；WebSocket 只接受 `playpause`/`next`/`previous`/`seek`/`volume`/`mute`。
 - 自动 seek/音量会短暂保持目标值，避免播放器状态回传造成跳回。
 
@@ -203,8 +206,8 @@ Node 只负责派生进程、解析 JSON、缓存与展示，系统探测由 Rus
 
 | 能力 | Windows | Linux | macOS |
 |---|---|---|---|
-| 媒体读取/控制 | WinRT SMTC | MPRIS over D-Bus（zbus） | `nowplaying-cli`，否则 AppleScript（源码，未测试） |
-| 封面 | SMTC `Thumbnail` 流 → data URL（含 Edge/YouTube） | `file://`/`data:` 直接读取；HTTP(S) 由 Node 下载 | `nowplaying-cli` artwork |
+| 媒体读取/控制 | WinRT SMTC → 客户端窗口标题/Cider 标题文件 → UI Automation（只读）；完整 SMTC 才可 seek | MPRIS over D-Bus（zbus）→ 本地客户端数据；MPRIS `CanSeek` 才可 seek | `nowplaying-cli` → AppleScript → Cider `title.txt` → AX 进度（源码，未测试） |
+| 封面 | SMTC `Thumbnail` 流 → data URL（含 Edge/YouTube）；网易云本地缓存 | `file://`/`data:` 直接读取；HTTP(S) 由 Node 下载 | `nowplaying-cli` artwork |
 | 音量 | Core Audio `IAudioEndpointVolume` | `wpctl` → `pactl` → `amixer`（在 Rust 内调用） | `osascript`（在 Rust 内调用，未测试） |
 | NetEase 封面/喜欢 | 本地 `webdb.dat` + `Statics` | 本地客户端数据（尽力） | 本地客户端数据（尽力） |
 | CPU/内存/频率/使用率/运行时间 | sysinfo + PDH `% Processor Performance` + 注册表 | sysinfo + `/proc/cpuinfo` + cpufreq | sysinfo + `sysctl`（未测试） |
@@ -272,7 +275,7 @@ dsh-probe location request [--open-settings]    # 申请定位权限（Windows �
 
 每条命令输出一行 JSON。探针内部错误返回 `{"ok":false,...}` 且退出码为 0（便于 Node 读取错误）；参数错误退出码为 2。
 
-媒体载荷包含 `appId`、`title`、`artist`、`album`、`playbackStatus`、`position`、`startTime`、`endTime`、`minSeekTime`、`maxSeekTime`、`lastUpdatedAt`、`canPlayPause`、`canNext`、`canPrevious`、`canSeek`、`thumbnail`、`thumbnailType`，以及 NetEase 的 `liked`（`true`/`false`/`null`）、`canLike`、`trackId`。Linux MPRIS 的 HTTP(S) 封面通过额外的 `thumbnailUrl` 交给 Node 下载并转为 data URL，Rust 侧不引入 HTTP 客户端。
+媒体载荷包含 `appId`、`title`、`artist`、`album`、`playbackStatus`、`position`、`startTime`、`endTime`、`minSeekTime`、`maxSeekTime`、`lastUpdatedAt`、`canPlayPause`、`canNext`、`canPrevious`、`canSeek`、`thumbnail`、`thumbnailType`、`provider`（`system`/`private`/`accessibility`）、`providerDetail`（`smtc`/`smtc-partial`/`mpris`/`nowplaying`/`applescript`/`window-title`/`cider-title`/`window-title+uia` 等），以及 NetEase 的 `liked`（`true`/`false`/`null`）、`canLike`、`trackId`。Linux MPRIS 的 HTTP(S) 封面通过额外的 `thumbnailUrl` 交给 Node 下载并转为 data URL，Rust 侧不引入 HTTP 客户端。
 
 通知载荷：`available`、`reason`、`source`、`liveOnly`、`notifications[]`（`id`、`appKey`、`appName`、`title`、`body`、`avatar`、`hasImage`、`receivedAt`、`isGroup`）、`apps[]`（`key`、`name`、`count`）、`updatedAt`。Windows 的 `appName` 与 `appKey` 相同（原始应用标识），中文名称由 Node 的软件映射生成。`notifications watch` 每个通知输出一行同样的快照。
 
@@ -307,7 +310,7 @@ node test/smoke.mjs
 node test/media-progress.mjs
 ```
 
-Windows 上探针的 `performance` 测试会实际读取 GPU 频率/温度与磁盘温度（读不到时只断言取值范围，不失败）。`cargo test` 会运行 42 个单元测试和 5 个 CLI 端到端测试。
+Windows 上探针的 `performance` 测试会实际读取 GPU 频率/温度与磁盘温度（读不到时只断言取值范围，不失败）。`cargo test` 会运行 59 个单元测试和 5 个 CLI 端到端测试。
 
 已在本仓库验证：Windows 11 26H2（build 26300，x86_64-pc-windows-msvc，Rust 1.99.1）构建/测试通过；SMTC 媒体与控制、SMTC 封面（Edge/YouTube，data URL）、Core Audio 音量、DXGI/PDH + WDDM D3DKMT GPU（RX 7800 XT：核心频率 1.5 GHz、显存频率 2.4 GHz、46 °C）、两块 NVMe/SATA 磁盘温度（57 °C / 46 °C）、通知中心（含头像）、WinRT 位置调用与 `location request` 均验证。Fedora 45 KDE（x86_64，Rust 1.99.1）构建/测试通过；MPRIS、wpctl 音量、sysinfo/温度、GeoClue2 位置、`notify-send` → D-Bus 通知监视均返回有效数据。macOS 未测试。
 
@@ -319,6 +322,10 @@ Windows 上探针的 `performance` 测试会实际读取 GPU 频率/温度与磁
 - Linux 通知监视依赖 D-Bus 的 `BecomeMonitor` 权限；部分加固系统可能拒绝，届时返回明确错误。
 - macOS 媒体/音量/性能/通知/位置均为源码级实现，未测试；GPU/温度不实现；CoreLocation 不适用于无 bundle 的 sidecar。
 - NetEase 本地数据库 schema 随客户端版本变化；匹配不到曲目时 `liked` 为 `null`、封面为空，不伪造。
+- 私有层（窗口标题/Cider 标题文件）是只读的：可以展示歌曲与进度，但不提供播放/暂停/切歌/seek 控制；控制仍依赖完整 SMTC/MPRIS。私有层的播放/暂停优先用 Core Audio 会话状态/峰值判断，系统静音或独占音频时可能误判。
+- UI Automation（Windows）与 AX（macOS）只用于补齐只读进度，永远不授予 seek；Windows UIA 每次读取有 800 ms 超时，macOS AX 有 1.5 s 超时。切歌瞬间读不到进度时只展示标题。
+- 酷狗/酷我的滚动窗口标题使用启发式修正，歌名本身含 `-` 等极端标题可能解析不完美；Linux 的原生客户端由 MPRIS 覆盖，因此没有启用 AT-SPI 全树遍历。
+- macOS AX 读进度需要在「系统设置 → 隐私与安全性 → 辅助功能」中允许运行 `dsh-probe` 的父进程；未授权时静默返回无进度。
 - 构建产物不入库、不入 npm 包；发布二进制需要各平台自行构建（或后续补 CI 产物）。
 
 ### Windows 低完整性工作区（定位被拒绝）
@@ -402,7 +409,8 @@ src/svelte/lib/components/ 页面与卡片组件
 src/svelte/styles/global.css 手机端全局颜色令牌、重置与共享基础样式
 src/svelte/lib/components/**   组件结构、组件样式与交互
 src/rust/               Rust 原生探针源码（Cargo 项目）
-src/rust/src/vendor/    专用客户端读取（当前为 NetEase 本地库）
+src/rust/src/media/     媒体适配层（应用目录、SMTC/MPRIS、窗口/UIA/AX 调度）
+src/rust/src/vendor/    第三方客户端私有适配（网易云、QQ 音乐、酷狗、酷我、汽水、全民 K 歌、Spotify、Apple Music、YouTube Music）
 src/rust/target/        Cargo 构建缓存（gitignore）
 native/bin/             探针构建产物（gitignore 忽略，需本机构建）
 .probe-tmp/             探针只读 SQLite 副本的临时目录（运行时生成）
@@ -412,7 +420,7 @@ web/                    每次安装/构建生成的静态页面（gitignore，�
 web/assets/             安装/构建时生成的 Svelte/Vite JS/CSS
 web/fonts/              构建时从 static/ 复制的字体许可（woff2 在 web/assets/）
 web/weather-icons/      构建时从 static/ 复制的彩云天气图标
-docs/                   1280×800 手机端控制台截图
+docs/                   1280×800 手机端控制台截图与媒体适配说明
 ```
 
 ## 开发检查

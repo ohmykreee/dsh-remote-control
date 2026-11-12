@@ -84,4 +84,42 @@ const k = await sample({ appId: 'test', title: 'D', artist: 'B', playbackStatus:
 assert.equal(k.canSeek, true);
 assert.equal(k.positionReported, true);
 
+// The private tier is display-only: even if a private adapter (incorrectly)
+// advertised seek, the Node layer must not enable the seek bar.
+const l = await sample({
+  appId: 'cloudmusic.exe',
+  title: 'Private Song',
+  artist: 'Artist',
+  playbackStatus: 'Playing',
+  position: 30,
+  startTime: 0,
+  endTime: 200,
+  lastUpdatedAt: t0 + 24000,
+  canSeek: true,
+  provider: 'private',
+  providerDetail: 'window-title+uia',
+}, t0 + 24000);
+assert.equal(l.canSeek, false);
+assert.equal(l.timelineSource, 'private');
+assert.equal(l.provider, 'private');
+assert.equal(l.providerDetail, 'window-title+uia');
+assert.ok(Math.abs(l.position - 30) < 0.05, `private progress ${l.position}`);
+
+// UI Automation/AX/AT-SPI progress is read-only as well.
+const m = await sample({
+  appId: 'WeSing.exe',
+  title: 'Karaoke',
+  artist: '',
+  playbackStatus: 'Paused',
+  position: 42,
+  startTime: 0,
+  endTime: 300,
+  lastUpdatedAt: t0 + 26000,
+  canSeek: true,
+  provider: 'accessibility',
+  providerDetail: 'window-title+uia',
+}, t0 + 26000);
+assert.equal(m.canSeek, false);
+assert.equal(m.timelineSource, 'accessibility');
+
 console.log('media progress ok');

@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use zbus::blocking::{Connection, Proxy};
 use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue};
 
+use super::catalog::{self, Tier};
 use super::{Media, ReadOptions};
 use crate::util;
 
@@ -177,6 +178,7 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
     let can_control = proxy.get_property::<bool>("CanControl").unwrap_or(true);
 
     let mut media = Media::new(name.clone());
+    media.provider_detail = "mpris".to_string();
     media.title = if title.trim().is_empty() {
         "未命名媒体".to_string()
     } else {
@@ -195,7 +197,8 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
     media.can_play_pause = can_control && proxy.get_property::<bool>("CanPause").unwrap_or(true);
     media.can_next = proxy.get_property::<bool>("CanGoNext").unwrap_or(true);
     media.can_previous = proxy.get_property::<bool>("CanGoPrevious").unwrap_or(true);
-    media.can_seek = can_seek && duration > 0.0;
+    let complete = can_seek && duration > 0.0;
+    media.can_seek = catalog::seek_allowed(Tier::System, complete, false);
     if options.thumbnail {
         artwork(&mut media, &string_value(&metadata, "mpris:artUrl"));
     }
@@ -220,8 +223,18 @@ pub fn control(action: &str, position: f64, options: &ReadOptions) -> Result<(),
             let _: () = proxy.call("Previous", &()).map_err(failure)?;
         }
         "seek" => {
-            let target_micros = (position.max(0.0) * 1_000_000.0).round() as i64;
+            // MPRIS is the system tier here: only expose seek when the player
+            // itself advertises a seekable track. The private/accessibility
+            // tiers never grant seek.
+            let can_seek = proxy.get_property::<bool>("CanSeek").unwrap_or(false);
             let metadata = metadata_of(&proxy);
+            let duration = number_value(&metadata, "mpris:length").unwrap_or(0.0);
+            if !can_seek || duration <= 0.0 {
+                return Err(
+                    "this player only reports progress; seek requires MPRIS CanSeek".to_string(),
+                );
+            }
+            let target_micros = (position.max(0.0) * 1_000_000.0).round() as i64;
             if let Some(track) = track_id(&metadata) {
                 let path: &ObjectPath = &track;
                 let _: () = proxy

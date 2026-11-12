@@ -10,6 +10,8 @@ use serde_json::{json, Value};
 use crate::cli::{action_of, has_flag, option_number, option_value, CliError, CliResult};
 use crate::util;
 
+pub(crate) mod catalog;
+
 #[cfg(windows)]
 #[path = "windows.rs"]
 mod platform;
@@ -62,6 +64,12 @@ pub struct Media {
     /// Display-only flag: the current app is NetEase Cloud Music.
     pub can_like: bool,
     pub track_id: Option<String>,
+    /// Which layer produced this payload: `system`, `private` or
+    /// `accessibility`. Only `system` may expose transport seeking.
+    pub provider: String,
+    /// Concrete provider within the layer (`smtc`, `mpris`, `nowplaying`,
+    /// `window-title`, `cider-title`, `uia`, `atspi`, `ax`, ...).
+    pub provider_detail: String,
 }
 
 impl Media {
@@ -93,6 +101,8 @@ impl Media {
             liked: None,
             can_like: false,
             track_id: None,
+            provider: catalog::Tier::System.as_str().to_string(),
+            provider_detail: String::new(),
         }
     }
 
@@ -220,6 +230,7 @@ mod tests {
         assert_eq!(value["playbackStatus"], "Closed");
         assert_eq!(value["canPlayPause"], true);
         assert_eq!(value["startTime"], 0.0);
+        assert_eq!(value["provider"], "system");
         assert!(value.get("lastUpdatedAt").is_some());
         assert!(value.get("thumbnailUrl").is_some());
     }

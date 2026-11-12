@@ -122,6 +122,9 @@ export interface ProbeMedia extends JsonRecord {
   liked?: boolean | null;
   trackId?: string | number | null;
   estimatedDuration?: boolean;
+  /** `system` (SMTC/MPRIS/MediaRemote), `private` or `accessibility`. */
+  provider?: string;
+  providerDetail?: string | null;
 }
 
 /** Normalised media metadata handed to the browser. */
@@ -146,6 +149,9 @@ export interface PublicMedia {
   canNext: boolean;
   canPrevious: boolean;
   canSeek: boolean;
+  /** Which layer supplied the media payload. */
+  provider: 'system' | 'private' | 'accessibility';
+  providerDetail: string | null;
   thumbnail: string | null;
   thumbnailType: string | null;
   liked: boolean | null;
@@ -154,7 +160,7 @@ export interface PublicMedia {
   estimatedDuration: boolean;
   sampledAt: number;
   positionReported?: boolean;
-  timelineSource?: 'smtc' | 'none';
+  timelineSource?: 'smtc' | 'private' | 'accessibility' | 'none';
 }
 
 /** Raw probe envelope: `{ ok, media, sampledAt }` plus backend-specific extras. */

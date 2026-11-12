@@ -8,8 +8,12 @@
 //! This module is source-only: it is compiled and type-checked with
 //! `cargo check --features macos-check` but has not been run on macOS.
 
+use super::catalog::{self, Tier};
 use super::{Media, ReadOptions};
 use crate::util;
+
+#[path = "macos/accessibility.rs"]
+mod accessibility;
 
 pub const BACKEND: &str = "macos-nowplaying";
 
@@ -67,6 +71,7 @@ fn read_nowplaying(path: &std::path::Path) -> Result<Option<Media>, String> {
         .unwrap_or(0.0);
 
     let mut media = Media::new("macOS");
+    media.provider_detail = "nowplaying".to_string();
     media.title = if title.trim().is_empty() {
         "未命名媒体".to_string()
     } else {
@@ -84,7 +89,7 @@ fn read_nowplaying(path: &std::path::Path) -> Result<Option<Media>, String> {
     media.can_play_pause = true;
     media.can_next = true;
     media.can_previous = true;
-    media.can_seek = duration > 0.0;
+    media.can_seek = catalog::seek_allowed(Tier::System, duration > 0.0, false);
 
     if let Some(data) = values.get("artworkData") {
         if !data.is_empty() && data.len() < MAX_ARTWORK_BYTES {
@@ -150,6 +155,7 @@ return out
     let app = fields[0];
     let state = fields[1].to_ascii_lowercase();
     let mut media = Media::new(app);
+    media.provider_detail = "applescript".to_string();
     media.title = fields[2].to_string();
     media.artist = fields[3].to_string();
     media.album = fields[4].to_string();
@@ -164,8 +170,29 @@ return out
     media.end_time = duration;
     media.max_seek_time = duration;
     media.last_updated_at = util::now_ms();
-    media.can_seek = duration > 0.0;
+    media.can_seek = catalog::seek_allowed(Tier::System, duration > 0.0, false);
     Ok(Some(media))
+}
+
+/// Cider's private title file. Cider is the Apple Music client used by the
+/// reference project when MediaRemote cannot identify the track.
+fn read_cider() -> Option<Media> {
+    if util::command_output("pgrep", &["-x", "Cider"]).is_err() {
+        return None;
+    }
+    let parsed = crate::vendor::apple_music::cider_title()?;
+    let mut media = Media::new("Cider");
+    media.provider = Tier::Private.as_str().to_string();
+    media.provider_detail = "cider-title".to_string();
+    media.title = parsed.title;
+    media.artist = parsed.artist;
+    media.playback_status = "Paused".to_string();
+    media.can_play_pause = false;
+    media.can_next = false;
+    media.can_previous = false;
+    media.can_seek = false;
+    media.last_updated_at = util::now_ms();
+    Some(media)
 }
 
 pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
@@ -174,13 +201,42 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
     } else {
         read_applescript()?
     };
+    if media.is_none() {
+        media = read_cider();
+    }
     if let Some(media) = media.as_mut() {
+        // Accessibility is the last resort for a read-only progress display.
+        // It is only attempted when the system/private tier did not provide a
+        // duration; it never changes `canSeek`.
+        if media.end_time <= 0.0 {
+            if let Some(process) = accessibility_process(&media.app_id) {
+                if let Some((position, total)) = accessibility::progress(process) {
+                    if total > 0.0 {
+                        media.position = position;
+                        media.start_time = 0.0;
+                        media.end_time = total;
+                        media.min_seek_time = 0.0;
+                        media.max_seek_time = total;
+                        media.provider_detail = format!("{}+ax", media.provider_detail);
+                    }
+                }
+            }
+        }
         if !options.thumbnail {
             media.thumbnail = None;
             media.thumbnail_type = None;
         }
     }
     Ok(media)
+}
+
+fn accessibility_process(app_id: &str) -> Option<&'static str> {
+    match app_id.to_lowercase().as_str() {
+        "cider" => Some("Cider"),
+        "music" | "applemusic" | "com.apple.music" => Some("Music"),
+        "spotify" => Some("Spotify"),
+        _ => None,
+    }
 }
 
 pub fn control(action: &str, position: f64, options: &ReadOptions) -> Result<(), String> {

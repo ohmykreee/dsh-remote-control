@@ -17,6 +17,18 @@ assert.equal(defaultAppName('com.example.SomeApp'), 'Some App');
 assert.equal(defaultAppName('NotifyIconGeneratedAumid_123'), '桌面应用');
 assert.equal(defaultAppName('org.mpris.MediaPlayer2.spotify'), 'Spotify');
 assert.equal(defaultAppName('Microsoft.MicrosoftEdge.Stable_8wekyb3d8bbwe!App'), 'Microsoft Edge');
+// Private media adapters report executable ids; MPRIS names use the same map.
+assert.equal(defaultAppName('cloudmusic.exe'), '网易云音乐');
+assert.equal(defaultAppName('QQMusic.exe'), 'QQ音乐');
+assert.equal(defaultAppName('KuGou.exe'), '酷狗音乐');
+assert.equal(defaultAppName('KwMusic.exe'), '酷我音乐');
+assert.equal(defaultAppName('SodaMusic.exe'), '汽水音乐');
+assert.equal(defaultAppName('WeSing.exe'), '全民K歌');
+assert.equal(defaultAppName('Spotify.exe'), 'Spotify');
+assert.equal(defaultAppName('AppleMusic.exe'), 'Apple Music');
+assert.equal(defaultAppName('YouTube Music.exe'), 'YouTube Music');
+assert.equal(defaultAppName('com.apple.Music'), 'Apple Music');
+assert.equal(defaultAppName('org.mpris.MediaPlayer2.netease-cloud-music'), '网易云音乐');
 assert.equal(defaultAppName(''), null);
 
 const store = createAppMapping(directory);

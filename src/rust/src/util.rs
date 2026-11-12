@@ -5,9 +5,9 @@
 #![allow(dead_code)]
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
 
@@ -248,6 +248,54 @@ pub fn command_output(program: &str, args: &[&str]) -> Result<String, String> {
 pub fn run_path_command(program: &Path, args: &[&str]) -> Result<String, String> {
     let program = program.to_string_lossy();
     command_output(&program, args)
+}
+
+/// Run a command with a hard timeout. Used by the macOS accessibility reader:
+/// UI scripting can block for seconds when an application is busy, and a
+/// display-only progress read must never stall the probe.
+pub fn command_output_timeout(
+    program: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<String, String> {
+    let mut child = Command::new(program)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("{program}: {error}"))?;
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let output = child
+                    .wait_with_output()
+                    .map_err(|error| format!("{program}: {error}"))?;
+                if !status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let message = stderr.trim();
+                    return Err(if message.is_empty() {
+                        format!("{program} exited with {status}")
+                    } else {
+                        format!("{program}: {message}")
+                    });
+                }
+                return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
+            }
+            Ok(None) => {
+                if started.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!(
+                        "{program} timed out after {} ms",
+                        timeout.as_millis()
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(error) => return Err(format!("{program}: {error}")),
+        }
+    }
 }
 
 #[cfg(test)]

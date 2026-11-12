@@ -41,6 +41,8 @@ export interface MediaEnrichment {
 export function publicMedia(result: ProbeMediaResult | null | undefined): PublicMedia | null {
   const media = result?.media;
   if (!result || !media) return null;
+  const provider: PublicMedia['provider'] =
+    media.provider === 'private' || media.provider === 'accessibility' ? media.provider : 'system';
   return {
     appId: media.appId || '',
     appName: '',
@@ -61,6 +63,8 @@ export function publicMedia(result: ProbeMediaResult | null | undefined): Public
     canNext: media.canNext !== false,
     canPrevious: media.canPrevious !== false,
     canSeek: Boolean(media.canSeek),
+    provider,
+    providerDetail: media.providerDetail ? String(media.providerDetail) : null,
     thumbnail: media.thumbnail || null,
     thumbnailType: media.thumbnailType || null,
     liked: typeof media.liked === 'boolean' ? media.liked : null,
@@ -104,12 +108,13 @@ export function createMediaEnrichment(): MediaEnrichment {
     const rawStart = Math.max(0, Number(media.startTime) || 0);
     const rawEnd = Math.max(0, Number(media.endTime) || 0);
     const rawPosition = Math.max(0, Number(media.position) || 0);
-    const smtcTimeline = rawEnd > rawStart && rawEnd > 0;
+    const hasTimeline = rawEnd > rawStart && rawEnd > 0;
+    const systemProvider = media.provider === 'system';
     const playing = String(media.playbackStatus).toLowerCase() === 'playing';
     const key = mediaKey(media);
 
-    // IsPlaybackPositionEnabled can be true even when a player never reports a
-    // usable position (NetEase does this). Only allow seeking after we have
+    // A seekable flag can be true even when a player never reports a usable
+    // position (some older clients do this). Only allow seeking after we have
     // actually seen a non-zero position for this track.
     if (!positionEvidence || positionEvidence.key !== key) {
       positionEvidence = { key, seen: rawPosition > 0.01, playing };
@@ -121,8 +126,18 @@ export function createMediaEnrichment(): MediaEnrichment {
       positionEvidence.playing = playing;
     }
     const hasPositionReport = positionEvidence.seen;
-    const canSeek = Boolean(media.canSeek) && smtcTimeline && hasPositionReport;
-    const timelineSource = smtcTimeline ? 'smtc' : 'none';
+    // Only a complete system session (SMTC/MPRIS/MediaRemote) may seek. Private
+    // interfaces and accessibility readers are display-only unless Rust
+    // explicitly grants a seek-capable private interface.
+    const canSeek =
+      Boolean(media.canSeek) && systemProvider && hasTimeline && hasPositionReport;
+    const timelineSource: PublicMedia['timelineSource'] = !hasTimeline
+      ? 'none'
+      : systemProvider
+        ? 'smtc'
+        : media.provider === 'accessibility'
+          ? 'accessibility'
+          : 'private';
 
     media.canSeek = canSeek;
     media.positionReported = hasPositionReport;
@@ -141,7 +156,7 @@ export function createMediaEnrichment(): MediaEnrichment {
     // players that only refresh the timeline a few times per track.
     const anchor = timelineAnchor(media.lastUpdatedAt, sampledAt);
     let reported = rawPosition;
-    if (playing && smtcTimeline && anchor) reported += (sampledAt - anchor) / 1000;
+    if (playing && hasTimeline && anchor) reported += (sampledAt - anchor) / 1000;
     reported = clampPosition(reported);
 
     if (!progress || progress.key !== key) {
