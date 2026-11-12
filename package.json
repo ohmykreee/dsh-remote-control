@@ -14,12 +14,14 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/build-web.mjs",
-    "preview": "vite preview",
-    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "build": "node scripts/build-dsh.mjs && node scripts/build-web.mjs",
+    "build:dsh": "node scripts/build-dsh.mjs",
+    "build:web": "node scripts/build-web.mjs",
     "build:rust": "node scripts/build-rust.mjs",
+    "preview": "vite preview",
+    "check": "tsc -p tsconfig.dsh.json --noEmit && tsc -p tsconfig.dsh-client.json --noEmit && svelte-check --tsconfig ./tsconfig.json",
     "test": "node test/smoke.mjs && node test/media-progress.mjs && node test/probe-bridge.mjs && node test/notifications.mjs && node test/notification-watch.mjs",
-    "postinstall": "node scripts/build-web.mjs && node scripts/build-rust.mjs --optional"
+    "postinstall": "node scripts/build-dsh.mjs && node scripts/build-web.mjs && node scripts/build-rust.mjs --optional"
   },
   "files": [
     "index.js",
@@ -34,10 +36,8 @@
     "vite.config.js",
     "svelte.config.js",
     "tsconfig.json",
-    "native/rust/Cargo.toml",
-    "native/rust/Cargo.lock",
-    "native/rust/src/**/*.rs",
-    "native/rust/tests/**/*.rs",
+    "tsconfig.dsh.json",
+    "tsconfig.dsh-client.json",
     "scripts/**/*.mjs",
     "README.md",
     "LICENSE"
@@ -62,12 +62,14 @@
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@fontsource-variable/noto-sans-sc": "^5.3.1",
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
     "qrcode-generator": "^2.0.4",
     "svelte": "^5.57.3",
+    "typescript": "~6.0.3",
     "vite": "^8.3.8"
   },
   "devDependencies": {
-    "svelte-check": "^4.7.8",
-    "typescript": "~6.0.3"
+    "svelte-check": "^4.7.8"
   }
 }

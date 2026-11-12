@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "declaration": false,
+    "sourceMap": false,
+    "outDir": ".build/host",
+    "rootDir": "src/dsh"
+  },
+  "include": ["src/dsh/index.ts", "src/dsh/lib/**/*.ts", "src/dsh/types/**/*.d.ts"],
+  "exclude": ["src/dsh/client.ts"]
+}

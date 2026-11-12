@@ -1,5 +1,7 @@
 /** Balance and Platform usage (today / current week) for the active DSH account. */
 
+import { isRecord } from './types.js';
+import type { DshContext, JsonRecord } from './types.js';
 import {
   finiteNumber,
   localTimezoneOffsetSeconds,
@@ -15,7 +17,91 @@ const USAGE_TTL_MS = 90_000;
 const USAGE_ERROR_TTL_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 9000;
 
-function clientMetadata(locale = 'zh') {
+/** Spend window selected in the console settings. */
+export type SpendWindow = 'calendar' | 'rolling';
+
+/** States emitted by `readBalance`. */
+type AccountStatus = 'unavailable' | 'error' | 'signed-out' | 'failed' | 'ready';
+
+/** States emitted by `readUsage`; account states are reused as-is. */
+type UsageStatus = AccountStatus | 'expired' | 'empty';
+
+/** Balance snapshot for the active account. */
+export interface BalanceState {
+  signedIn: boolean;
+  state: AccountStatus;
+  currency?: string | null;
+  balance?: number | null;
+  paid?: number | null;
+  bonus?: number | null;
+  error?: string;
+  updatedAt?: number;
+  cached?: boolean;
+}
+
+/** One bar of the seven-day spend chart. */
+interface UsageDay {
+  date: string;
+  label: string;
+  cost: number;
+}
+
+/** Spend snapshot for the active account. */
+export interface UsageSnapshot {
+  state: UsageStatus;
+  currency: string | null;
+  today: number | null;
+  spend: number | null;
+  week?: number | null;
+  spendWindow: SpendWindow;
+  spendLabel: string;
+  periodStart?: string;
+  daily?: UsageDay[];
+  error?: string;
+  updatedAt?: number;
+  cached?: boolean;
+}
+
+/** Balance plus usage, as returned by `getAccount`. */
+export interface AccountSnapshot {
+  available: boolean;
+  signedIn: boolean;
+  balance: BalanceState;
+  usage: UsageSnapshot;
+}
+
+/** Settings slice `createAccountService` reads. */
+type AccountSettings = {
+  balance?: {
+    spendWindow?: string;
+  };
+};
+
+interface AccountOptions {
+  locale?: string;
+  getSettings?: () => AccountSettings;
+}
+
+/** Balance request metadata, also the `getBalance` argument. */
+type ClientMetadata = {
+  version: string;
+  locale: string;
+  timezoneOffsetSeconds: number;
+};
+
+/** Minimal `deepseekAccount` service surface. */
+interface DeepseekAccountService {
+  getState(): Promise<unknown>;
+  getBalance(metadata: JsonRecord): Promise<unknown>;
+  getPlatformSession?(): Promise<unknown>;
+}
+
+/** Narrow an untrusted JSON value to an array. */
+function asList(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function clientMetadata(locale = 'zh'): ClientMetadata {
   return {
     version: VERSION,
     locale,
@@ -23,15 +109,15 @@ function clientMetadata(locale = 'zh') {
   };
 }
 
-function timeout(promise, ms, label) {
-  return new Promise((resolve, reject) => {
+function timeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
     promise.then(
       (value) => {
         clearTimeout(timer);
         resolve(value);
       },
-      (error) => {
+      (error: unknown) => {
         clearTimeout(timer);
         reject(error);
       },
@@ -39,13 +125,16 @@ function timeout(promise, ms, label) {
   });
 }
 
-function currencyOf(wallets) {
-  const list = Array.isArray(wallets) ? wallets : [];
+function currencyOf(wallets: unknown): string | null {
+  const list = asList(wallets);
   const normalized = list
-    .map((wallet) => ({
-      currency: String(wallet?.currency || '').toUpperCase(),
-      balance: finiteNumber(wallet?.balance, null),
-    }))
+    .map((wallet): { currency: string; balance: number | null } => {
+      const record: JsonRecord = isRecord(wallet) ? wallet : {};
+      return {
+        currency: String(record.currency || '').toUpperCase(),
+        balance: finiteNumber(record.balance, null),
+      };
+    })
     .filter((wallet) => wallet.currency && wallet.balance !== null);
   if (normalized.length === 0) return null;
   const cny = normalized.find((wallet) => wallet.currency === 'CNY');
@@ -55,48 +144,54 @@ function currencyOf(wallets) {
   return normalized[0].currency;
 }
 
-function sumWallets(wallets, currency) {
-  const list = Array.isArray(wallets) ? wallets : [];
+function sumWallets(wallets: unknown, currency: string): number {
+  const list = asList(wallets);
   return list
-    .filter((wallet) => String(wallet?.currency || '').toUpperCase() === currency)
-    .reduce((sum, wallet) => sum + (finiteNumber(wallet?.balance, 0) ?? 0), 0);
+    .filter((wallet) => String((isRecord(wallet) && wallet.currency) || '').toUpperCase() === currency)
+    .reduce<number>((sum, wallet) => sum + (finiteNumber(isRecord(wallet) ? wallet.balance : 0, 0) ?? 0), 0);
 }
 
-function pickCostBlock(blocks, preferredCurrency) {
-  const list = Array.isArray(blocks) ? blocks : [];
+function pickCostBlock(blocks: unknown, preferredCurrency: string | null): JsonRecord | null {
+  const list: JsonRecord[] = asList(blocks).filter(isRecord);
   if (list.length === 0) return null;
   if (preferredCurrency) {
-    const exact = list.find((block) => String(block?.currency || '').toUpperCase() === preferredCurrency);
+    const exact = list.find((block) => String(block.currency || '').toUpperCase() === preferredCurrency);
     if (exact) return exact;
   }
   const funded = list.find((block) =>
-    [...(block?.series ?? []), ...(block?.function_series ?? [])].some((series) =>
-      (series?.buckets ?? []).some((bucket) => (finiteNumber(costOf(bucket?.cost), 0) ?? 0) > 0),
-    ),
+    [...asList(block.series), ...asList(block.function_series)].some((series) => {
+      const seriesRecord: JsonRecord = isRecord(series) ? series : {};
+      return asList(seriesRecord.buckets).some((bucket) => {
+        const bucketRecord: JsonRecord = isRecord(bucket) ? bucket : {};
+        return (finiteNumber(costOf(bucketRecord.cost), 0) ?? 0) > 0;
+      });
+    }),
   );
   return funded || list[0];
 }
 
-function costOf(value) {
-  if (value && typeof value === 'object') return finiteNumber(value.value, 0) ?? 0;
+function costOf(value: unknown): number {
+  if (value && typeof value === 'object') return finiteNumber(isRecord(value) ? value.value : null, 0) ?? 0;
   return finiteNumber(value, 0) ?? 0;
 }
 
-function costBlocks(payload) {
-  const bizData = payload?.data?.biz_data;
-  if (Array.isArray(bizData)) return bizData;
-  if (Array.isArray(bizData?.data)) return bizData.data;
-  if (bizData && typeof bizData === 'object') return [bizData];
+function costBlocks(payload: unknown): JsonRecord[] {
+  const root: JsonRecord = isRecord(payload) ? payload : {};
+  const data: JsonRecord = isRecord(root.data) ? root.data : {};
+  const bizData = data.biz_data;
+  if (Array.isArray(bizData)) return bizData.filter(isRecord);
+  if (isRecord(bizData) && Array.isArray(bizData.data)) return bizData.data.filter(isRecord);
+  if (isRecord(bizData)) return [bizData];
   return [];
 }
 
-function localDateKey(date) {
+function localDateKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-function lastSevenDays(now) {
+function lastSevenDays(now: Date): UsageDay[] {
   const start = startOfLocalDay(now);
-  const days = [];
+  const days: UsageDay[] = [];
   for (let offset = 6; offset >= 0; offset -= 1) {
     const date = new Date(start);
     date.setDate(date.getDate() - offset);
@@ -109,11 +204,17 @@ function lastSevenDays(now) {
   return days;
 }
 
-function parseUsage(costPayload, currency, now = new Date(), periodStartMs = null, mode = 'calendar') {
+function parseUsage(
+  costPayload: unknown,
+  currency: string | null,
+  now: Date = new Date(),
+  periodStartMs: number | null = null,
+  mode: SpendWindow = 'calendar',
+): UsageSnapshot {
   const blocks = costBlocks(costPayload);
   const block = pickCostBlock(blocks, currency);
-  const dayStart = startOfLocalDay(now).getTime();
-  const startMs = finiteNumber(periodStartMs, startOfLocalWeek(now).getTime()) ?? startOfLocalWeek(now).getTime();
+  const dayStart: number = startOfLocalDay(now).getTime();
+  const startMs: number = finiteNumber(periodStartMs, startOfLocalWeek(now).getTime()) ?? startOfLocalWeek(now).getTime();
   const end = new Date(now);
   end.setHours(24, 0, 0, 0);
   const endMs = end.getTime();
@@ -136,12 +237,14 @@ function parseUsage(costPayload, currency, now = new Date(), periodStartMs = nul
 
   let today = 0;
   let spend = 0;
-  for (const series of [...(block.series ?? []), ...(block.function_series ?? [])]) {
-    for (const bucket of series?.buckets ?? []) {
-      const time = finiteNumber(bucket?.time, null);
+  for (const series of [...asList(block.series), ...asList(block.function_series)]) {
+    const seriesRecord: JsonRecord = isRecord(series) ? series : {};
+    for (const bucket of asList(seriesRecord.buckets)) {
+      const bucketRecord: JsonRecord = isRecord(bucket) ? bucket : {};
+      const time: number | null = finiteNumber(bucketRecord.time, null);
       if (time === null) continue;
       const timeMs = time * 1000;
-      const cost = costOf(bucket?.cost);
+      const cost = costOf(bucketRecord.cost);
       const bucketDate = localDateKey(new Date(timeMs));
       const day = daily.find((entry) => entry.date === bucketDate);
       if (day) day.cost += cost;
@@ -163,23 +266,29 @@ function parseUsage(costPayload, currency, now = new Date(), periodStartMs = nul
   };
 }
 
-export function createAccountService(ctx, options = {}) {
+export function createAccountService(ctx: DshContext, options: AccountOptions = {}): {
+  getAccount(force?: boolean): Promise<AccountSnapshot>;
+  readBalance(force?: boolean): Promise<BalanceState>;
+  readUsage(force?: boolean): Promise<UsageSnapshot>;
+} {
   const locale = options.locale || 'zh';
-  const getSettings = options.getSettings || (() => ({ balance: { spendWindow: 'calendar' } }));
-  const resolveAccount = () => ctx.get?.('deepseekAccount');
-  let balanceCache = null;
+  const getSettings: () => AccountSettings =
+    options.getSettings || (() => ({ balance: { spendWindow: 'calendar' } }));
+  const resolveAccount = (): DeepseekAccountService | undefined =>
+    ctx.get?.('deepseekAccount') as DeepseekAccountService | undefined;
+  let balanceCache: BalanceState | null = null;
   let balanceAt = 0;
-  let usageCache = null;
+  let usageCache: UsageSnapshot | null = null;
   let usageAt = 0;
 
-  async function readBalance(force = false) {
+  async function readBalance(force = false): Promise<BalanceState> {
     const account = resolveAccount();
     if (!account) return { signedIn: false, state: 'unavailable', error: 'Account service is not mounted' };
     const now = Date.now();
     const ttl = balanceCache?.state === 'ready' ? BALANCE_TTL_MS : BALANCE_ERROR_TTL_MS;
     if (!force && balanceCache && now - balanceAt < ttl) return { ...balanceCache, cached: true };
 
-    let state;
+    let state: unknown;
     try {
       state = await account.getState();
     } catch (error) {
@@ -187,7 +296,8 @@ export function createAccountService(ctx, options = {}) {
       balanceAt = now;
       return balanceCache;
     }
-    if (!state || state.status === 'signed-out') {
+    const stateRecord: JsonRecord | null = isRecord(state) ? state : null;
+    if (!state || stateRecord?.status === 'signed-out') {
       balanceCache = {
         signedIn: false,
         state: 'signed-out',
@@ -203,7 +313,8 @@ export function createAccountService(ctx, options = {}) {
 
     try {
       const details = await timeout(account.getBalance(clientMetadata(locale)), REQUEST_TIMEOUT_MS, 'Balance');
-      if (!details || details.status !== 'ready') {
+      const detailsRecord: JsonRecord | null = isRecord(details) ? details : null;
+      if (!detailsRecord || detailsRecord.status !== 'ready') {
         balanceCache = {
           signedIn: true,
           state: 'failed',
@@ -217,9 +328,9 @@ export function createAccountService(ctx, options = {}) {
         balanceAt = now;
         return balanceCache;
       }
-      const currency = currencyOf(details.value) || currencyOf(details.bonusWallets) || 'CNY';
-      const paid = sumWallets(details.value, currency);
-      const bonus = sumWallets(details.bonusWallets, currency);
+      const currency = currencyOf(detailsRecord.value) || currencyOf(detailsRecord.bonusWallets) || 'CNY';
+      const paid = sumWallets(detailsRecord.value, currency);
+      const bonus = sumWallets(detailsRecord.bonusWallets, currency);
       balanceCache = {
         signedIn: true,
         state: 'ready',
@@ -245,9 +356,9 @@ export function createAccountService(ctx, options = {}) {
     return balanceCache;
   }
 
-  async function readUsage(force = false) {
+  async function readUsage(force = false): Promise<UsageSnapshot> {
     const account = resolveAccount();
-    const mode = getSettings()?.balance?.spendWindow === 'rolling' ? 'rolling' : 'calendar';
+    const mode: SpendWindow = getSettings()?.balance?.spendWindow === 'rolling' ? 'rolling' : 'calendar';
     if (!account?.getPlatformSession) {
       return {
         state: 'unavailable',
@@ -268,7 +379,9 @@ export function createAccountService(ctx, options = {}) {
 
     try {
       const platform = await timeout(account.getPlatformSession(), 4000, 'Platform session');
-      if (!platform?.origin || !platform?.token) {
+      const origin = isRecord(platform) && typeof platform.origin === 'string' ? platform.origin : '';
+      const token = isRecord(platform) && typeof platform.token === 'string' ? platform.token : '';
+      if (!origin || !token) {
         usageCache = {
           state: 'signed-out',
           currency: null,
@@ -292,20 +405,20 @@ export function createAccountService(ctx, options = {}) {
       const tomorrow = new Date(current);
       tomorrow.setHours(24, 0, 0, 0);
       const tz = localTimezoneOffsetSeconds(current);
-      const url = new URL('/api/v0/usage/by_api_key/cost', platform.origin);
+      const url = new URL('/api/v0/usage/by_api_key/cost', origin);
       url.searchParams.set('start', String(Math.floor(periodStart.getTime() / 1000)));
       url.searchParams.set('end', String(Math.floor(tomorrow.getTime() / 1000)));
       url.searchParams.set('tz', String(tz));
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-      let response;
+      let response: Response;
       try {
         response = await fetch(url, {
           signal: controller.signal,
           headers: {
-            authorization: `Bearer ${platform.token}`,
-            'x-dsh-auth-token': platform.token,
+            authorization: `Bearer ${token}`,
+            'x-dsh-auth-token': token,
             accept: 'application/json',
             'x-client-platform': 'web',
             'x-client-locale': locale === 'zh' ? 'zh_CN' : 'en_US',
@@ -331,9 +444,11 @@ export function createAccountService(ctx, options = {}) {
         return usageCache;
       }
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const payload = await response.json();
-      const code = finiteNumber(payload?.code, 0);
-      const bizCode = finiteNumber(payload?.data?.biz_code, 0);
+      const payload: unknown = await response.json();
+      const payloadRecord: JsonRecord = isRecord(payload) ? payload : {};
+      const data: JsonRecord = isRecord(payloadRecord.data) ? payloadRecord.data : {};
+      const code: number = finiteNumber(payloadRecord.code, 0);
+      const bizCode: number = finiteNumber(data.biz_code, 0);
       if (code !== 0 || bizCode !== 0) {
         if (code === 40002 || code === 40003 || bizCode === 40002 || bizCode === 40003) {
           usageCache = {
@@ -373,10 +488,10 @@ export function createAccountService(ctx, options = {}) {
     }
   }
 
-  async function getAccount(force = false) {
+  async function getAccount(force = false): Promise<AccountSnapshot> {
     const balance = await readBalance(force);
     if (!balance.signedIn) {
-      const mode = getSettings()?.balance?.spendWindow === 'rolling' ? 'rolling' : 'calendar';
+      const mode: SpendWindow = getSettings()?.balance?.spendWindow === 'rolling' ? 'rolling' : 'calendar';
       return {
         available: true,
         signedIn: false,

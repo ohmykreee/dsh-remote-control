@@ -1,18 +1,37 @@
 /** Minimal RFC 6455 WebSocket server for the LAN console. */
 
 import crypto from 'node:crypto';
+import type { IncomingMessage } from 'node:http';
+import type { Socket } from 'node:net';
+
+import type {
+  WebSocketAuthorizeDecision,
+  WebSocketClient,
+  WebSocketClientInfo,
+  WebSocketHub,
+  WebSocketHubOptions,
+} from './types.js';
+import { isRecord } from './types.js';
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const MAX_MESSAGE_BYTES = 256 * 1024;
 const HEARTBEAT_MS = 25_000;
 const STALE_MS = 70_000;
 
-function normalizeIp(value) {
+/** Hub-side client: the public view plus the framing/heartbeat transport state. */
+interface HubClient extends WebSocketClient {
+  socket: Socket;
+  buffer: Buffer;
+  lastPong: number;
+  closed: boolean;
+}
+
+function normalizeIp(value: unknown): string {
   const ip = String(value || '');
   return ip.startsWith('::ffff:') ? ip.slice(7) : ip;
 }
 
-function deviceLabel(userAgent) {
+function deviceLabel(userAgent: unknown): string {
   const ua = String(userAgent || '');
   if (/iPhone/i.test(ua)) return 'iPhone';
   if (/iPad/i.test(ua)) return 'iPad';
@@ -23,9 +42,9 @@ function deviceLabel(userAgent) {
   return '浏览器';
 }
 
-function frame(opcode, payload = Buffer.alloc(0)) {
+function frame(opcode: number, payload: Buffer = Buffer.alloc(0)): Buffer {
   const length = payload.length;
-  let header;
+  let header: Buffer;
   if (length < 126) {
     header = Buffer.alloc(2);
     header[1] = length;
@@ -42,7 +61,7 @@ function frame(opcode, payload = Buffer.alloc(0)) {
   return Buffer.concat([header, payload]);
 }
 
-function closeFrame(code = 1000, reason = '') {
+function closeFrame(code: number = 1000, reason: string = ''): Buffer {
   const text = Buffer.from(String(reason), 'utf8');
   const payload = Buffer.alloc(2 + text.length);
   payload.writeUInt16BE(code, 0);
@@ -50,17 +69,18 @@ function closeFrame(code = 1000, reason = '') {
   return frame(0x8, payload);
 }
 
-export function createWebSocketHub(options) {
+export function createWebSocketHub(options: WebSocketHubOptions): WebSocketHub {
   const server = options.server;
   const pathname = options.path || '/ws';
-  const authorize = options.authorize || (() => ({ ok: true }));
-  const onConnection = options.onConnection || (() => {});
-  const onMessage = options.onMessage || (() => {});
-  const onClose = options.onClose || (() => {});
-  const clients = new Map();
+  const authorize: (req: IncomingMessage, url: URL) => WebSocketAuthorizeDecision | undefined =
+    options.authorize || (() => ({ ok: true }));
+  const onConnection: (client: WebSocketClient) => void = options.onConnection || (() => {});
+  const onMessage: (client: WebSocketClient, message: unknown) => void = options.onMessage || (() => {});
+  const onClose: (client: WebSocketClient) => void = options.onClose || (() => {});
+  const clients = new Map<string, HubClient>();
   let disposed = false;
 
-  function sendRaw(client, buffer) {
+  function sendRaw(client: HubClient, buffer: Buffer): void {
     try {
       if (!client.socket.destroyed && client.socket.writable) client.socket.write(buffer);
     } catch {
@@ -68,23 +88,23 @@ export function createWebSocketHub(options) {
     }
   }
 
-  function send(client, value) {
+  function send(client: HubClient, value: unknown): void {
     try {
-      sendRaw(client, frame(0x1, Buffer.from(JSON.stringify(value), 'utf8')));
+      sendRaw(client, frame(0x1, Buffer.from(JSON.stringify(value) as string, 'utf8')));
     } catch {
       /* ignore serialization issues */
     }
   }
 
-  function broadcast(value, predicate = null) {
-    const payload = Buffer.from(JSON.stringify(value), 'utf8');
+  function broadcast(value: unknown, predicate: ((client: WebSocketClient) => boolean) | null = null): void {
+    const payload = Buffer.from(JSON.stringify(value) as string, 'utf8');
     for (const client of clients.values()) {
       if (predicate && !predicate(client)) continue;
       sendRaw(client, frame(0x1, payload));
     }
   }
 
-  function closeClient(client, code = 1000, reason = '') {
+  function closeClient(client: HubClient, code: number = 1000, reason: string = ''): void {
     if (!client || client.closed) return;
     client.closed = true;
     try {
@@ -108,7 +128,7 @@ export function createWebSocketHub(options) {
     onClose(client);
   }
 
-  function handleMessage(client, opcode, payload) {
+  function handleMessage(client: HubClient, opcode: number, payload: Buffer): void {
     if (opcode === 0x8) {
       closeClient(client, 1000, 'bye');
       return;
@@ -125,7 +145,7 @@ export function createWebSocketHub(options) {
       closeClient(client, 1003, 'text frames only');
       return;
     }
-    let parsed;
+    let parsed: unknown;
     try {
       parsed = JSON.parse(payload.toString('utf8'));
     } catch {
@@ -136,11 +156,12 @@ export function createWebSocketHub(options) {
     try {
       onMessage(client, parsed);
     } catch (error) {
-      send(client, { type: 'error', error: String(error?.message || error) });
+      const detail: unknown = isRecord(error) && error.message ? error.message : error;
+      send(client, { type: 'error', error: String(detail) });
     }
   }
 
-  function consume(client, chunk) {
+  function consume(client: HubClient, chunk: Buffer): void {
     client.buffer = Buffer.concat([client.buffer, chunk]);
     if (client.buffer.length > MAX_MESSAGE_BYTES + 14) {
       closeClient(client, 1009, 'message too large');
@@ -190,12 +211,12 @@ export function createWebSocketHub(options) {
     }
   }
 
-  function handleUpgrade(req, socket, head) {
+  function handleUpgrade(req: IncomingMessage, socket: Socket, head: Buffer): void {
     if (disposed) {
       socket.destroy();
       return;
     }
-    let url;
+    let url: URL;
     try {
       url = new URL(req.url || '/', 'http://localhost');
     } catch {
@@ -228,7 +249,7 @@ export function createWebSocketHub(options) {
         `Sec-WebSocket-Accept: ${accept}\r\n\r\n`,
     );
     socket.setNoDelay?.(true);
-    const client = {
+    const client: HubClient = {
       id: crypto.randomUUID(),
       socket,
       ip: normalizeIp(req.socket.remoteAddress),
@@ -243,14 +264,15 @@ export function createWebSocketHub(options) {
       close: (code, reason) => closeClient(client, code, reason),
     };
     clients.set(client.id, client);
-    socket.on('data', (chunk) => consume(client, chunk));
+    socket.on('data', (chunk) => consume(client, chunk as Buffer));
     socket.on('error', () => closeClient(client, 1011, 'socket error'));
     socket.on('close', () => closeClient(client, 1000, 'closed'));
     if (head?.length) consume(client, head);
     try {
       onConnection(client);
     } catch (error) {
-      send(client, { type: 'error', error: String(error?.message || error) });
+      const detail: unknown = isRecord(error) && error.message ? error.message : error;
+      send(client, { type: 'error', error: String(detail) });
       closeClient(client, 1011, 'connection failed');
     }
   }
@@ -269,7 +291,7 @@ export function createWebSocketHub(options) {
   }, HEARTBEAT_MS);
   heartbeat.unref?.();
 
-  function info() {
+  function info(): WebSocketClientInfo[] {
     return [...clients.values()]
       .map((client) => ({
         id: client.id,
@@ -281,7 +303,7 @@ export function createWebSocketHub(options) {
       .sort((a, b) => b.connectedAt - a.connectedAt);
   }
 
-  function dispose() {
+  function dispose(): void {
     disposed = true;
     clearInterval(heartbeat);
     server.off('upgrade', handleUpgrade);

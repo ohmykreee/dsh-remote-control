@@ -8,6 +8,7 @@
  * Media progress smoothing / seek eligibility lives in `media-enrich.js`.
  */
 
+import type { JsonRecord, ProbeMediaResult, PublicMedia } from './types.js';
 import { probeInfo, materializeThumbnail, runProbe } from './probe.js';
 import { createMediaEnrichment, mediaKey } from './media-enrich.js';
 import { clamp, finiteNumber, serializeError } from './util.js';
@@ -17,29 +18,103 @@ const VOLUME_TTL_MS = 3000;
 const ERROR_TTL_MS = 5000;
 const MEDIA_ACTIONS = ['playpause', 'next', 'previous', 'seek', 'volume', 'mute'];
 
-function probeUnavailable() {
+/** Cached `media read` / media action result, plus the cache-hit marker. */
+export interface MediaCache {
+  ok: boolean;
+  available: boolean;
+  media: PublicMedia | null;
+  error: string | null;
+  backend: 'rust';
+  updatedAt: number;
+  cached?: boolean;
+}
+
+/** Cached `volume read` / volume action result, plus the cache-hit marker. */
+export interface VolumeCache {
+  ok: boolean;
+  available: boolean;
+  volume: number;
+  muted: boolean;
+  error: string | null;
+  backend: 'rust';
+  updatedAt: number;
+  cached?: boolean;
+}
+
+/** One channel projected for diagnostics; every field is null before the first read. */
+interface ChannelStatus {
+  ok: boolean | null;
+  available: boolean | null;
+  error: string | null;
+  backend: 'rust' | null;
+  updatedAt: number | null;
+}
+
+export interface MediaAdapterStatus {
+  media: ChannelStatus;
+  volume: ChannelStatus;
+}
+
+/** Media plus volume snapshot handed to the browser. */
+export interface MediaStatePayload {
+  ok: boolean;
+  media: MediaCache;
+  volume: VolumeCache;
+  label: string;
+  sampledAt: number;
+}
+
+/** Result of `control('volume' | 'mute', ...)`. */
+interface VolumeControlResult {
+  ok: true;
+  action: string;
+  volume: VolumeCache;
+}
+
+/** Result of the remaining media actions. */
+interface MediaControlResult {
+  ok: true;
+  action: string;
+  media: MediaCache;
+}
+
+/** Error raised by a probe action, carrying the raw payload for diagnostics. */
+interface ProbeActionError extends Error {
+  probeResult?: JsonRecord;
+}
+
+/** The adapter surface consumed by the platform wiring and the DSH service. */
+interface ProbeMediaAdapter {
+  getState(): Promise<MediaStatePayload>;
+  getMedia(force?: boolean): Promise<MediaCache>;
+  getVolume(force?: boolean): Promise<VolumeCache>;
+  control(action: string, value?: number | null): Promise<VolumeControlResult | MediaControlResult>;
+  status(): MediaAdapterStatus;
+}
+
+function probeUnavailable(): Error {
   const info = probeInfo();
   return new Error(info.error || 'native probe unavailable');
 }
 
-export function createProbeMediaAdapter({ label = '平台' } = {}) {
-  let mediaCache = null;
+export function createProbeMediaAdapter({ label = '平台' }: { label?: string } = {}): ProbeMediaAdapter {
+  let mediaCache: MediaCache | null = null;
   let mediaAt = 0;
-  let volumeCache = null;
+  let volumeCache: VolumeCache | null = null;
   let volumeAt = 0;
   const enrichment = createMediaEnrichment();
 
-  function activeAppId() {
+  function activeAppId(): string {
     return mediaCache?.media?.appId || '';
   }
 
-  async function callProbe(...args) {
+  async function callProbe(...args: string[]): Promise<ProbeMediaResult> {
     const info = probeInfo();
     if (!info.available) throw probeUnavailable();
-    const result = await materializeThumbnail(await runProbe(args));
+    const result: ProbeMediaResult = await materializeThumbnail(await runProbe(args));
     if (result?.ok === false) {
-      const error = new Error(
-        result.actionError || result.error || `dsh-probe ${args.join(' ')} failed`,
+      const error: ProbeActionError = new Error(
+        String(result.actionError || result.error || `dsh-probe ${args.join(' ')} failed`),
       );
       error.probeResult = result;
       throw error;
@@ -47,7 +122,7 @@ export function createProbeMediaAdapter({ label = '平台' } = {}) {
     return result;
   }
 
-  async function getMedia(force = false) {
+  async function getMedia(force: boolean = false): Promise<MediaCache> {
     const now = Date.now();
     const ttl = mediaCache?.ok ? MEDIA_TTL_MS : ERROR_TTL_MS;
     if (!force && mediaCache && now - mediaAt < ttl) return { ...mediaCache, cached: true };
@@ -79,7 +154,7 @@ export function createProbeMediaAdapter({ label = '平台' } = {}) {
     return mediaCache;
   }
 
-  async function getVolume(force = false) {
+  async function getVolume(force: boolean = false): Promise<VolumeCache> {
     const now = Date.now();
     const ttl = volumeCache?.ok ? VOLUME_TTL_MS : ERROR_TTL_MS;
     if (!force && volumeCache && now - volumeAt < ttl) return { ...volumeCache, cached: true };
@@ -110,7 +185,7 @@ export function createProbeMediaAdapter({ label = '平台' } = {}) {
     return volumeCache;
   }
 
-  async function controlVolume(normalized, value) {
+  async function controlVolume(normalized: string, value: number | null): Promise<VolumeControlResult> {
     const level = clamp(finiteNumber(value, 0.5) ?? 0.5, 0, 1);
     const result = normalized === 'mute'
       ? await callProbe('volume', 'toggle')
@@ -128,7 +203,10 @@ export function createProbeMediaAdapter({ label = '平台' } = {}) {
     return { ok: true, action: normalized, volume: volumeCache };
   }
 
-  async function control(action, value = null) {
+  async function control(
+    action: string,
+    value: number | null = null,
+  ): Promise<VolumeControlResult | MediaControlResult> {
     const normalized = String(action || '').toLowerCase();
     if (!MEDIA_ACTIONS.includes(normalized)) throw new Error('Unsupported media action');
     if (normalized === 'volume' || normalized === 'mute') {
@@ -141,7 +219,7 @@ export function createProbeMediaAdapter({ label = '平台' } = {}) {
       position = clamp(finiteNumber(value, 0) ?? 0, 0, 24 * 60 * 60);
     }
 
-    if (normalized === 'seek') enrichment.markSeek(mediaKey(mediaCache.media), position);
+    if (normalized === 'seek') enrichment.markSeek(mediaKey(mediaCache?.media), position);
     const args = ['media', normalized];
     if (normalized === 'seek') args.push('--position', String(position));
     const appId = activeAppId();
@@ -159,12 +237,12 @@ export function createProbeMediaAdapter({ label = '平台' } = {}) {
     return { ok: true, action: normalized, media: mediaCache };
   }
 
-  async function getState() {
+  async function getState(): Promise<MediaStatePayload> {
     const [media, volume] = await Promise.all([getMedia(), getVolume()]);
     return { ok: media.ok || volume.ok, media, volume, label, sampledAt: Date.now() };
   }
 
-  function status() {
+  function status(): MediaAdapterStatus {
     return {
       media: mediaCache
         ? {

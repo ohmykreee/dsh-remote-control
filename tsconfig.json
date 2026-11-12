@@ -1,9 +1,9 @@
 {
   "compilerOptions": {
     "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "strict": true,
     "noEmit": true,
     "isolatedModules": true,
@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "types": ["vite/client"]
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.js", "svelte.config.js"]
+  "include": ["src/svelte/**/*.ts", "src/svelte/**/*.svelte", "vite.config.js", "svelte.config.js"]
 }

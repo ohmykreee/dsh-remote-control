@@ -6,11 +6,41 @@
  * in Rust (`vendor::netease`) and arrives already attached to the payload.
  */
 
+import type { ProbeMediaResult, PublicMedia } from './types.js';
 import { clamp, finiteNumber } from './util.js';
 
-export function publicMedia(result) {
-  if (!result?.media) return null;
-  const media = result.media;
+/** Smoothed playback position for one track, carried between polls. */
+interface ProgressState {
+  key: string;
+  position: number;
+  at: number;
+  playing: boolean;
+}
+
+/** A seek this adapter just issued; the player needs a moment to catch up. */
+interface PendingSeek {
+  key: string;
+  position: number;
+  until: number;
+}
+
+/** Whether the current track has ever reported a usable position. */
+interface PositionEvidence {
+  key: string;
+  seen: boolean;
+  playing: boolean;
+}
+
+/** Stateful enricher shared by one media adapter. */
+export interface MediaEnrichment {
+  enrich(result: ProbeMediaResult | null | undefined): Promise<PublicMedia | null>;
+  markSeek(key: string, position: number, until?: number): void;
+  reset(): void;
+}
+
+export function publicMedia(result: ProbeMediaResult | null | undefined): PublicMedia | null {
+  const media = result?.media;
+  if (!result || !media) return null;
   return {
     appId: media.appId || '',
     title: media.title || '未命名媒体',
@@ -40,11 +70,11 @@ export function publicMedia(result) {
   };
 }
 
-export function mediaKey(media) {
+export function mediaKey(media: PublicMedia | null | undefined): string {
   return `${media?.appId || ''}|${media?.title || ''}|${media?.artist || ''}`;
 }
 
-function timelineAnchor(value, sampledAt) {
+function timelineAnchor(value: number | null, sampledAt: number): number | null {
   const anchor = finiteNumber(value, null);
   if (!anchor || anchor <= 0) return null;
   const age = sampledAt - anchor;
@@ -55,12 +85,12 @@ function timelineAnchor(value, sampledAt) {
  * Creates a stateful enricher. One instance per media adapter (the smoothing and
  * "has this player ever reported a position" evidence are per adapter).
  */
-export function createMediaEnrichment() {
-  let progress = null;
-  let pendingSeek = null;
-  let positionEvidence = null;
+export function createMediaEnrichment(): MediaEnrichment {
+  let progress: ProgressState | null = null;
+  let pendingSeek: PendingSeek | null = null;
+  let positionEvidence: PositionEvidence | null = null;
 
-  async function enrich(result) {
+  async function enrich(result: ProbeMediaResult | null | undefined): Promise<PublicMedia | null> {
     const sampledAt = finiteNumber(result?.sampledAt, Date.now()) || Date.now();
     let media = publicMedia(result);
     if (!media) {
@@ -101,7 +131,8 @@ export function createMediaEnrichment() {
     const end = Math.max(0, Number(media.endTime) || 0);
     const start = Math.max(0, Number(media.startTime) || 0);
     const duration = end > start ? end - start : end;
-    const clampPosition = (value) => (duration > 0 ? clamp(value, start, start + duration) : Math.max(0, value));
+    const clampPosition = (value: number): number =>
+      (duration > 0 ? clamp(value, start, start + duration) : Math.max(0, value));
 
     if (pendingSeek && (pendingSeek.key !== key || sampledAt >= pendingSeek.until)) pendingSeek = null;
 
@@ -139,11 +170,11 @@ export function createMediaEnrichment() {
   }
 
   /** Hold a requested seek position while the player catches up. */
-  function markSeek(key, position, until = Date.now() + 2600) {
+  function markSeek(key: string, position: number, until: number = Date.now() + 2600): void {
     pendingSeek = { key, position, until };
   }
 
-  function reset() {
+  function reset(): void {
     progress = null;
     pendingSeek = null;
     positionEvidence = null;

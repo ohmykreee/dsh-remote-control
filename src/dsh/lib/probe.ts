@@ -2,9 +2,10 @@
  * Bridge to the native `dsh-probe` sidecar.
  *
  * The sidecar is built per platform/arch into `native/bin/<platform>-<arch>/`
- * by `scripts/build-rust.mjs`. It is the only OS probe layer: there are no
- * PowerShell / playerctl / osascript fallbacks. When the binary is missing this
- * module reports it as unavailable and callers return a clear error state.
+ * by `scripts/build-rust.mjs` (its Rust source lives in `src/rust`). It is the
+ * only OS probe layer: there are no PowerShell / playerctl / osascript
+ * fallbacks. When the binary is missing this module reports it as unavailable
+ * and callers return a clear error state.
  *
  * Environment overrides:
  *   DSH_RC_PROBE=/absolute/path/to/dsh-probe   use a custom binary
@@ -13,13 +14,14 @@
  */
 
 import { execFile } from 'node:child_process';
+import type { ExecFileOptionsWithStringEncoding } from 'node:child_process';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 import { serializeError } from './util.js';
+import type { JsonRecord, ProbeMediaResult } from './types.js';
+import { isRecord } from './types.js';
 
-const execFileAsync = promisify(execFile);
 const ARCH = process.arch;
 const DIRECTORY = `${process.platform}-${ARCH}`;
 const BINARY = process.platform === 'win32' ? 'dsh-probe.exe' : 'dsh-probe';
@@ -28,12 +30,57 @@ const SCRATCH_DIRECTORY = fileURLToPath(new URL('../.probe-tmp', import.meta.url
 const FAILURE_COOLDOWN_MS = 15_000;
 const MAX_BUFFER = 24 * 1024 * 1024;
 
+export interface ProbeInfo {
+  available: boolean;
+  binary: string;
+  platform: NodeJS.Platform;
+  arch: string;
+  directory: string;
+  disabled: boolean;
+  error: string | null;
+}
+
+export interface ProbeStatus {
+  available: boolean;
+  binary: string;
+  platform: NodeJS.Platform;
+  arch: string;
+  directory: string;
+  error: string | null;
+}
+
+export interface RunProbeOptions {
+  timeout?: number;
+}
+
+interface ExecFileResult {
+  stdout: string;
+  stderr: string;
+}
+
+/** `execFile` with an explicit promise shape so callers get string stdout. */
+function execFileAsync(
+  file: string,
+  args: readonly string[],
+  options: ExecFileOptionsWithStringEncoding,
+): Promise<ExecFileResult> {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, options, (error, stdout, stderr) => {
+      if (error) {
+        reject(Object.assign(error, { stdout, stderr }));
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
 /**
  * The DSH sandbox can deny the sidecar writes to the system temp directory when
  * it runs from the plugin workspace. The host creates a workspace-local scratch
  * directory and passes it to the probe for its read-only SQLite copies.
  */
-function scratchDirectory() {
+function scratchDirectory(): string | null {
   try {
     mkdirSync(SCRATCH_DIRECTORY, { recursive: true });
     return SCRATCH_DIRECTORY;
@@ -42,18 +89,18 @@ function scratchDirectory() {
   }
 }
 
-let cachedInfo = null;
+let cachedInfo: ProbeInfo | null = null;
 let failureUntil = 0;
-let lastFailure = null;
+let lastFailure: string | null = null;
 
 /** Resolve (and cache) the sidecar location. Never throws. */
-export function probeInfo() {
+export function probeInfo(): ProbeInfo {
   if (cachedInfo) return cachedInfo;
   const disabled = /^(1|true|yes|on)$/i.test(process.env.DSH_RC_DISABLE_RUST_PROBE || '');
   const override = String(process.env.DSH_RC_PROBE || '').trim();
   const binary = override ? path.resolve(override) : DEFAULT_BINARY;
   let available = false;
-  let error = null;
+  let error: string | null = null;
   if (disabled) {
     error = 'native probe disabled by DSH_RC_DISABLE_RUST_PROBE';
   } else {
@@ -78,7 +125,7 @@ export function probeInfo() {
 }
 
 /** Availability plus the most recent failure, for diagnostics payloads. */
-export function probeStatus() {
+export function probeStatus(): ProbeStatus {
   const info = probeInfo();
   const coolingDown = Date.now() < failureUntil;
   return {
@@ -91,13 +138,14 @@ export function probeStatus() {
   };
 }
 
-function extractJson(stdout) {
+function extractJson(stdout: unknown): JsonRecord | null {
   const lines = String(stdout || '').split(/\r?\n/);
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     const line = lines[index].trim();
     if (!line.startsWith('{')) continue;
     try {
-      return JSON.parse(line);
+      const parsed: unknown = JSON.parse(line);
+      if (isRecord(parsed)) return parsed;
     } catch {
       /* keep looking upwards */
     }
@@ -105,8 +153,11 @@ function extractJson(stdout) {
   return null;
 }
 
-function failureMessage(error) {
-  const stderr = error?.stderr ? String(error.stderr).trim() : '';
+function failureMessage(error: unknown): string {
+  let stderrValue: unknown;
+  if (error instanceof Error) stderrValue = (error as Error & { stderr?: unknown }).stderr;
+  else if (isRecord(error)) stderrValue = error.stderr;
+  const stderr = stderrValue ? String(stderrValue).trim() : '';
   if (stderr) return stderr.slice(0, 800);
   return serializeError(error);
 }
@@ -117,7 +168,7 @@ function failureMessage(error) {
  * Throws only when the process cannot run or produces no JSON; a well-formed
  * `{ ok: false }` payload is returned so callers can show its error.
  */
-export async function runProbe(args, options = {}) {
+export async function runProbe(args: string[], options: RunProbeOptions = {}): Promise<JsonRecord> {
   const info = probeInfo();
   if (!info.available) throw new Error(info.error || 'native probe unavailable');
   if (Date.now() < failureUntil) {
@@ -142,7 +193,7 @@ export async function runProbe(args, options = {}) {
     return parsed;
   } catch (error) {
     // A usage error still prints JSON and exits 2; surface that payload.
-    const parsed = extractJson(error?.stdout);
+    const parsed = extractJson((error as { stdout?: unknown } | null)?.stdout);
     if (parsed) return parsed;
     lastFailure = failureMessage(error);
     failureUntil = Date.now() + FAILURE_COOLDOWN_MS;
@@ -156,7 +207,7 @@ export async function runProbe(args, options = {}) {
  * MPRIS can return an HTTP(S) artwork URL. The sidecar has no HTTP client, so
  * download the image here and convert it to a data URL.
  */
-export async function materializeThumbnail(result) {
+export async function materializeThumbnail(result: ProbeMediaResult): Promise<ProbeMediaResult> {
   const media = result?.media;
   if (!media || media.thumbnail || !media.thumbnailUrl) return result;
   if (!/^https?:\/\//i.test(media.thumbnailUrl)) return result;

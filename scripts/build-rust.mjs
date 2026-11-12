@@ -3,8 +3,8 @@
  * Build the `dsh-probe` Rust sidecar and copy it to
  * `native/bin/<platform>-<arch>/dsh-probe[.exe]`.
  *
- * The binary is intentionally gitignored: it is a local build artifact, not part
- * of the repository or the npm package.
+ * The Rust source lives in `src/rust`; the binary is intentionally gitignored:
+ * it is a local build artifact, not part of the repository or the npm package.
  *
  * Usage:
  *   node scripts/build-rust.mjs             release build (recommended)
@@ -29,7 +29,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const manifest = path.join(root, 'native', 'rust', 'Cargo.toml');
+const manifest = path.join(root, 'src', 'rust', 'Cargo.toml');
 const archNames = { x64: 'x64', arm64: 'arm64', ia32: 'ia32', arm: 'arm' };
 
 const args = process.argv.slice(2);
@@ -188,7 +188,7 @@ if (!skipBuild) {
   }
 }
 
-const targetDir = path.join(root, 'native', 'rust', 'target');
+const targetDir = path.join(root, 'src', 'rust', 'target');
 const source = target
   ? path.join(targetDir, target, profile, binaryName)
   : path.join(targetDir, profile, binaryName);

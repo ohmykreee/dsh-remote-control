@@ -3,7 +3,9 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import { createServer as createHttpServer } from 'node:http';
+import type { IncomingMessage, Server as HttpServer, ServerResponse } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
+import type { Server as HttpsServer } from 'node:https';
 import { networkInterfaces } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,13 +30,24 @@ import {
 } from './util.js';
 import { createWeatherService } from './weather.js';
 import { createWebSocketHub } from './ws.js';
+import type {
+  DshContext,
+  JsonRecord,
+  NotificationItem,
+  NotificationPayload,
+  WebSocketAuthorizeDecision,
+  WebSocketClient,
+  WebSocketClientInfo,
+  WebSocketHub,
+} from './types.js';
+import { isRecord } from './types.js';
 
 const WEB_DIR = fileURLToPath(new URL('../web/', import.meta.url));
 const DEFAULT_PORT = 38765;
 const COOKIE_NAME = 'dsh_rc';
 const BODY_LIMIT = 64 * 1024;
 
-const MIME = {
+const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -53,8 +66,202 @@ const MIME = {
 
 const SAFE_FILE_SEGMENT = /^[A-Za-z0-9._-]+$/;
 
-function safeRelativeFile(value) {
-  let decoded;
+/** Sibling services are typed by derivation so no port order is assumed. */
+type SettingsStore = ReturnType<typeof createSettingsStore>;
+type SettingsValue = ReturnType<SettingsStore['get']>;
+type AccountService = ReturnType<typeof createAccountService>;
+type WeatherService = ReturnType<typeof createWeatherService>;
+type PerformanceService = ReturnType<typeof createPerformanceService>;
+type PlatformAdapters = ReturnType<typeof createPlatformAdapters>;
+type NotificationCache = ReturnType<typeof createNotificationCache>;
+type PendingTracker = ReturnType<typeof createPendingTracker>;
+type SessionList = ReturnType<typeof collectSessions>;
+type WeatherSnapshot = Awaited<ReturnType<WeatherService['getWeather']>>;
+type AccountSnapshot = Awaited<ReturnType<AccountService['getAccount']>>;
+type PerformanceSnapshot = Awaited<ReturnType<PerformanceService['sample']>>;
+type MediaSnapshot = Awaited<ReturnType<PlatformAdapters['media']['getState']>>;
+
+/** Response headers accepted by the JSON and text helpers. */
+type ResponseHeaders = Record<string, string | number>;
+
+/** Parsed IPv4 network of one interface. */
+interface CidrInfo {
+  network: number;
+  mask: number;
+  prefix: number;
+  cidr: string;
+}
+
+/** One LAN interface as exposed to the settings panel. */
+export interface InterfaceEntry {
+  name: string;
+  address: string;
+  netmask: string;
+  cidr: string | null;
+  selected: boolean;
+  url?: string;
+}
+
+/** One advertised console URL for a selected interface. */
+export interface RemoteUrlEntry {
+  name: string;
+  address: string;
+  url?: string;
+}
+
+/** Untrusted input forwarded to the weather service (`{}` = auto location). */
+type WeatherInput = {
+  latitude?: number | null;
+  longitude?: number | null;
+  name?: string;
+};
+
+/** Browser-facing settings snapshot pushed over the socket. */
+export interface RemoteSettingsPayload {
+  theme: string;
+  temperatureUnit: string;
+  notificationLimit: number;
+  pageOrder: string[];
+  pageEnabled: Record<string, boolean>;
+}
+
+/** Filtered notification view built from a raw probe payload. */
+interface NotificationViewPayload {
+  available: boolean;
+  reason: string | null;
+  liveOnly: boolean;
+  notifications: NotificationItem[];
+  apps: ReturnType<NotificationCache['list']>;
+  enabledApps: string[];
+  updatedAt: number;
+}
+
+/** Account view after the low-balance decoration is applied. */
+type AccountView = AccountSnapshot & { lowBalance: boolean; lowThreshold: number | null };
+
+/** Degraded account payload used when the account service throws. */
+interface AccountFallback {
+  available: false;
+  signedIn: false;
+  error: string;
+  lowBalance: false;
+}
+
+/** Degraded weather payload used when the weather service rejects. */
+interface WeatherFallback {
+  ok: false;
+  error: string;
+}
+
+/** Degraded performance payload used when sampling throws. */
+interface PerformanceFallback {
+  ok: false;
+  error: string;
+  cpu: { usage: null; model: string; cores: null };
+  memory: { total: null; used: null; percent: null };
+  gpu: { ok: false; error: string };
+  temperatures: unknown[];
+  sampledAt: number;
+}
+
+/** Degraded media payload used when the adapter throws. */
+interface MediaFallback {
+  ok: false;
+  media: { ok: false; available: false; media: null; error: string };
+  volume: { ok: false; volume: number; muted: boolean; error: string };
+}
+
+/** Notification payload used when the probe snapshot is unusable. */
+interface NotificationFallbackPayload {
+  available: false;
+  reason: string;
+  notifications: NotificationItem[];
+  apps: ReturnType<NotificationCache['list']>;
+}
+
+/** Everything the sidebar/phone needs about the running console. */
+export interface InfoPayload {
+  version: string;
+  platform: NodeJS.Platform;
+  platformLabel: string;
+  running: boolean;
+  port: number | null;
+  protocol: 'http' | 'https';
+  startedAt: number;
+  error: string | null;
+  tls: { configured: boolean; active: boolean; error: string | null };
+  tokenRequired: boolean;
+  primaryUrl: string;
+  urls: RemoteUrlEntry[];
+  usesLoopbackOnly: boolean;
+  qrPath: string;
+  routes: { info: string; settings: string; remote: string };
+  clients: WebSocketClientInfo[];
+  capabilities: { notifications: unknown; media: unknown; volume: unknown };
+}
+
+/** Aggregate snapshot sent to a phone when it (re)connects. */
+interface OverviewPayload {
+  sessions: SessionList;
+  sessionsError: string | null;
+  weather: WeatherSnapshot | WeatherFallback;
+  notifications: NotificationViewPayload | NotificationFallbackPayload;
+  account: AccountView | AccountFallback;
+  performance: PerformanceSnapshot | PerformanceFallback | null;
+  settings: RemoteSettingsPayload;
+}
+
+/** Full settings-panel payload (settings + diagnostics). */
+export interface SettingsPayload {
+  ok: boolean;
+  settings: ReturnType<SettingsStore['public']>;
+  interfaces: InterfaceEntry[];
+  apps: ReturnType<NotificationCache['list']>;
+  clients: WebSocketClientInfo[];
+  info: InfoPayload;
+  capabilities: {
+    notifications: unknown;
+    media: unknown;
+    volume: unknown;
+    weather: { ok: unknown; updatedAt: unknown };
+  };
+  diagnostics: {
+    platform: NodeJS.Platform;
+    platformLabel: string;
+    version: string;
+    running: boolean;
+    protocol: 'http' | 'https';
+    clientCount: number;
+    notificationApps: number;
+  };
+}
+
+/** Options accepted by {@link createRemoteControlService}. */
+export interface RemoteControlOptions {
+  log?: (message: string) => void;
+  locale?: string;
+}
+
+/** The Host service surface consumed by `src/dsh/index.ts`. */
+export interface RemoteControlService {
+  start(): Promise<InfoPayload>;
+  stop(): Promise<void>;
+  restart(): Promise<InfoPayload>;
+  getInfo(): InfoPayload;
+  handleInfo(req: IncomingMessage, res: ServerResponse): Promise<void>;
+  handleQr(req: IncomingMessage, res: ServerResponse): Promise<void>;
+  handleSettingsGet(req: IncomingMessage, res: ServerResponse): Promise<void>;
+  handleSettingsPost(req: IncomingMessage, res: ServerResponse): Promise<void>;
+  handleTheme(req: IncomingMessage, res: ServerResponse): Promise<void>;
+  handleTokenRotate(req: IncomingMessage, res: ServerResponse): Promise<void>;
+  handleDisconnect(req: IncomingMessage, res: ServerResponse): Promise<void>;
+  settingsStore: SettingsStore;
+  applySettings(patch: JsonRecord): Promise<SettingsValue>;
+  dispose(): void;
+}
+
+function safeRelativeFile(value: string): string | null {
+  let decoded: string;
   try {
     decoded = decodeURIComponent(value);
   } catch {
@@ -69,7 +276,7 @@ function safeRelativeFile(value) {
 }
 
 
-function cookieValue(header, name) {
+function cookieValue(header: string | undefined, name: string): string | null {
   if (!header) return null;
   for (const part of String(header).split(';')) {
     const index = part.indexOf('=');
@@ -79,7 +286,7 @@ function cookieValue(header, name) {
   return null;
 }
 
-function ipv4ToInt(ip) {
+function ipv4ToInt(ip: string): number | null {
   const parts = String(ip).split('.');
   if (parts.length !== 4) return null;
   let value = 0;
@@ -91,11 +298,11 @@ function ipv4ToInt(ip) {
   return value >>> 0;
 }
 
-function intToIpv4(value) {
+function intToIpv4(value: number): string {
   return [24, 16, 8, 0].map((shift) => (value >>> shift) & 255).join('.');
 }
 
-function prefixFromNetmask(netmask) {
+function prefixFromNetmask(netmask: string): number | null {
   const mask = ipv4ToInt(netmask);
   if (mask === null) return null;
   let prefix = 0;
@@ -106,7 +313,7 @@ function prefixFromNetmask(netmask) {
   return prefix;
 }
 
-function cidrFor(address, netmask) {
+function cidrFor(address: string, netmask: string): CidrInfo | null {
   const ip = ipv4ToInt(address);
   const mask = ipv4ToInt(netmask);
   if (ip === null || mask === null) return null;
@@ -115,21 +322,21 @@ function cidrFor(address, netmask) {
   return { network: ip & mask, mask, prefix, cidr: `${intToIpv4(ip & mask)}/${prefix}` };
 }
 
-function normalizeIp(value) {
+function normalizeIp(value: string | undefined): string {
   const ip = String(value || '');
   return ip.startsWith('::ffff:') ? ip.slice(7) : ip;
 }
 
-function isLoopback(ip) {
+function isLoopback(ip: string): boolean {
   return ip === '::1' || ip === '127.0.0.1' || ip.startsWith('127.');
 }
 
-function parsePort(value) {
-  const n = Number.parseInt(value, 10);
+function parsePort(value: string | number): number {
+  const n = Number.parseInt(String(value), 10);
   return Number.isInteger(n) && n >= 0 && n <= 65535 ? n : DEFAULT_PORT;
 }
 
-function jsonResponse(res, status, value, extraHeaders = {}) {
+function jsonResponse(res: ServerResponse, status: number, value: unknown, extraHeaders: ResponseHeaders = {}): void {
   const body = JSON.stringify(value);
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
@@ -140,7 +347,7 @@ function jsonResponse(res, status, value, extraHeaders = {}) {
   res.end(body);
 }
 
-function textResponse(res, status, body, extraHeaders = {}) {
+function textResponse(res: ServerResponse, status: number, body: string, extraHeaders: ResponseHeaders = {}): void {
   res.writeHead(status, {
     'content-type': 'text/html; charset=utf-8',
     'cache-control': 'no-store',
@@ -149,17 +356,17 @@ function textResponse(res, status, body, extraHeaders = {}) {
   res.end(body);
 }
 
-function unauthorizedPage() {
+function unauthorizedPage(): string {
   return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>需要配对</title>
 <style>html,body{height:100%;margin:0;background:#05070d;color:#f4f7ff;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Noto Sans SC",sans-serif}main{height:100%;display:grid;place-items:center;padding:32px;box-sizing:border-box}.card{max-width:460px;padding:32px;border:1px solid #1b2436;border-radius:28px;background:#0c111c;box-shadow:0 30px 80px #0008}h1{font-size:24px;margin:0 0 12px}p{color:#93a0b8;margin:0 0 10px}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#4d6bff;margin-right:8px}</style>
 <main><div class="card"><h1><span class="dot"></span>需要配对</h1><p>请从 DSH 侧边栏的远程控制台重新扫码。</p></main></html>`;
 }
 
-function readBody(req, limit = BODY_LIMIT) {
+function readBody(req: IncomingMessage, limit: number = BODY_LIMIT): Promise<JsonRecord> {
   return new Promise((resolve, reject) => {
     let size = 0;
-    const chunks = [];
-    req.on('data', (chunk) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => {
       size += chunk.length;
       if (size > limit) {
         reject(new Error('Request body is too large'));
@@ -181,53 +388,53 @@ function readBody(req, limit = BODY_LIMIT) {
   });
 }
 
-export function createRemoteControlService(ctx, options = {}) {
-  const log = options.log || (() => {});
+export function createRemoteControlService(ctx: DshContext, options: RemoteControlOptions = {}): RemoteControlService {
+  const log: (message: string) => void = options.log || (() => {});
   const locale = options.locale || 'zh';
-  const settingsStore = createSettingsStore();
-  const notificationCache = createNotificationCache(settingsStore.dir);
-  const pending = createPendingTracker(ctx);
-  const weather = createWeatherService();
-  const performance = createPerformanceService();
-  const adapters = createPlatformAdapters({ limit: 8 });
-  const account = createAccountService(ctx, { locale, getSettings: settingsStore.get });
+  const settingsStore: SettingsStore = createSettingsStore();
+  const notificationCache: NotificationCache = createNotificationCache(settingsStore.dir);
+  const pending: PendingTracker = createPendingTracker(ctx);
+  const weather: WeatherService = createWeatherService();
+  const performance: PerformanceService = createPerformanceService();
+  const adapters: PlatformAdapters = createPlatformAdapters({ limit: 8 });
+  const account: AccountService = createAccountService(ctx, { locale, getSettings: settingsStore.get });
   const preferredPort = parsePort(process.env.DSH_REMOTE_CONTROL_PORT || DEFAULT_PORT);
   const startedAt = Date.now();
 
-  let server = null;
-  let hub = null;
-  let port = null;
+  let server: HttpServer | HttpsServer | null = null;
+  let hub: WebSocketHub | null = null;
+  let port: number | null = null;
   let running = false;
-  let protocol = 'http';
+  let protocol: 'http' | 'https' = 'http';
   let tlsActive = false;
-  let tlsError = null;
-  let error = null;
-  let urls = [];
+  let tlsError: string | null = null;
+  let error: string | null = null;
+  let urls: RemoteUrlEntry[] = [];
   let primaryUrl = '';
   let disposed = false;
-  let lastWeather = null;
-  let loops = null;
-  const lastSnapshots = new Map();
+  let lastWeather: WeatherSnapshot | null = null;
+  let loops: NodeJS.Timeout[] | null = null;
+  const lastSnapshots = new Map<string, string>();
   let notificationsBusy = false;
   let mediaBusy = false;
   let accountBusy = false;
   let weatherBusy = false;
   let performanceBusy = false;
-  let performanceCache = null;
+  let performanceCache: PerformanceSnapshot | null = null;
   let performanceAt = 0;
 
-  function settings() {
+  function settings(): SettingsValue {
     return settingsStore.get();
   }
 
-  function effectiveTheme() {
+  function effectiveTheme(): string {
     const value = settings();
     return value.theme === 'dsh' ? value.dshTheme : value.theme;
   }
 
-  function interfaceEntries(withUrls = false) {
+  function interfaceEntries(withUrls: boolean = false): InterfaceEntry[] {
     const selected = settings().allowedInterfaces;
-    const entries = [];
+    const entries: Array<InterfaceEntry & { score: number }> = [];
     for (const [name, addresses] of Object.entries(networkInterfaces())) {
       for (const address of addresses ?? []) {
         if (address.family !== 'IPv4' || address.internal) continue;
@@ -257,14 +464,14 @@ export function createRemoteControlService(ctx, options = {}) {
     return entries.map(({ score, ...entry }) => entry);
   }
 
-  function selectedNetworks() {
+  function selectedNetworks(): CidrInfo[] {
     return interfaceEntries()
       .filter((entry) => entry.selected)
       .map((entry) => cidrFor(entry.address, entry.netmask))
-      .filter(Boolean);
+      .filter((entry): entry is CidrInfo => entry !== null);
   }
 
-  function ipAllowed(remoteAddress) {
+  function ipAllowed(remoteAddress: string | undefined): boolean {
     const ip = normalizeIp(remoteAddress);
     if (!ip) return false;
     if (isLoopback(ip)) return true;
@@ -273,7 +480,7 @@ export function createRemoteControlService(ctx, options = {}) {
     return selectedNetworks().some((network) => (value & network.mask) === (network.network & network.mask));
   }
 
-  function recomputeUrls() {
+  function recomputeUrls(): void {
     if (!port) {
       urls = [];
       primaryUrl = '';
@@ -285,17 +492,17 @@ export function createRemoteControlService(ctx, options = {}) {
     primaryUrl = urls[0]?.url || `${protocol}://127.0.0.1:${port}/`;
   }
 
-  function remoteTokenQuery() {
+  function remoteTokenQuery(): string {
     const value = settings();
     return value.tokenEnabled ? `?token=${encodeURIComponent(value.token)}` : '';
   }
 
-  function remoteUrl() {
+  function remoteUrl(): string {
     if (!primaryUrl) return '';
     return `${primaryUrl}${remoteTokenQuery()}`;
   }
 
-  function getInfo() {
+  function getInfo(): InfoPayload {
     const value = settings();
     const mediaStatus = adapters.media?.status?.() || {};
     const notificationStatus = adapters.notifications?.status?.() || {};
@@ -332,7 +539,7 @@ export function createRemoteControlService(ctx, options = {}) {
     };
   }
 
-  function remoteSettings() {
+  function remoteSettings(): RemoteSettingsPayload {
     return {
       theme: effectiveTheme(),
       temperatureUnit: settings().temperatureUnit,
@@ -342,14 +549,14 @@ export function createRemoteControlService(ctx, options = {}) {
     };
   }
 
-  function isAuthorized(req, url) {
+  function isAuthorized(req: IncomingMessage, url: URL): boolean {
     if (!ipAllowed(req.socket.remoteAddress)) return false;
     const value = settings();
     if (!value.tokenEnabled) return true;
     return url.searchParams.get('token') === value.token || cookieValue(req.headers.cookie, COOKIE_NAME) === value.token;
   }
 
-  function authHeaders(url) {
+  function authHeaders(url: URL): ResponseHeaders {
     const value = settings();
     if (!value.tokenEnabled || url.searchParams.get('token') !== value.token) return {};
     return {
@@ -357,14 +564,19 @@ export function createRemoteControlService(ctx, options = {}) {
     };
   }
 
-  async function serveStatic(req, res, pathname, extraHeaders = {}) {
-    const map = {
+  async function serveStatic(
+    req: IncomingMessage,
+    res: ServerResponse,
+    pathname: string,
+    extraHeaders: ResponseHeaders = {},
+  ): Promise<boolean> {
+    const map: Record<string, string> = {
       '/': 'index.html',
       '/index.html': 'index.html',
       '/manifest.webmanifest': 'manifest.webmanifest',
       '/icon.svg': 'icon.svg',
     };
-    let file = map[pathname];
+    let file: string | undefined = map[pathname];
     if (!file && pathname.startsWith('/assets/')) {
       const relative = safeRelativeFile(pathname.slice('/assets/'.length));
       if (relative) file = `assets/${relative}`;
@@ -397,7 +609,8 @@ export function createRemoteControlService(ctx, options = {}) {
       res.end(req.method === 'HEAD' ? undefined : body);
       return true;
     } catch (readError) {
-      if (readError?.code === 'ENOENT' || readError?.code === 'ENOTDIR') {
+      const code = isRecord(readError) ? readError.code : undefined;
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
         textResponse(res, 404, 'Asset not found');
       } else {
         textResponse(res, 500, `Asset unavailable: ${serializeError(readError)}`);
@@ -406,14 +619,14 @@ export function createRemoteControlService(ctx, options = {}) {
     }
   }
 
-  function sameOrigin(req) {
+  function sameOrigin(req: IncomingMessage): boolean {
     const origin = req.headers.origin;
     if (!origin) return true;
     const host = req.headers.host;
     return origin === `http://${host}` || origin === `https://${host}`;
   }
 
-  async function handleRemote(req, res) {
+  async function handleRemote(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
       if (!ipAllowed(req.socket.remoteAddress)) {
         textResponse(res, 403, 'This device is not allowed to access the console.');
@@ -461,12 +674,12 @@ export function createRemoteControlService(ctx, options = {}) {
     }
   }
 
-  function notificationView(raw) {
+  function notificationView(raw: NotificationPayload): NotificationViewPayload {
     const value = settings();
-    const enabled = new Set(value.notifications.enabledApps);
+    const enabled = new Set<string>(value.notifications.enabledApps);
     const apps = notificationCache.list();
     const list = (Array.isArray(raw?.notifications) ? raw.notifications : [])
-      .filter((item) => enabled.size === 0 || enabled.has(item.appKey))
+      .filter((item) => enabled.size === 0 || enabled.has(item.appKey ?? ''))
       .slice(0, value.notifications.limit);
     return {
       available: raw?.available !== false,
@@ -479,8 +692,8 @@ export function createRemoteControlService(ctx, options = {}) {
     };
   }
 
-  async function getNotificationsView() {
-    let raw;
+  async function getNotificationsView(): Promise<NotificationViewPayload> {
+    let raw: NotificationPayload;
     try {
       raw = await adapters.notifications.getNotifications();
     } catch (errorValue) {
@@ -490,9 +703,9 @@ export function createRemoteControlService(ctx, options = {}) {
     return notificationView(raw);
   }
 
-  async function getWeatherView() {
+  async function getWeatherView(): Promise<WeatherSnapshot> {
     const value = settings();
-    let input = {};
+    let input: WeatherInput = {};
     if (value.weather.mode === 'manual') {
       if (value.weather.latitude !== null && value.weather.longitude !== null) {
         input = {
@@ -502,18 +715,18 @@ export function createRemoteControlService(ctx, options = {}) {
         };
       }
     }
-    const result = await weather.getWeather(input);
+    const result: WeatherSnapshot = await weather.getWeather(input);
     result.forecastMode = value.weather.forecastMode === 'daily' ? 'daily' : 'hourly';
     lastWeather = result;
     return result;
   }
 
-  function decorateAccount(value) {
-    const configured = settings().balance.lowThreshold;
+  function decorateAccount(value: AccountSnapshot): AccountView {
+    const configured: unknown = settings().balance.lowThreshold;
     const threshold = configured === null || configured === '' ? null : Number(configured);
     if (
       value?.signedIn &&
-      value.balance &&
+      isRecord(value.balance) &&
       Number.isFinite(Number(value.balance.balance)) &&
       threshold !== null &&
       Number.isFinite(threshold) &&
@@ -528,7 +741,7 @@ export function createRemoteControlService(ctx, options = {}) {
     return { ...value, lowBalance: false, lowThreshold: null };
   }
 
-  async function getAccountView() {
+  async function getAccountView(): Promise<AccountView | AccountFallback> {
     try {
       return decorateAccount(await account.getAccount());
     } catch (errorValue) {
@@ -541,7 +754,7 @@ export function createRemoteControlService(ctx, options = {}) {
     }
   }
 
-  async function getPerformanceView(force = false) {
+  async function getPerformanceView(force: boolean = false): Promise<PerformanceSnapshot | PerformanceFallback> {
     const now = Date.now();
     if (!force && performanceCache && now - performanceAt < 1600) return performanceCache;
     try {
@@ -561,7 +774,7 @@ export function createRemoteControlService(ctx, options = {}) {
     }
   }
 
-  async function buildOverview() {
+  async function buildOverview(): Promise<OverviewPayload> {
     const enabled = settings().pageEnabled;
     const [weatherResult, notificationsResult, accountResult, performanceResult] = await Promise.allSettled([
       enabled.home ? getWeatherView() : Promise.resolve(null),
@@ -569,8 +782,8 @@ export function createRemoteControlService(ctx, options = {}) {
       enabled.sessions ? getAccountView() : Promise.resolve(null),
       enabled.performance ? getPerformanceView() : Promise.resolve(null),
     ]);
-    let sessions = [];
-    let sessionsError = null;
+    let sessions: SessionList = [];
+    let sessionsError: string | null = null;
     if (enabled.sessions) {
       try {
         sessions = collectSessions(ctx, pending);
@@ -584,15 +797,25 @@ export function createRemoteControlService(ctx, options = {}) {
       weather:
         weatherResult.status === 'fulfilled' && weatherResult.value
           ? weatherResult.value
-          : { ok: false, error: serializeError(weatherResult.reason) },
+          : { ok: false, error: serializeError('reason' in weatherResult ? weatherResult.reason : undefined) },
       notifications:
         notificationsResult.status === 'fulfilled' && notificationsResult.value
           ? notificationsResult.value
-          : { available: false, reason: serializeError(notificationsResult.reason), notifications: [], apps: [] },
+          : {
+              available: false,
+              reason: serializeError('reason' in notificationsResult ? notificationsResult.reason : undefined),
+              notifications: [],
+              apps: [],
+            },
       account:
         accountResult.status === 'fulfilled' && accountResult.value
           ? accountResult.value
-          : { available: false, signedIn: false, error: serializeError(accountResult.reason), lowBalance: false },
+          : {
+              available: false,
+              signedIn: false,
+              error: serializeError('reason' in accountResult ? accountResult.reason : undefined),
+              lowBalance: false,
+            },
       performance:
         performanceResult.status === 'fulfilled' && performanceResult.value
           ? performanceResult.value
@@ -601,7 +824,7 @@ export function createRemoteControlService(ctx, options = {}) {
     };
   }
 
-  async function buildMedia() {
+  async function buildMedia(): Promise<MediaSnapshot | MediaFallback> {
     try {
       const value = await adapters.media.getState();
       return value;
@@ -614,9 +837,9 @@ export function createRemoteControlService(ctx, options = {}) {
     }
   }
 
-  function push(type, data, force = false) {
+  function push(type: string, data: unknown, force: boolean = false): void {
     if (!hub || hub.size() === 0) return;
-    let serialized;
+    let serialized: string;
     try {
       serialized = JSON.stringify(data);
     } catch {
@@ -627,9 +850,9 @@ export function createRemoteControlService(ctx, options = {}) {
     hub.broadcast({ type, data });
   }
 
-  async function pushSessions(force = false) {
+  async function pushSessions(force: boolean = false): Promise<void> {
     if (!hub || hub.size() === 0 || !settings().pageEnabled.sessions) return;
-    let sessions = [];
+    let sessions: SessionList = [];
     try {
       sessions = collectSessions(ctx, pending);
     } catch {
@@ -638,7 +861,7 @@ export function createRemoteControlService(ctx, options = {}) {
     push('sessions', sessions, force);
   }
 
-  async function pushNotifications(force = false) {
+  async function pushNotifications(force: boolean = false): Promise<void> {
     if (!hub || hub.size() === 0 || notificationsBusy || !settings().pageEnabled.home) return;
     notificationsBusy = true;
     try {
@@ -649,7 +872,7 @@ export function createRemoteControlService(ctx, options = {}) {
     }
   }
 
-  async function pushAccount(force = false) {
+  async function pushAccount(force: boolean = false): Promise<void> {
     if (!hub || hub.size() === 0 || accountBusy || !settings().pageEnabled.sessions) return;
     accountBusy = true;
     try {
@@ -660,7 +883,7 @@ export function createRemoteControlService(ctx, options = {}) {
     }
   }
 
-  async function pushWeather(force = false) {
+  async function pushWeather(force: boolean = false): Promise<void> {
     if (!hub || hub.size() === 0 || weatherBusy || !settings().pageEnabled.home) return;
     weatherBusy = true;
     try {
@@ -671,7 +894,7 @@ export function createRemoteControlService(ctx, options = {}) {
     }
   }
 
-  async function pushMedia(force = false) {
+  async function pushMedia(force: boolean = false): Promise<void> {
     if (!hub || hub.size() === 0 || mediaBusy || !settings().pageEnabled.music) return;
     mediaBusy = true;
     try {
@@ -682,7 +905,7 @@ export function createRemoteControlService(ctx, options = {}) {
     }
   }
 
-  async function pushPerformance(force = false) {
+  async function pushPerformance(force: boolean = false): Promise<void> {
     if (!hub || hub.size() === 0 || performanceBusy) return;
     if (!settings().pageEnabled.performance) return;
     performanceBusy = true;
@@ -694,16 +917,16 @@ export function createRemoteControlService(ctx, options = {}) {
     }
   }
 
-  function pushSettings(force = false) {
+  function pushSettings(force: boolean = false): void {
     push('settings', remoteSettings(), force);
   }
 
-  function pushClients() {
+  function pushClients(): void {
     if (!hub) return;
     push('clients', hub.info(), true);
   }
 
-  function startLoops() {
+  function startLoops(): void {
     if (loops) return;
     loops = [
       setInterval(() => {
@@ -743,13 +966,13 @@ export function createRemoteControlService(ctx, options = {}) {
     for (const timer of loops) timer.unref?.();
   }
 
-  function stopLoops() {
+  function stopLoops(): void {
     if (!loops) return;
     for (const timer of loops) clearInterval(timer);
     loops = null;
   }
 
-  async function sendInitial(client) {
+  async function sendInitial(client: WebSocketClient): Promise<void> {
     try {
       client.send({ type: 'welcome', settings: remoteSettings() });
       const enabled = settings().pageEnabled;
@@ -774,8 +997,8 @@ export function createRemoteControlService(ctx, options = {}) {
     }
   }
 
-  async function handleSocketMessage(client, message) {
-    if (!message || typeof message !== 'object') return;
+  async function handleSocketMessage(client: WebSocketClient, message: unknown): Promise<void> {
+    if (!isRecord(message)) return;
     if (message.type === 'action') {
       const action = safeString(message.action, 40).toLowerCase();
       if (!['playpause', 'next', 'previous', 'seek', 'volume', 'mute'].includes(action)) {
@@ -805,7 +1028,7 @@ export function createRemoteControlService(ctx, options = {}) {
     }
   }
 
-  function authorizeSocket(req, url) {
+  function authorizeSocket(req: IncomingMessage, url: URL): WebSocketAuthorizeDecision {
     if (!ipAllowed(req.socket.remoteAddress)) return { ok: false, status: 403 };
     const origin = req.headers.origin;
     if (origin) {
@@ -820,33 +1043,33 @@ export function createRemoteControlService(ctx, options = {}) {
     return { ok: false, status: 401 };
   }
 
-  function attachHub(instance) {
+  function attachHub(instance: HttpServer | HttpsServer): WebSocketHub {
     return createWebSocketHub({
       server: instance,
       path: '/ws',
       authorize: authorizeSocket,
-      onConnection(client) {
+      onConnection(client: WebSocketClient): void {
         startLoops();
         pushClients();
         void sendInitial(client);
       },
-      onMessage(client, message) {
+      onMessage(client: WebSocketClient, message: unknown): void {
         void handleSocketMessage(client, message);
       },
-      onClose() {
+      onClose(): void {
         if (!hub || hub.size() === 0) stopLoops();
         pushClients();
       },
     });
   }
 
-  async function listen(instance, selectedPort) {
-    await new Promise((resolve, reject) => {
-      const onError = (listenError) => {
+  async function listen(instance: HttpServer | HttpsServer, selectedPort: number): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const onError = (listenError: unknown): void => {
         instance.off('listening', onListening);
         reject(listenError);
       };
-      const onListening = () => {
+      const onListening = (): void => {
         instance.off('error', onError);
         resolve();
       };
@@ -856,9 +1079,9 @@ export function createRemoteControlService(ctx, options = {}) {
     });
   }
 
-  async function createInstance() {
+  async function createInstance(): Promise<HttpServer | HttpsServer> {
     const value = settings();
-    let tlsOptions = null;
+    let tlsOptions: { cert: Buffer; key: Buffer } | null = null;
     tlsError = null;
     tlsActive = false;
     if (value.tls.enabled) {
@@ -875,7 +1098,7 @@ export function createRemoteControlService(ctx, options = {}) {
       }
     }
     protocol = tlsActive ? 'https' : 'http';
-    const handler = (req, res) => {
+    const handler = (req: IncomingMessage, res: ServerResponse): void => {
       void handleRemote(req, res);
     };
     const instance = tlsOptions ? createHttpsServer(tlsOptions, handler) : createHttpServer(handler);
@@ -884,14 +1107,15 @@ export function createRemoteControlService(ctx, options = {}) {
     return instance;
   }
 
-  async function start() {
+  async function start(): Promise<InfoPayload> {
     if (server || running || disposed) return getInfo();
     try {
       const instance = await createInstance();
       try {
         await listen(instance, preferredPort);
       } catch (listenError) {
-        if (listenError?.code !== 'EADDRINUSE' || preferredPort === 0) throw listenError;
+        const code = isRecord(listenError) ? listenError.code : undefined;
+        if (code !== 'EADDRINUSE' || preferredPort === 0) throw listenError;
         await listen(instance, 0);
       }
       server = instance;
@@ -919,7 +1143,7 @@ export function createRemoteControlService(ctx, options = {}) {
     return getInfo();
   }
 
-  async function stopServer() {
+  async function stopServer(): Promise<void> {
     stopLoops();
     const currentHub = hub;
     hub = null;
@@ -933,18 +1157,18 @@ export function createRemoteControlService(ctx, options = {}) {
     if (!instance) return;
     try {
       instance.closeAllConnections?.();
-      await new Promise((resolve) => instance.close(() => resolve()));
+      await new Promise<void>((resolve) => instance.close(() => resolve()));
     } catch {
       /* ignore */
     }
   }
 
-  async function restartServer() {
+  async function restartServer(): Promise<InfoPayload> {
     await stopServer();
     return start();
   }
 
-  async function getSettingsPayload() {
+  async function getSettingsPayload(): Promise<SettingsPayload> {
     const notifications = await getNotificationsView();
     const mediaStatus = adapters.media?.status?.() || {};
     return {
@@ -975,9 +1199,9 @@ export function createRemoteControlService(ctx, options = {}) {
     };
   }
 
-  async function applySettings(patch) {
+  async function applySettings(patch: JsonRecord): Promise<SettingsValue> {
     const before = settingsStore.get();
-    const sanitized = patch && typeof patch === 'object' ? { ...patch } : {};
+    const sanitized: JsonRecord = patch && typeof patch === 'object' ? { ...patch } : {};
     delete sanitized.token;
     delete sanitized.tokenRotatedAt;
     const next = settingsStore.update(sanitized);
@@ -1008,15 +1232,15 @@ export function createRemoteControlService(ctx, options = {}) {
     return next;
   }
 
-  async function handleInfo(req, res) {
+  async function handleInfo(req: IncomingMessage, res: ServerResponse): Promise<void> {
     jsonResponse(res, 200, getInfo());
   }
 
-  async function handleSettingsGet(req, res) {
+  async function handleSettingsGet(req: IncomingMessage, res: ServerResponse): Promise<void> {
     jsonResponse(res, 200, await getSettingsPayload());
   }
 
-  async function handleSettingsPost(req, res) {
+  async function handleSettingsPost(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!sameOrigin(req)) {
       jsonResponse(res, 403, { ok: false, error: 'origin rejected' });
       return;
@@ -1030,7 +1254,7 @@ export function createRemoteControlService(ctx, options = {}) {
     }
   }
 
-  async function handleTheme(req, res) {
+  async function handleTheme(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!sameOrigin(req)) {
       jsonResponse(res, 403, { ok: false, error: 'origin rejected' });
       return;
@@ -1050,7 +1274,7 @@ export function createRemoteControlService(ctx, options = {}) {
     }
   }
 
-  async function handleTokenRotate(req, res) {
+  async function handleTokenRotate(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!sameOrigin(req)) {
       jsonResponse(res, 403, { ok: false, error: 'origin rejected' });
       return;
@@ -1061,7 +1285,7 @@ export function createRemoteControlService(ctx, options = {}) {
     jsonResponse(res, 200, await getSettingsPayload());
   }
 
-  async function handleDisconnect(req, res) {
+  async function handleDisconnect(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!sameOrigin(req)) {
       jsonResponse(res, 403, { ok: false, error: 'origin rejected' });
       return;
@@ -1076,7 +1300,7 @@ export function createRemoteControlService(ctx, options = {}) {
     }
   }
 
-  async function handleQr(req, res) {
+  async function handleQr(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!primaryUrl) {
       textResponse(res, 503, 'Remote control server is not running');
       return;
@@ -1091,7 +1315,7 @@ export function createRemoteControlService(ctx, options = {}) {
     res.end(req.method === 'HEAD' ? undefined : svg);
   }
 
-  async function handleDisconnectRequest(req, res) {
+  async function handleDisconnectRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     return handleDisconnect(req, res);
   }
 

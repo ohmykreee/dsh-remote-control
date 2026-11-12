@@ -4,7 +4,11 @@
 
 主布局面向 **1280×800 横屏**：左侧导航栏、深蓝配色、大号时钟、分区卡片。手机端没有网站 Logo、标题栏和设置入口，内容直接开始。
 
+如何安装：复制该项目地址给你的 DSH，让大肥鱼代劳帮你安装。
+
 ## 安装（DSH）
+
+本仓库同时包含三份源码：Host 与浏览器端 TypeScript（`src/dsh`）、手机端 Svelte（`src/svelte`）和 Rust 原生探针（`src/rust`）。仓库只提交源码：`index.js`、`client.js`、`lib/`、`web/`、`native/bin/` 都是本机编译产物，已用 `git rm` 从版本库删除并加入 `.gitignore`。因此安装后必须先在插件目录编译一次，插件才能加载。
 
 1. 在 DSH 的插件管理中安装本插件。
 2. 进入插件安装目录执行一次：
@@ -13,14 +17,19 @@
    pnpm install
    ```
 
-   这会安装二维码库、`@fontsource-variable` 字体包，以及 Svelte 5 / Vite 构建工具。`postinstall` 每次都会重新编译前端，生成 `web/`；字体由 Vite 随 CSS 打包进 `web/assets/`，`web/` 不随 git 提交。检测到 `cargo` 时还会自动构建 Rust 探针，没有 Rust 工具链时只打印提示并继续。
-3. 如果修改了 `src/` 或 `static/`，可手动重新生成 `web/` 静态页面：
+   这会安装二维码库、`@fontsource-variable` 字体包、Svelte 5 / Vite 构建工具，以及 TypeScript / `@types` 开发依赖。`postinstall` 依次执行三个编译步骤：
+   - `node scripts/build-dsh.mjs`：把 `src/dsh` 编译成插件根目录的 `index.js`、`client.js` 和 `lib/**/*.js`。`client.js` 由脚本包装成 DSH 浏览器模块工厂（`window.__ModuleLoader__`）格式。
+   - `node scripts/build-web.mjs`：把 `src/svelte` 编译成 `web/`，字体由 Vite 随 CSS 打包进 `web/assets/`。
+   - `node scripts/build-rust.mjs --optional`：检测到 `cargo` 时构建 Rust 探针；没有 Rust 工具链时只打印提示并继续。
+3. 如果修改了 `src/dsh`、`src/svelte` 或 `static/`，手动重新编译：
 
    ```powershell
-   pnpm build
+   pnpm build        # src/dsh + src/svelte
+   pnpm build:dsh    # 只编译 Host / 浏览器端 TypeScript
+   pnpm build:web    # 只编译手机端页面
    ```
 
-   `web/` 是构建产物，不要手改；源码在 `src/`，Vite 公共资源在 `static/`。改动 `lib/service.js` 或重新构建后，需要重新加载插件或重启 DSH。
+   源码全部在 `src/` 下，Vite 公共资源在 `static/`。`index.js`、`client.js`、`lib/`、`web/` 是编译产物，不要手改；改动 `src/dsh/lib/service.ts` 或重新构建后，需要重新加载插件或重启 DSH。
 4. 如果安装时没有 Rust 工具链，请手动构建原生探针：
 
    ```powershell
@@ -116,7 +125,7 @@
 - Rust 原生探针是唯一媒体层：Windows 通过 WinRT SMTC、Linux 通过 MPRIS（zbus/D-Bus）、macOS 通过 `nowplaying-cli`/AppleScript（源码提供，未在 macOS 实机测试）。
 - 探针二进制不存在或命令失败时，媒体/音量返回明确的错误状态，不再回退到 PowerShell SMTC、C# 封面 DLL、`playerctl` 或 `osascript`。
 - Windows SMTC 提供当前媒体、播放状态、封面、进度和可用控制；Rust 探针直接从 SMTC `Thumbnail` 流读取封面，包含 Edge/YouTube 封面。C# 辅助程序已删除。
-- 只有播放器报告完整时间轴、允许定位，并且实际收到过非零播放位置时，进度条才可拖动。该规则在 `lib/media-enrich.js` 中共用。
+- 只有播放器报告完整时间轴、允许定位，并且实际收到过非零播放位置时，进度条才可拖动。该规则在 `src/dsh/lib/media-enrich.ts` 中共用。
 - 进度按 SMTC 的 `Position` 与 `LastUpdatedTime` 投影，并对轮询间的偏差做平滑修正，避免进度条回跳。
 - 网易云封面与“喜欢”状态由 Rust 读取客户端本地数据：`Library/webdb.dat`（SQLite）匹配曲目/喜欢歌单，`Statics/*.dat` 读取最新封面；不调用网易云 URL 接口、不提取 Cookie、不依赖 DevTools 调试端口。Linux 为尽力路径（客户端数据目录不固定）。
 - 红心状态是**只读展示**：音乐页显示“已喜欢/未喜欢”徽标，不能点击修改；WebSocket 只接受 `playpause`/`next`/`previous`/`seek`/`volume`/`mute`。
@@ -144,11 +153,11 @@
 
 ## 原生探针架构
 
-WinRT、Core Audio、D-Bus/MPRIS、GeoClue、DXGI/PDH、sysfs 等系统接口无法从 WASM 或纯 Node 访问，因此这里使用**原生 sidecar**（`native/rust`，Cargo 项目），而不是 WASM。
+WinRT、Core Audio、D-Bus/MPRIS、GeoClue、DXGI/PDH、sysfs 等系统接口无法从 WASM 或纯 Node 访问，因此这里使用**原生 sidecar**（`src/rust`，Cargo 项目），而不是 WASM。
 
 - 探针是**唯一**的 OS 探测层：媒体、音量、性能/GPU/温度、通知、位置都由 `dsh-probe` 提供。
-- 已删除 PowerShell 探针（`lib/win/scripts.js`、`lib/win/bridge.js`）、C# SMTC 封面辅助程序（`native/win`）、`playerctl`/`wpctl`/`pactl`/`amixer`/`osascript` 的 JS 媒体/音量适配器。
-- 探针缺失时，`lib/probe.js` 明确报告不可用；媒体/音量/性能/通知返回空或错误状态，不再静默回退。
+- 已删除 PowerShell 探针、C# SMTC 封面辅助程序，以及 `playerctl`/`wpctl`/`pactl`/`amixer`/`osascript` 的 JS 媒体/音量适配器。
+- 探针缺失时，`src/dsh/lib/probe.ts` 明确报告不可用；媒体/音量/性能/通知返回空或错误状态，不再静默回退。
 - Node 仍负责：NetEase 数据之外的账户、会话、天气 HTTP、WebSocket/HTTP 服务、设置、通知应用缓存，以及 MPRIS HTTP 封面下载与媒体进度平滑。
 - 位置：Windows 调用 WinRT Geolocation；Linux 调用 GeoClue2；macOS 因 CoreLocation 需要应用包身份而返回错误，Node 随后回退 IP/时区。手动坐标仍可在设置中填写。
 
@@ -173,7 +182,7 @@ Node 只负责派生进程、解析 JSON、缓存与展示，系统探测由 Rus
 
 ### 构建
 
-产物路径固定为 `native/bin/<platform>-<arch>/dsh-probe[.exe]`（例如 `win32-x64`、`linux-x64`、`darwin-arm64`）。`native/bin/`、`native/rust/target/` 均被 `.gitignore` 忽略，不随仓库或 npm 包分发；用户需要在本机构建一次。`pnpm install` 的 `postinstall` 会在检测到 `cargo` 时自动执行本脚本（失败不阻断安装），设置 `DSH_RC_SKIP_RUST_BUILD=1` 可跳过自动构建。
+产物路径固定为 `native/bin/<platform>-<arch>/dsh-probe[.exe]`（例如 `win32-x64`、`linux-x64`、`darwin-arm64`）。Rust 源码在 `src/rust`；`native/bin/`、`src/rust/target/` 均被 `.gitignore` 忽略，不随仓库或 npm 包分发；用户需要在本机构建一次。`pnpm install` 的 `postinstall` 会在检测到 `cargo` 时自动执行本脚本（失败不阻断安装），设置 `DSH_RC_SKIP_RUST_BUILD=1` 可跳过自动构建。
 
 Windows（需要 Rust 1.89+ 与 MSVC 工具链；构建会编译内置 SQLite，因此必须有“使用 C++ 的桌面开发”组件）：
 
@@ -181,7 +190,7 @@ Windows（需要 Rust 1.89+ 与 MSVC 工具链；构建会编译内置 SQLite，
 node scripts/build-rust.mjs
 # 脚本会自动查找并加载 vcvars64.bat；也可用 DSH_RC_VCVARS 指定
 # 等价手动命令（需在 Developer PowerShell 中执行）：
-cargo build --release --manifest-path native/rust/Cargo.toml
+cargo build --release --manifest-path src/rust/Cargo.toml
 # 产物：native\bin\win32-x64\dsh-probe.exe
 ```
 
@@ -193,7 +202,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source "$HOME/.cargo/env"
 node scripts/build-rust.mjs
 # 或手动：
-cargo build --release --manifest-path native/rust/Cargo.toml
+cargo build --release --manifest-path src/rust/Cargo.toml
 # 产物：native/bin/linux-x64/dsh-probe
 ```
 
@@ -206,7 +215,7 @@ xcode-select --install
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source "$HOME/.cargo/env"
 node scripts/build-rust.mjs          # native/bin/darwin-<arch>/dsh-probe
-cargo check --manifest-path native/rust/Cargo.toml --features macos-check   # 在任意平台类型检查 macOS 模块
+cargo check --manifest-path src/rust/Cargo.toml --features macos-check   # 在任意平台类型检查 macOS 模块
 ```
 
 **macOS 仅提供源码，未在 macOS 实机或 CI 构建/测试。** 媒体读取优先 `nowplaying-cli`（`brew install nowplaying-cli`），否则用 AppleScript 查询 Music/Spotify；音量用 `osascript`；通知读取通知中心数据库；GPU/温度不实现；位置因 CoreLocation 需要应用包身份而回退 IP。当前未添加 CI/CD；以后可在 macOS runner 上补跑 `node scripts/build-rust.mjs` 与 `cargo test`，但 macOS 行为仍需实机验证。
@@ -236,18 +245,18 @@ dsh-probe location
 
 ### Node 桥
 
-- `lib/probe.js` 按 `process.platform` / `process.arch` 查找二进制并执行子命令；找不到时所有调用返回明确的不可用错误，并附带 `DSH_RC_TMPDIR`（工作区 `.probe-tmp/`）供探针复制只读 SQLite 数据库。
-- `lib/probe-adapter.js` 只调用 Rust 媒体/音量命令；失败直接返回错误或抛出，不再有 fallback。媒体进度平滑与 seek 规则复用 `lib/media-enrich.js`。
-- `lib/performance.js` 只采用 Rust 的 `performance` 载荷；探针缺失时仅用 `os.cpus()`/`os.totalmem()` 提供 CPU/内存兜底，GPU/温度为空。
-- `lib/notifications.js`：Windows/macOS 调用一次性 `notifications`；Linux 启动 `notifications watch` 长进程并按行更新最近列表，退出后按冷却时间重启。Node 只做字段归一化、应用筛选与数量限制，payload 形状保持不变。
+- `src/dsh/lib/probe.ts` 按 `process.platform` / `process.arch` 查找二进制并执行子命令；找不到时所有调用返回明确的不可用错误，并附带 `DSH_RC_TMPDIR`（工作区 `.probe-tmp/`）供探针复制只读 SQLite 数据库。
+- `src/dsh/lib/probe-adapter.ts` 只调用 Rust 媒体/音量命令；失败直接返回错误或抛出，不再有 fallback。媒体进度平滑与 seek 规则复用 `src/dsh/lib/media-enrich.ts`。
+- `src/dsh/lib/performance.ts` 只采用 Rust 的 `performance` 载荷；探针缺失时仅用 `os.cpus()`/`os.totalmem()` 提供 CPU/内存兜底，GPU/温度为空。
+- `src/dsh/lib/notifications.ts`：Windows/macOS 调用一次性 `notifications`；Linux 启动 `notifications watch` 长进程并按行更新最近列表，退出后按冷却时间重启。Node 只做字段归一化、应用筛选与数量限制，payload 形状保持不变。
 - 环境变量：`DSH_RC_PROBE=/absolute/path/to/dsh-probe` 指定自定义二进制；`DSH_RC_DISABLE_RUST_PROBE=1` 强制标记探针不可用（测试用）；`DSH_RC_TMPDIR` 覆盖临时目录；`DSH_RC_VCVARS` 覆盖 Windows 构建的 vcvars 路径。
-- 网易云封面/喜欢由 `native/rust/src/vendor/netease` 读取；红心为只读展示，Node 不再有写红心或 CDP 代码。
+- 网易云封面/喜欢由 `src/rust/src/vendor/netease` 读取；红心为只读展示，Node 不再有写红心或 CDP 代码。
 
 ### 测试
 
 ```bash
-cargo test --manifest-path native/rust/Cargo.toml
-cargo check --manifest-path native/rust/Cargo.toml --features macos-check
+cargo test --manifest-path src/rust/Cargo.toml
+cargo check --manifest-path src/rust/Cargo.toml --features macos-check
 node test/probe-bridge.mjs
 node test/notifications.mjs
 node test/notification-watch.mjs
@@ -277,34 +286,48 @@ node test/media-progress.mjs
 ## 目录
 
 ```text
-index.js                Host 入口、DSH webServer 路由
-client.js               DSH 侧边栏设置页（React，保持不变）
-index.html              Vite HTML 模板（构建到 web/index.html）
-vite.config.js          Vite + Svelte 构建配置
+index.js                编译产物：Host 入口、DSH webServer 路由（gitignore，pnpm build 生成）
+client.js               编译产物：DSH 侧边栏设置页，包装为浏览器模块工厂（gitignore）
+lib/                    编译产物：Host 逻辑（由 src/dsh/lib 生成，gitignore）
+locale/                 DSH 侧边栏本地化资源
+icon.svg                插件图标
+vite.config.js          Vite + Svelte 构建配置（root = src/svelte，输出 web/）
 svelte.config.js        Svelte 预处理器配置
-tsconfig.json           TypeScript / svelte-check 配置
-lib/service.js          HTTP/WebSocket、配对、设置、推送
-lib/ws.js               最小 RFC6455 WebSocket 服务
-lib/account.js          余额、今日/7 日用量
-lib/sessions.js         DSH 会话与待回答/错误状态
-lib/weather.js          系统/IP 定位、Open-Meteo、7 天预报
-lib/performance.js      Rust performance 载荷（仅 CPU/内存 JS 兜底）
-lib/media-enrich.js     媒体归一化、进度平滑、seek 规则
-lib/probe.js            Rust 探针定位、执行、JSON 解析、临时目录
-lib/probe-adapter.js    Rust 媒体/音量适配器（无回退）
-lib/notifications.js    Rust 通知服务（Linux watch / 其他一次性）
-lib/platform/index.js   组装媒体与通知适配器
-native/rust/            Rust 原生探针源码（Cargo 项目）
-native/rust/src/vendor/ 专用客户端读取（当前为 NetEase 本地库）
-native/bin/             探针构建产物（.gitignore 忽略，需本机构建）
+tsconfig.json           Svelte 端 TypeScript / svelte-check 配置
+tsconfig.dsh.json       Host TypeScript 编译配置（src/dsh → index.js + lib/）
+tsconfig.dsh-client.json 浏览器端 TypeScript 编译配置（src/dsh/client.ts → client.js）
+scripts/build-dsh.mjs   编译 src/dsh，写入插件根目录并生成模块工厂
+scripts/build-web.mjs   编译 src/svelte，生成 web/
+scripts/build-rust.mjs  编译 src/rust，产物写入 native/bin/
+src/dsh/                Host + 浏览器端 TypeScript 源码
+src/dsh/index.ts        Host 入口（export inject / apply）
+src/dsh/client.ts       DSH 侧边栏设置页（React，TypeScript）
+src/dsh/lib/service.ts  HTTP/WebSocket、配对、设置、推送
+src/dsh/lib/ws.ts       最小 RFC6455 WebSocket 服务
+src/dsh/lib/account.ts  余额、今日/7 日用量
+src/dsh/lib/sessions.ts DSH 会话与待回答/错误状态
+src/dsh/lib/weather.ts  系统/IP 定位、Open-Meteo、7 天预报
+src/dsh/lib/performance.ts Rust performance 载荷（仅 CPU/内存 JS 兜底）
+src/dsh/lib/media-enrich.ts 媒体归一化、进度平滑、seek 规则
+src/dsh/lib/probe.ts    Rust 探针定位、执行、JSON 解析、临时目录
+src/dsh/lib/probe-adapter.ts Rust 媒体/音量适配器（无回退）
+src/dsh/lib/notifications.ts Rust 通知服务（Linux watch / 其他一次性）
+src/dsh/lib/platform/index.ts 组装媒体与通知适配器
+src/dsh/lib/types.ts    共享 Host 类型契约
+src/dsh/types/          第三方包的本地类型声明
+src/svelte/             Svelte 5 + TypeScript 手机端源码
+src/svelte/index.html   Vite HTML 模板（构建到 web/index.html）
+src/svelte/lib/         状态、WebSocket、格式化、图标与媒体投影
+src/svelte/lib/components/ 页面与卡片组件
+src/svelte/styles/global.css 手机端全局样式
+src/rust/               Rust 原生探针源码（Cargo 项目）
+src/rust/src/vendor/    专用客户端读取（当前为 NetEase 本地库）
+src/rust/target/        Cargo 构建缓存（gitignore）
+native/bin/             探针构建产物（gitignore 忽略，需本机构建）
 .probe-tmp/             探针只读 SQLite 副本的临时目录（运行时生成）
-scripts/                本机构建脚本（前端、Rust 探针）
-src/                    Svelte 5 + TypeScript 手机端源码
-src/lib/                状态、WebSocket、格式化、图标与媒体投影
-src/lib/components/     页面与卡片组件
-src/styles/global.css   手机端全局样式
+.build/                 TypeScript 编译暂存目录（gitignore）
 static/                 Vite 公共资源（icon、manifest、天气图标、字体许可）
-web/                    每次安装/构建生成的静态页面（已 gitignore，由 lib/service.js 服务）
+web/                    每次安装/构建生成的静态页面（gitignore，由 service 服务）
 web/assets/             安装/构建时生成的 Svelte/Vite JS/CSS
 web/fonts/              构建时从 static/ 复制的字体许可（woff2 在 web/assets/）
 web/weather-icons/      构建时从 static/ 复制的彩云天气图标
@@ -314,21 +337,21 @@ docs/                   1280×800 手机端控制台截图
 ## 开发检查
 
 ```powershell
-pnpm check
-pnpm build
+pnpm check                      # tsc（Host + 浏览器端）+ svelte-check
+pnpm build                      # 编译 src/dsh 与 src/svelte
 node test/smoke.mjs
 node test/media-progress.mjs
 node test/probe-bridge.mjs
 node test/notifications.mjs
 node test/notification-watch.mjs
-cargo fmt --manifest-path native/rust/Cargo.toml -- --check
-cargo test --manifest-path native/rust/Cargo.toml
-cargo check --manifest-path native/rust/Cargo.toml --features macos-check
+cargo fmt --manifest-path src/rust/Cargo.toml -- --check
+cargo test --manifest-path src/rust/Cargo.toml
+cargo check --manifest-path src/rust/Cargo.toml --features macos-check
 node scripts/build-rust.mjs
 ```
 
-`pnpm dev` 启动 Vite 开发服务器；`pnpm preview` 预览 `web/` 构建产物。`pnpm build` 执行 Vite 构建，字体与样式一起进入 `web/assets/`。
-`pnpm check` 使用 svelte-check 检查 Svelte 5 + TypeScript 源码。
+`pnpm dev` 启动 Vite 开发服务器；`pnpm preview` 预览 `web/` 构建产物。`pnpm build` 先编译 `src/dsh`（`node scripts/build-dsh.mjs`），再执行 Vite 构建（`node scripts/build-web.mjs`），字体与样式一起进入 `web/assets/`。
+`pnpm check` 依次运行 `tsc -p tsconfig.dsh.json --noEmit`（Host）、`tsc -p tsconfig.dsh-client.json --noEmit`（浏览器端）和 `svelte-check --tsconfig ./tsconfig.json`（手机端）。
 `test/smoke.mjs` 使用临时 `DSH_PROFILE_DIR` 启动服务，检查令牌页面、`/assets/` 静态资源、WebSocket welcome/overview，并确认旧 HTTP overview 路由不存在。
 `test/probe-bridge.mjs` 验证探针缺失时媒体/音量的错误状态，以及没有静默回退。
 `test/notifications.mjs` 验证通知字段归一化、数量限制、应用聚合与探针缺失时的错误载荷；`test/notification-watch.mjs` 用假探针验证 Linux 流式监视的逐行解析。

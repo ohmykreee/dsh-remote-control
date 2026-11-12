@@ -8,15 +8,64 @@
  */
 
 import { spawn } from 'node:child_process';
-import readline from 'node:readline';
+import type { ChildProcess } from 'node:child_process';
+import * as readline from 'node:readline';
 import { probeInfo, runProbe } from './probe.js';
+import { isRecord } from './types.js';
+import type { JsonRecord, NotificationApp, NotificationItem, NotificationPayload } from './types.js';
 import { finiteNumber, safeString, serializeError } from './util.js';
 
 const POLL_TTL_MS = 2500;
 const ERROR_TTL_MS = 6000;
 const WATCH_RESTART_MS = 5000;
 
-function normalizeAvatar(value) {
+/** Options of {@link normalizeNotificationPayload}; `limit` is clamped to 1..20. */
+export interface NotificationNormalizeOptions {
+  limit?: number;
+  /** `errorPayload` also forwards this so the Linux watcher view stays live-only. */
+  liveOnly?: boolean;
+}
+
+/** Options of {@link createNotificationService}. */
+export interface NotificationServiceOptions {
+  limit?: number;
+}
+
+/**
+ * A normalised item with every field this module populates. The shared
+ * `NotificationItem` keeps them optional because it also describes raw probe
+ * input, which is untrusted.
+ */
+interface NormalizedNotification extends NotificationItem {
+  id: string;
+  appKey: string;
+  appName: string;
+  title: string;
+  body: string;
+  avatar: string | null;
+  hasImage: boolean;
+  receivedAt: number;
+  isGroup: boolean;
+}
+
+/** Diagnostics snapshot returned by {@link NotificationService.status}. */
+export interface NotificationServiceStatus {
+  /** `undefined` only when the cached payload carries no `available` flag. */
+  available: boolean | null | undefined;
+  reason: string | null;
+  count: number | null;
+  updatedAt: number | null;
+  liveOnly?: boolean;
+}
+
+/** Host-side notification source consumed by the console service. */
+export interface NotificationService {
+  getNotifications(): Promise<NotificationPayload>;
+  status(): NotificationServiceStatus;
+  dispose(): void;
+}
+
+function normalizeAvatar(value: unknown): string | null {
   const avatar = typeof value === 'string' ? value.trim() : '';
   return avatar.startsWith('data:image/') ? avatar : null;
 }
@@ -25,21 +74,25 @@ function normalizeAvatar(value) {
  * Normalize a probe notification payload into the shape the console expects.
  * Exported for tests; the probe normally returns this shape already.
  */
-export function normalizeNotificationPayload(raw, options = {}) {
+export function normalizeNotificationPayload(
+  raw: unknown,
+  options: NotificationNormalizeOptions = {},
+): NotificationPayload {
   const limit = Math.max(1, Math.min(20, Number(options.limit) || 8));
-  const available = raw?.available !== false && raw?.ok !== false;
-  const reason = safeString(raw?.reason || raw?.error || '', 800) || null;
-  const source = safeString(raw?.source, 120) || 'dsh-probe';
-  const list = Array.isArray(raw?.notifications) ? raw.notifications : [];
-  const notifications = [];
+  const payload: JsonRecord = isRecord(raw) ? raw : {};
+  const available = payload.available !== false && payload.ok !== false;
+  const reason = safeString(payload.reason || payload.error || '', 800) || null;
+  const source = safeString(payload.source, 120) || 'dsh-probe';
+  const list: unknown[] = Array.isArray(payload.notifications) ? payload.notifications : [];
+  const notifications: NormalizedNotification[] = [];
   for (const item of list) {
-    if (!item || typeof item !== 'object') continue;
+    if (!isRecord(item)) continue;
     const appKey = safeString(item.appKey || item.appName, 240).trim() || 'unknown';
     const appName = safeString(item.appName || item.appKey, 120).trim() || appKey;
     const title = safeString(item.title || appName, 160).trim();
     const body = safeString(item.body, 260).trim();
     if (!title && !body) continue;
-    const receivedAt = finiteNumber(item.receivedAt, null);
+    const receivedAt: number | null = finiteNumber(item.receivedAt, null);
     notifications.push({
       id: safeString(item.id, 120) || `${receivedAt ?? Date.now()}-${notifications.length}`,
       appKey,
@@ -54,15 +107,17 @@ export function normalizeNotificationPayload(raw, options = {}) {
     if (notifications.length >= limit) break;
   }
 
-  const apps = [];
-  const seen = new Map();
-  for (const app of Array.isArray(raw?.apps) ? raw.apps : []) {
-    const key = safeString(app?.key, 240);
+  const apps: NotificationApp[] = [];
+  const seen = new Map<string, NotificationApp>();
+  const appList: unknown[] = Array.isArray(payload.apps) ? payload.apps : [];
+  for (const app of appList) {
+    if (!isRecord(app)) continue;
+    const key = safeString(app.key, 240);
     if (!key || seen.has(key)) continue;
-    const entry = {
+    const entry: NotificationApp = {
       key,
-      name: safeString(app?.name, 120) || key,
-      count: Math.max(0, Math.round(finiteNumber(app?.count, 0) || 0)),
+      name: safeString(app.name, 120) || key,
+      count: Math.max(0, Math.round(finiteNumber(app.count, 0) || 0)),
     };
     seen.set(key, entry);
     apps.push(entry);
@@ -72,7 +127,7 @@ export function normalizeNotificationPayload(raw, options = {}) {
       const existing = seen.get(item.appKey);
       if (existing) existing.count += 1;
       else {
-        const entry = { key: item.appKey, name: item.appName, count: 1 };
+        const entry: NotificationApp = { key: item.appKey, name: item.appName, count: 1 };
         seen.set(item.appKey, entry);
         apps.push(entry);
       }
@@ -85,14 +140,14 @@ export function normalizeNotificationPayload(raw, options = {}) {
     available,
     reason,
     source,
-    liveOnly: Boolean(raw?.liveOnly),
+    liveOnly: Boolean(payload.liveOnly),
     notifications,
     apps,
-    updatedAt: finiteNumber(raw?.updatedAt, null) || Date.now(),
+    updatedAt: finiteNumber(payload.updatedAt, null) || Date.now(),
   };
 }
 
-function errorPayload(reason, extra = {}) {
+function errorPayload(reason: unknown, extra: NotificationNormalizeOptions = {}): NotificationPayload {
   return normalizeNotificationPayload(
     {
       ok: false,
@@ -107,33 +162,34 @@ function errorPayload(reason, extra = {}) {
   );
 }
 
-export function createNotificationService(options = {}) {
+export function createNotificationService(options: NotificationServiceOptions = {}): NotificationService {
   const limit = Math.max(1, Math.min(20, Number(options.limit) || 8));
   const watchMode = process.platform === 'linux';
-  let cache = null;
+  let cache: NotificationPayload | null = null;
   let cacheAt = 0;
-  let child = null;
-  let lines = null;
-  let watchState = null;
-  let watchError = null;
+  let child: ChildProcess | null = null;
+  let lines: readline.Interface | null = null;
+  let watchState: NotificationPayload | null = null;
+  let watchError: string | null = null;
   let watchStartedAt = 0;
   let restartAt = 0;
   let disposed = false;
 
-  function unavailableReason() {
+  function unavailableReason(): string | null {
     const info = probeInfo();
     return info.available ? null : info.error || 'native probe unavailable';
   }
 
-  function startWatch() {
+  function startWatch(): void {
     if (child || disposed) return;
     const info = probeInfo();
     if (!info.available) {
       watchError = info.error || 'native probe unavailable';
       return;
     }
+    let spawned: ChildProcess;
     try {
-      child = spawn(info.binary, ['notifications', 'watch', '--limit', String(limit)], {
+      spawned = spawn(info.binary, ['notifications', 'watch', '--limit', String(limit)], {
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
       });
@@ -142,36 +198,44 @@ export function createNotificationService(options = {}) {
       restartAt = Date.now() + WATCH_RESTART_MS;
       return;
     }
+    child = spawned;
     watchStartedAt = Date.now();
     watchError = null;
-    lines = readline.createInterface({ input: child.stdout });
-    lines.on('line', (line) => {
-      const text = String(line).trim();
-      if (!text.startsWith('{')) return;
-      try {
-        const parsed = JSON.parse(text);
-        const state = normalizeNotificationPayload(parsed, { limit });
-        if (state.available) {
-          watchState = state;
-          watchError = null;
-        } else {
-          watchState = null;
-          watchError = state.reason || 'notification watcher unavailable';
+    const stdout = spawned.stdout;
+    if (stdout) {
+      const stream = readline.createInterface({ input: stdout });
+      lines = stream;
+      stream.on('line', (line: string) => {
+        const text = String(line).trim();
+        if (!text.startsWith('{')) return;
+        try {
+          const parsed: unknown = JSON.parse(text);
+          const state = normalizeNotificationPayload(parsed, { limit });
+          if (state.available) {
+            watchState = state;
+            watchError = null;
+          } else {
+            watchState = null;
+            watchError = state.reason || 'notification watcher unavailable';
+          }
+        } catch {
+          /* ignore malformed lines */
         }
-      } catch {
-        /* ignore malformed lines */
-      }
-    });
-    child.stderr.setEncoding('utf8');
-    child.stderr.on('data', (chunk) => {
-      const text = String(chunk).trim();
-      if (text) watchError = text.slice(0, 500);
-    });
-    child.on('error', (error) => {
+      });
+    }
+    const stderr = spawned.stderr;
+    if (stderr) {
+      stderr.setEncoding('utf8');
+      stderr.on('data', (chunk: unknown) => {
+        const text = String(chunk).trim();
+        if (text) watchError = text.slice(0, 500);
+      });
+    }
+    spawned.on('error', (error: Error) => {
       watchError = serializeError(error);
       watchState = null;
     });
-    child.on('exit', (code, signal) => {
+    spawned.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
       const wasStarted = Date.now() - watchStartedAt > 1000;
       child = null;
       watchState = null;
@@ -187,18 +251,18 @@ export function createNotificationService(options = {}) {
     });
   }
 
-  async function readOneShot() {
+  async function readOneShot(): Promise<NotificationPayload> {
     const reason = unavailableReason();
     if (reason) return errorPayload(reason, { limit });
     try {
-      const raw = await runProbe(['notifications', '--limit', String(limit)], { timeout: 9000 });
+      const raw: unknown = await runProbe(['notifications', '--limit', String(limit)], { timeout: 9000 });
       return normalizeNotificationPayload(raw, { limit });
     } catch (error) {
       return errorPayload(error, { limit });
     }
   }
 
-  async function getNotifications() {
+  async function getNotifications(): Promise<NotificationPayload> {
     if (!watchMode) {
       const now = Date.now();
       const ttl = cache?.available ? POLL_TTL_MS : ERROR_TTL_MS;
@@ -218,7 +282,7 @@ export function createNotificationService(options = {}) {
     return errorPayload(reason, { limit, liveOnly: true });
   }
 
-  function status() {
+  function status(): NotificationServiceStatus {
     if (!watchMode) {
       return cache
         ? {
@@ -238,7 +302,7 @@ export function createNotificationService(options = {}) {
     };
   }
 
-  function dispose() {
+  function dispose(): void {
     disposed = true;
     try {
       lines?.close();

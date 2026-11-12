@@ -2,13 +2,20 @@
 
 import { finiteNumber, safeString, serializeError } from './util.js';
 import { probeInfo, runProbe } from './probe.js';
+import { isRecord, type JsonRecord } from './types.js';
 
 const WEATHER_TTL_MS = 10 * 60 * 1000;
 const WEATHER_ERROR_TTL_MS = 45 * 1000;
 const LOCATION_TTL_MS = 6 * 60 * 60 * 1000;
 const LOCATION_ERROR_TTL_MS = 5 * 60 * 1000;
 
-const TIMEZONE_FALLBACK = {
+interface TimezoneFallback {
+  name: string;
+  latitude: number;
+  longitude: number;
+}
+
+const TIMEZONE_FALLBACK: Record<string, TimezoneFallback> = {
   'Asia/Shanghai': { name: '上海', latitude: 31.2304, longitude: 121.4737 },
   'Asia/Chongqing': { name: '重庆', latitude: 29.563, longitude: 106.5516 },
   'Asia/Harbin': { name: '哈尔滨', latitude: 45.8038, longitude: 126.535 },
@@ -24,7 +31,124 @@ const TIMEZONE_FALLBACK = {
   'Europe/Paris': { name: '巴黎', latitude: 48.8566, longitude: 2.3522 },
 };
 
-async function fetchJson(url, timeoutMs = 9000) {
+/** A coordinate plus its label, as echoed in the weather payload. */
+export interface WeatherLocation {
+  name: string;
+  latitude: number;
+  longitude: number;
+  source: string;
+}
+
+/** Location chosen by `resolveLocation`, which also settles the timezone. */
+export interface ResolvedLocation extends WeatherLocation {
+  timezone: string;
+  accuracy?: number | null;
+  error?: string;
+}
+
+/** Explicit coordinates requested by the settings page. */
+export interface WeatherQuery {
+  latitude?: number | null;
+  longitude?: number | null;
+  name?: string;
+}
+
+/** The `current` block of the open-meteo response after normalisation. */
+export interface WeatherCurrent {
+  time: string | null;
+  temperature: number | null;
+  feelsLike: number | null;
+  humidity: number | null;
+  precipitation: number;
+  code: number;
+  isDay: boolean;
+  windSpeed: number | null;
+}
+
+/** Today's summary, taken from the first element of each daily series. */
+export interface WeatherDaily {
+  code: number;
+  high: number | null;
+  low: number | null;
+  sunrise: string | null;
+  sunset: string | null;
+  tomorrowHigh: number | null;
+  tomorrowLow: number | null;
+}
+
+/** One entry of the short-range hourly strip. */
+export interface WeatherHourly {
+  time: string | null;
+  temperature: number | null;
+  code: number | null;
+  precipitationProbability: number | null;
+}
+
+/** One entry of the seven-day forecast. */
+export interface WeatherDailyForecast {
+  date: string | null;
+  code: number;
+  high: number | null;
+  low: number | null;
+  sunrise: string | null;
+  sunset: string | null;
+}
+
+/**
+ * Browser-facing weather snapshot. `current`/`daily` are null when the upstream
+ * request failed, in which case `error` is set and the strips are empty.
+ */
+export interface WeatherPayload {
+  ok: boolean;
+  location: WeatherLocation;
+  current: WeatherCurrent | null;
+  daily: WeatherDaily | null;
+  hourly: WeatherHourly[];
+  dailyForecast: WeatherDailyForecast[];
+  timezone?: string | null;
+  error?: string;
+  cached?: boolean;
+  /** Added by the service layer after `getWeather` returns. */
+  forecastMode?: 'daily' | 'hourly';
+  updatedAt: number;
+}
+
+export interface WeatherService {
+  getWeather(input?: WeatherQuery): Promise<WeatherPayload>;
+  resolveLocation(): Promise<ResolvedLocation>;
+}
+
+interface WeatherCacheEntry {
+  at: number;
+  value: WeatherPayload;
+  error?: boolean;
+}
+
+interface ProbeLocationSuccess {
+  ok: true;
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+  source: string;
+}
+
+interface ProbeLocationFailure {
+  ok: false;
+  error: string;
+}
+
+type ProbeLocationCache = ProbeLocationSuccess | ProbeLocationFailure;
+
+/** Index-safe timezone lookup: an unknown zone has no fallback. */
+function timezoneFallback(timezone: string): TimezoneFallback | undefined {
+  return TIMEZONE_FALLBACK[timezone];
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+async function fetchJson(url: string, timeoutMs = 9000): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -42,11 +166,11 @@ async function fetchJson(url, timeoutMs = 9000) {
   }
 }
 
-let probeLocationCache = null;
+let probeLocationCache: ProbeLocationCache | null = null;
 let probeLocationAt = 0;
 
 /** Ask the OS location API (via the Rust probe) before falling back to IP. */
-async function readProbeLocation() {
+async function readProbeLocation(): Promise<ProbeLocationSuccess | null> {
   const now = Date.now();
   if (probeLocationCache !== null && now - probeLocationAt < 30 * 60 * 1000) {
     return probeLocationCache.ok ? probeLocationCache : null;
@@ -57,7 +181,8 @@ async function readProbeLocation() {
     return null;
   }
   try {
-    const result = await runProbe(['location'], { timeout: 12_000 });
+    const raw = await runProbe(['location'], { timeout: 12_000 });
+    const result = isRecord(raw) ? raw : null;
     const latitude = finiteNumber(result?.latitude, null);
     const longitude = finiteNumber(result?.longitude, null);
     if (result?.ok && latitude !== null && longitude !== null) {
@@ -71,7 +196,10 @@ async function readProbeLocation() {
       probeLocationAt = now;
       return probeLocationCache;
     }
-    probeLocationCache = { ok: false, error: result?.error || 'system location unavailable' };
+    const reason = result && typeof result.error === 'string' && result.error
+      ? result.error
+      : 'system location unavailable';
+    probeLocationCache = { ok: false, error: reason };
     probeLocationAt = now;
     return null;
   } catch (error) {
@@ -81,25 +209,26 @@ async function readProbeLocation() {
   }
 }
 
-async function reverseGeocode(latitude, longitude) {
+async function reverseGeocode(latitude: number, longitude: number): Promise<string> {
   try {
     const url = new URL('https://api.bigdatacloud.net/data/reverse-geocode-client');
     url.searchParams.set('latitude', String(latitude));
     url.searchParams.set('longitude', String(longitude));
     url.searchParams.set('localityLanguage', 'zh');
     const payload = await fetchJson(url.toString(), 6000);
-    return safeString(payload?.city || payload?.locality || payload?.principalSubdivision, 80);
+    if (!isRecord(payload)) return '';
+    return safeString(payload.city || payload.locality || payload.principalSubdivision, 80);
   } catch {
     return '';
   }
 }
 
-export function createWeatherService() {
-  let locationCache = null;
+export function createWeatherService(): WeatherService {
+  let locationCache: ResolvedLocation | null = null;
   let locationCacheAt = 0;
-  const weatherCache = new Map();
+  const weatherCache = new Map<string, WeatherCacheEntry>();
 
-  async function resolveLocation() {
+  async function resolveLocation(): Promise<ResolvedLocation> {
     const now = Date.now();
     if (locationCache && now - locationCacheAt < LOCATION_TTL_MS) return locationCache;
     if (locationCache?.error && now - locationCacheAt < LOCATION_ERROR_TTL_MS) return locationCache;
@@ -110,7 +239,7 @@ export function createWeatherService() {
     if (nativeLocation) {
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
       const name = (await reverseGeocode(nativeLocation.latitude, nativeLocation.longitude))
-        || TIMEZONE_FALLBACK[timezone]?.name
+        || timezoneFallback(timezone)?.name
         || '当前位置';
       locationCache = {
         name,
@@ -126,12 +255,14 @@ export function createWeatherService() {
 
     try {
       const payload = await fetchJson('https://ipwho.is/', 6500);
-      const latitude = finiteNumber(payload?.latitude);
-      const longitude = finiteNumber(payload?.longitude);
-      if (payload?.success !== false && latitude !== null && longitude !== null) {
-        const timezone = safeString(payload?.timezone?.id, 80);
-        const fallback = TIMEZONE_FALLBACK[timezone];
-        const name = safeString(payload?.city || payload?.region || fallback?.name || timezone, 80);
+      const record = isRecord(payload) ? payload : null;
+      const latitude = finiteNumber(record?.latitude);
+      const longitude = finiteNumber(record?.longitude);
+      if (record && record.success !== false && latitude !== null && longitude !== null) {
+        const timezoneRecord = isRecord(record.timezone) ? record.timezone : null;
+        const timezone = safeString(timezoneRecord?.id, 80);
+        const fallback = timezoneFallback(timezone);
+        const name = safeString(record.city || record.region || fallback?.name || timezone, 80);
         locationCache = {
           name: name || '当前位置',
           latitude,
@@ -145,7 +276,7 @@ export function createWeatherService() {
       throw new Error('IP location response was incomplete');
     } catch (error) {
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
-      const fallback = TIMEZONE_FALLBACK[timezone];
+      const fallback = timezoneFallback(timezone);
       locationCache = fallback
         ? { ...fallback, timezone, source: 'timezone', error: serializeError(error) }
         : {
@@ -161,11 +292,11 @@ export function createWeatherService() {
     }
   }
 
-  async function getWeather(input = {}) {
+  async function getWeather(input: WeatherQuery = {}): Promise<WeatherPayload> {
     const requestedLat = finiteNumber(input.latitude);
     const requestedLon = finiteNumber(input.longitude);
     const hasCustom = requestedLat !== null && requestedLon !== null;
-    const location = hasCustom
+    const location: WeatherLocation = hasCustom
       ? {
           name: safeString(input.name, 80) || '自定义位置',
           latitude: Math.max(-90, Math.min(90, requestedLat)),
@@ -205,26 +336,39 @@ export function createWeatherService() {
     url.searchParams.set('forecast_days', '7');
 
     try {
-      const payload = await fetchJson(url.toString(), 10000);
-      const current = payload?.current ?? {};
-      const daily = payload?.daily ?? {};
-      const hourly = payload?.hourly ?? {};
-      const dailyTimes = Array.isArray(daily.time) ? daily.time : [];
-      const hourlyTimes = Array.isArray(hourly.time) ? hourly.time : [];
+      const raw = await fetchJson(url.toString(), 10000);
+      const payload = isRecord(raw) ? raw : null;
+      const current: JsonRecord = payload && isRecord(payload.current) ? payload.current : {};
+      const daily: JsonRecord = payload && isRecord(payload.daily) ? payload.daily : {};
+      const hourly: JsonRecord = payload && isRecord(payload.hourly) ? payload.hourly : {};
+      const dailyTimes: unknown[] = Array.isArray(daily.time) ? daily.time : [];
+      const dailyCodes: unknown[] = Array.isArray(daily.weather_code) ? daily.weather_code : [];
+      const dailyHighs: unknown[] = Array.isArray(daily.temperature_2m_max) ? daily.temperature_2m_max : [];
+      const dailyLows: unknown[] = Array.isArray(daily.temperature_2m_min) ? daily.temperature_2m_min : [];
+      const dailySunrises: unknown[] = Array.isArray(daily.sunrise) ? daily.sunrise : [];
+      const dailySunsets: unknown[] = Array.isArray(daily.sunset) ? daily.sunset : [];
+      const hourlyTimes: unknown[] = Array.isArray(hourly.time) ? hourly.time : [];
+      const hourlyTemperatures: unknown[] = Array.isArray(hourly.temperature_2m) ? hourly.temperature_2m : [];
+      const hourlyCodes: unknown[] = Array.isArray(hourly.weather_code) ? hourly.weather_code : [];
+      const hourlyPrecipitation: unknown[] = Array.isArray(hourly.precipitation_probability)
+        ? hourly.precipitation_probability
+        : [];
       const currentTime = typeof current.time === 'string' ? current.time : '';
       let startIndex = 0;
       if (currentTime) {
-        const index = hourlyTimes.findIndex((time) => time >= currentTime.slice(0, 13) + ':00');
+        const index = hourlyTimes.findIndex(
+          (time) => typeof time === 'string' && time >= currentTime.slice(0, 13) + ':00',
+        );
         if (index >= 0) startIndex = index;
       }
-      const upcoming = hourlyTimes.slice(startIndex, startIndex + 8).map((time, index) => ({
-        time,
-        temperature: finiteNumber(hourly.temperature_2m?.[startIndex + index]),
-        code: finiteNumber(hourly.weather_code?.[startIndex + index]),
-        precipitationProbability: finiteNumber(hourly.precipitation_probability?.[startIndex + index]),
+      const upcoming: WeatherHourly[] = hourlyTimes.slice(startIndex, startIndex + 8).map((time, index) => ({
+        time: stringOrNull(time),
+        temperature: finiteNumber(hourlyTemperatures[startIndex + index]),
+        code: finiteNumber(hourlyCodes[startIndex + index]),
+        precipitationProbability: finiteNumber(hourlyPrecipitation[startIndex + index]),
       }));
 
-      const value = {
+      const value: WeatherPayload = {
         ok: true,
         location: {
           name: location.name,
@@ -233,40 +377,40 @@ export function createWeatherService() {
           source: location.source,
         },
         current: {
-          time: current.time ?? null,
+          time: stringOrNull(current.time),
           temperature: finiteNumber(current.temperature_2m),
           feelsLike: finiteNumber(current.apparent_temperature),
           humidity: finiteNumber(current.relative_humidity_2m),
-          precipitation: finiteNumber(current.precipitation, 0),
-          code: finiteNumber(current.weather_code, 0),
+          precipitation: finiteNumber(current.precipitation, 0) ?? 0,
+          code: finiteNumber(current.weather_code, 0) ?? 0,
           isDay: current.is_day === 1 || current.is_day === true,
           windSpeed: finiteNumber(current.wind_speed_10m),
         },
         daily: {
-          code: finiteNumber(daily.weather_code?.[0], 0),
-          high: finiteNumber(daily.temperature_2m_max?.[0]),
-          low: finiteNumber(daily.temperature_2m_min?.[0]),
-          sunrise: daily.sunrise?.[0] ?? null,
-          sunset: daily.sunset?.[0] ?? null,
-          tomorrowHigh: finiteNumber(daily.temperature_2m_max?.[1]),
-          tomorrowLow: finiteNumber(daily.temperature_2m_min?.[1]),
+          code: finiteNumber(dailyCodes[0], 0) ?? 0,
+          high: finiteNumber(dailyHighs[0]),
+          low: finiteNumber(dailyLows[0]),
+          sunrise: stringOrNull(dailySunrises[0]),
+          sunset: stringOrNull(dailySunsets[0]),
+          tomorrowHigh: finiteNumber(dailyHighs[1]),
+          tomorrowLow: finiteNumber(dailyLows[1]),
         },
         dailyForecast: dailyTimes.slice(0, 7).map((date, index) => ({
-          date,
-          code: finiteNumber(daily.weather_code?.[index], 0),
-          high: finiteNumber(daily.temperature_2m_max?.[index]),
-          low: finiteNumber(daily.temperature_2m_min?.[index]),
-          sunrise: daily.sunrise?.[index] ?? null,
-          sunset: daily.sunset?.[index] ?? null,
+          date: stringOrNull(date),
+          code: finiteNumber(dailyCodes[index], 0) ?? 0,
+          high: finiteNumber(dailyHighs[index]),
+          low: finiteNumber(dailyLows[index]),
+          sunrise: stringOrNull(dailySunrises[index]),
+          sunset: stringOrNull(dailySunsets[index]),
         })),
         hourly: upcoming,
-        timezone: payload?.timezone ?? null,
+        timezone: stringOrNull(payload?.timezone),
         updatedAt: now,
       };
       weatherCache.set(key, { at: now, value });
       return value;
     } catch (error) {
-      const fallback = {
+      const fallback: WeatherPayload = {
         ok: false,
         location: {
           name: location.name,

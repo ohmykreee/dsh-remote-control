@@ -34,9 +34,19 @@ dist/
 coverage/
 *.tsbuildinfo
 
-# compiled Rust probe sidecar (source lives in native/rust, binaries are local
+# TypeScript compile staging for the Host / browser halves of src/dsh
+.build/
+
+# compiled plugin runtime: produced by scripts/build-dsh.mjs from src/dsh.
+# These files are required at runtime but never committed; run `pnpm build`
+# (or `pnpm install`, whose postinstall compiles them) before loading the plugin.
+/index.js
+/client.js
+/lib/
+
+# compiled Rust probe sidecar (source lives in src/rust, binaries are local
 # build artifacts produced by scripts/build-rust.mjs)
-native/rust/target/
+src/rust/target/
 native/bin/
 
 # workspace-local scratch directory passed to the sidecar as DSH_RC_TMPDIR

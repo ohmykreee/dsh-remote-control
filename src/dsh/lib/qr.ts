@@ -3,9 +3,15 @@
 import qrcode from 'qrcode-generator';
 import { escapeHtml } from './util.js';
 
-const cache = new Map();
+export interface QrSvgOptions {
+  cellSize?: number;
+  margin?: number;
+  label?: string;
+}
 
-export function qrSvg(text, options = {}) {
+const cache = new Map<string, string>();
+
+export function qrSvg(text: string, options: QrSvgOptions = {}): string {
   const key = `${text}|${options.cellSize ?? 8}|${options.margin ?? 4}`;
   const hit = cache.get(key);
   if (hit) return hit;
@@ -30,7 +36,7 @@ export function qrSvg(text, options = {}) {
   cache.set(key, svg);
   if (cache.size > 20) {
     const oldest = cache.keys().next().value;
-    cache.delete(oldest);
+    if (oldest !== undefined) cache.delete(oldest);
   }
   return svg;
 }

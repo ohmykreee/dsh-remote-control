@@ -1,11 +1,14 @@
 /**
- * dsh-remote-control — Host half.
+ * dsh-remote-control — Host half (TypeScript source).
  *
- * Starts the LAN HTTP/WebSocket console, then exposes loopback-only settings
- * and pairing routes on the existing DSH webServer for the sidebar page.
+ * Compiled by `scripts/build-dsh.mjs` into the plugin's runtime `index.js` and
+ * `lib/`. Starts the LAN HTTP/WebSocket console, then exposes loopback-only
+ * settings and pairing routes on the existing DSH webServer for the sidebar page.
  */
 
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createRemoteControlService } from './lib/service.js';
+import type { DshContext, DshLogger } from './lib/types.js';
 import {
   DISCONNECT_PATH,
   INFO_PATH,
@@ -16,13 +19,24 @@ import {
   TOKEN_ROTATE_PATH,
 } from './lib/util.js';
 
-export const inject = ['webServer'];
+export const inject: string[] = ['webServer'];
 
-function makeLogger(ctx) {
+interface WebServerRoute {
+  kind: 'exact';
+  path: string;
+  handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
+}
+
+interface DshWebServer {
+  register(route: WebServerRoute): (() => void) | void;
+}
+
+function makeLogger(ctx: DshContext): (message: string) => void {
   try {
-    const candidate = ctx?.logger;
-    const sink = typeof candidate === 'function' ? candidate(PANEL_ID) : candidate;
-    return (message) => {
+    const candidate = ctx.logger;
+    const sink: DshLogger | undefined =
+      typeof candidate === 'function' ? candidate(PANEL_ID) : candidate;
+    return (message: string): void => {
       try {
         if (sink && typeof sink.info === 'function') sink.info(`[${PANEL_ID}] ${message}`);
         else console.info(`[${PANEL_ID}] ${message}`);
@@ -35,7 +49,7 @@ function makeLogger(ctx) {
   }
 }
 
-export async function apply(ctx) {
+export async function apply(ctx: DshContext): Promise<void> {
   const log = makeLogger(ctx);
   const service = createRemoteControlService(ctx, { log });
 
@@ -45,14 +59,14 @@ export async function apply(ctx) {
     log(`server start threw: ${String(error)}`);
   }
 
-  ctx.effect(
+  ctx.effect?.(
     () => () => service.dispose(),
     'dsh-remote-control: LAN server and native adapters',
   );
 
-  const webServer = ctx.get?.('webServer');
+  const webServer = ctx.get?.('webServer') as DshWebServer | undefined;
   if (webServer?.register) {
-    const routes = [
+    const routes: Array<[string, (req: IncomingMessage, res: ServerResponse) => Promise<void> | void, string]> = [
       [INFO_PATH, (req, res) => service.handleInfo(req, res), 'pairing info'],
       [QR_PATH, (req, res) => service.handleQr(req, res), 'pairing QR'],
       [
@@ -66,7 +80,7 @@ export async function apply(ctx) {
       [DISCONNECT_PATH, (req, res) => service.handleDisconnect(req, res), 'device disconnect'],
     ];
     for (const [routePath, handler, label] of routes) {
-      ctx.effect(
+      ctx.effect?.(
         () => webServer.register({ kind: 'exact', path: routePath, handler }),
         `dsh-remote-control: ${label} route`,
       );
