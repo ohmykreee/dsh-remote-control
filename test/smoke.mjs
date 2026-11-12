@@ -51,19 +51,36 @@ assert.equal(unauthorized.status, 401);
 
 const page = await fetch(`${base}/?token=${encodeURIComponent(service.settingsStore.get().token)}`);
 assert.equal(page.status, 200);
-assert.match(await page.text(), /DSH Home/);
+const pageText = await page.text();
+assert.match(pageText, /DSH Home/);
 
 const token = encodeURIComponent(service.settingsStore.get().token);
-const fontCss = await fetch(`${base}/fonts/fonts.css?token=${token}`);
-assert.equal(fontCss.status, 200);
-assert.match(fontCss.headers.get('content-type') || '', /text\/css/);
-const fontCssText = await fontCss.text();
-assert.match(fontCssText, /font-family: 'Inter'/);
-const fontUrl = fontCssText.match(/url\((inter\/[^)]+\.woff2)\)/)?.[1];
-assert.ok(fontUrl);
-const fontFile = await fetch(`${base}/fonts/${fontUrl}?token=${token}`);
+const scriptPath = pageText.match(/\/assets\/[^"']+\.js/)?.[0];
+assert.ok(scriptPath, 'built page references a Vite JS asset');
+const scriptAsset = await fetch(`${base}${scriptPath}?token=${token}`);
+assert.equal(scriptAsset.status, 200);
+assert.match(scriptAsset.headers.get('content-type') || '', /text\/javascript/);
+assert.equal(scriptAsset.headers.get('cache-control'), 'no-store');
+const stylePath = pageText.match(/\/assets\/[^"']+\.css/)?.[0];
+assert.ok(stylePath, 'built page references a Vite CSS asset');
+const styleAsset = await fetch(`${base}${stylePath}?token=${token}`);
+assert.equal(styleAsset.status, 200);
+assert.match(styleAsset.headers.get('content-type') || '', /text\/css/);
+const missingAsset = await fetch(`${base}/assets/does-not-exist.js?token=${token}`);
+assert.equal(missingAsset.status, 404);
+const traversal = await fetch(`${base}/assets/..%2F..%2Fsettings.json?token=${token}`);
+assert.notEqual(traversal.status, 200);
+
+const styleText = await styleAsset.text();
+assert.match(styleText, /@font-face/);
+assert.match(styleText, /font-family:\s*['"]?Inter Variable/);
+const rawFontUrl = styleText.match(/url\((['"]?)([^)'"]+\.woff2)\1\)/)?.[2];
+assert.ok(rawFontUrl, 'bundled CSS references a woff2 font');
+const fontPath = rawFontUrl.startsWith('/') ? rawFontUrl : `/assets/${rawFontUrl.replace(/^\.\//, '')}`;
+const fontFile = await fetch(`${base}${fontPath}?token=${token}`);
 assert.equal(fontFile.status, 200);
 assert.match(fontFile.headers.get('content-type') || '', /font\/woff2/);
+assert.match(fontFile.headers.get('cache-control') || '', /immutable/);
 
 const wsUrl = `ws://127.0.0.1:${info.port}/ws?token=${encodeURIComponent(service.settingsStore.get().token)}`;
 const messages = await new Promise((resolve, reject) => {

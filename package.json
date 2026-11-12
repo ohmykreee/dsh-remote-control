@@ -12,6 +12,15 @@
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
+  "scripts": {
+    "dev": "vite",
+    "build": "node scripts/build-web.mjs",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "build:rust": "node scripts/build-rust.mjs",
+    "test": "node test/smoke.mjs && node test/media-progress.mjs && node test/probe-bridge.mjs && node test/notifications.mjs && node test/notification-watch.mjs",
+    "postinstall": "node scripts/build-web.mjs && node scripts/build-rust.mjs --optional"
+  },
   "files": [
     "index.js",
     "client.js",
@@ -19,8 +28,17 @@
     "locale/*.json",
     "icon.svg",
     "lib/**/*.js",
-    "web/**/*",
-    "vendor/qrcode.cjs",
+    "src/**",
+    "static/**",
+    "index.html",
+    "vite.config.js",
+    "svelte.config.js",
+    "tsconfig.json",
+    "native/rust/Cargo.toml",
+    "native/rust/Cargo.lock",
+    "native/rust/src/**/*.rs",
+    "native/rust/tests/**/*.rs",
+    "scripts/**/*.mjs",
     "README.md",
     "LICENSE"
   ],
@@ -38,5 +56,18 @@
         "@deepseek-ai/dsh-client-locale"
       ]
     }
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource-variable/noto-sans-sc": "^5.3.1",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "qrcode-generator": "^2.0.4",
+    "svelte": "^5.57.3",
+    "vite": "^8.3.8"
+  },
+  "devDependencies": {
+    "svelte-check": "^4.7.8",
+    "typescript": "~6.0.3"
   }
 }

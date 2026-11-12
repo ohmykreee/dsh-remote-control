@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
-import { createMediaService } from '../lib/media.js';
+import { createMediaEnrichment } from '../lib/media-enrich.js';
 
-const service = createMediaService();
-const enrich = service.__test.enrichMedia;
+const enrichment = createMediaEnrichment();
 const t0 = Date.now();
 
 function sample(media, sampledAt) {
-  return enrich({ ok: true, sampledAt, media: { canPlayPause: true, canNext: true, canPrevious: true, ...media } });
+  return enrichment.enrich({
+    ok: true,
+    sampledAt,
+    media: { canPlayPause: true, canNext: true, canPrevious: true, ...media },
+  });
 }
 
 const a = await sample({ appId: 'test', title: 'A', artist: 'B', playbackStatus: 'Playing', position: 20, startTime: 0, endTime: 200, lastUpdatedAt: t0 - 1000, canSeek: true }, t0);
@@ -30,18 +33,46 @@ const f = await sample({ appId: 'test', title: 'C', artist: 'B', playbackStatus:
 assert.equal(f.canSeek, false);
 assert.equal(f.timelineSource, 'none');
 
-// NetEase's private progress report must never be seekable.
-const g = await sample({ appId: 'cloudmusic.exe', title: '__dsh_missing_track__', artist: 'nobody', playbackStatus: 'Playing', position: 0, startTime: 0, endTime: 0, lastUpdatedAt: 0, canSeek: false }, t0 + 14000);
+// A NetEase session receives its liked/cover data from Rust; the JS layer only
+// projects the timeline and must not invent a duration or enable seeking.
+const g = await sample({ appId: 'cloudmusic.exe', title: 'Song', artist: 'Artist', playbackStatus: 'Playing', position: 0, startTime: 0, endTime: 0, lastUpdatedAt: 0, canSeek: false }, t0 + 14000);
 assert.equal(g.canSeek, false);
-assert.equal(g.timelineSource, 'netease');
-assert.ok(g.endTime > 0, `netease fallback duration ${g.endTime}`);
+assert.equal(g.timelineSource, 'none');
+assert.equal(g.endTime, 0);
 
-const h = await sample({ appId: 'cloudmusic.exe', title: '__dsh_missing_track_2__', artist: 'nobody', playbackStatus: 'Playing', position: 75, startTime: 0, endTime: 0, lastUpdatedAt: 0, canSeek: false }, t0 + 16000);
+const h = await sample({
+  appId: 'cloudmusic.exe',
+  title: 'Song',
+  artist: 'Artist',
+  playbackStatus: 'Playing',
+  position: 75,
+  startTime: 0,
+  endTime: 200,
+  lastUpdatedAt: 0,
+  canSeek: false,
+  canLike: true,
+  liked: true,
+  trackId: '42',
+  thumbnail: 'data:image/jpeg;base64,AAAA',
+}, t0 + 16000);
 assert.equal(h.canSeek, false);
 assert.ok(Math.abs(h.position - 75) < 0.05, `netease private position ${h.position}`);
+assert.equal(h.liked, true);
+assert.equal(h.canLike, true);
+assert.equal(h.trackId, '42');
 
-const i = await sample({ appId: 'cloudmusic.exe', title: '__dsh_missing_track_2__', artist: 'nobody', playbackStatus: 'Playing', position: 75, startTime: 0, endTime: 0, lastUpdatedAt: 0, canSeek: false }, t0 + 18000);
-assert.ok(i.position > 75.4 && i.position < 77.1, `netease stale position should advance smoothly, got ${i.position}`);
+const i = await sample({
+  appId: 'cloudmusic.exe',
+  title: 'Song',
+  artist: 'Artist',
+  playbackStatus: 'Playing',
+  position: 75,
+  startTime: 0,
+  endTime: 200,
+  lastUpdatedAt: 0,
+  canSeek: false,
+}, t0 + 18000);
+assert.ok(i.position > 75.4 && i.position < 77.1, `stale position should advance smoothly, got ${i.position}`);
 
 // IsPlaybackPositionEnabled alone is not enough: a player may advertise seek
 // support yet never report a position. Require an actual position report.
@@ -52,18 +83,5 @@ assert.equal(j.positionReported, false);
 const k = await sample({ appId: 'test', title: 'D', artist: 'B', playbackStatus: 'Playing', position: 5, startTime: 0, endTime: 200, lastUpdatedAt: t0 + 22000, canSeek: true }, t0 + 22000);
 assert.equal(k.canSeek, true);
 assert.equal(k.positionReported, true);
-
-// NetEase can advertise a duration + seek support without ever reporting a
-// position. That still must stay display-only.
-const l = await sample({ appId: 'cloudmusic.exe', title: '__dsh_missing_track_3__', artist: 'nobody', playbackStatus: 'Playing', position: 0, startTime: 0, endTime: 200, lastUpdatedAt: t0 + 24000, canSeek: true }, t0 + 24000);
-assert.equal(l.canSeek, false);
-assert.equal(l.positionReported, false);
-assert.equal(l.timelineSource, 'netease');
-
-const m = await sample({ appId: 'cloudmusic.exe', title: '__dsh_missing_track_3__', artist: 'nobody', playbackStatus: 'Playing', position: 10, startTime: 0, endTime: 200, lastUpdatedAt: t0 + 26000, canSeek: true }, t0 + 26000);
-assert.equal(m.canSeek, true);
-assert.equal(m.positionReported, true);
-
-await assert.rejects(() => service.control('seek', 10), /不支持拖动/);
 
 console.log('media progress ok');

@@ -36,3 +36,14 @@ desktop.ini
 dist/
 coverage/
 *.tsbuildinfo
+
+# compiled Rust probe sidecar (source lives in native/rust, binaries are local
+# build artifacts produced by scripts/build-rust.mjs)
+native/rust/target/
+native/bin/
+
+# workspace-local scratch directory passed to the sidecar as DSH_RC_TMPDIR
+.probe-tmp/
+
+# generated frontend output: installers compile it in postinstall
+web/
