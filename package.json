@@ -39,8 +39,9 @@
     "tsconfig.dsh.json",
     "tsconfig.dsh-client.json",
     "scripts/**/*.mjs",
-    "docs/media-adapters.md",
     "README.md",
+    "INSTALLATION.md",
+    "AGENTS.md",
     "LICENSE"
   ],
   "engines": {

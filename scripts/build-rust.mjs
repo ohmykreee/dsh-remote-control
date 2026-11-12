@@ -219,7 +219,7 @@ function ensureMediumIntegrity(directory) {
           'The workspace directory is still Low integrity after the repair attempt.',
           'Windows needs SeRelabelPrivilege to raise a directory inherited from a parent,',
           'so run the build from a normal (non-sandboxed) terminal, or follow the',
-          '"Windows low-integrity workspace" guide in README.md.',
+          '"Windows low-integrity workspace" guide in INSTALLATION.md.',
         ].join('\n'),
       );
       return;
