@@ -15,7 +15,6 @@ mod media;
 mod notifications;
 mod perf;
 mod util;
-mod vendor;
 mod volume;
 
 fn main() {

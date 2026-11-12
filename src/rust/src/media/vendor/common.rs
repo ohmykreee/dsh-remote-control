@@ -3,7 +3,8 @@
 //! The adapters read only local client state (window titles, Cider's title
 //! file, NetEase's SQLite database). They never call a network API.
 
-use crate::media::catalog::ParsedTitle;
+use crate::media::catalog::{self, App, ParsedTitle};
+use crate::media::Media;
 
 /// Collapse runs of whitespace and trim.
 pub fn normalize_spaces(value: &str) -> String {
@@ -108,6 +109,23 @@ pub fn find_chars(haystack: &[char], needle: &[char]) -> Option<usize> {
         .position(|window| window == needle)
 }
 
+/// Vendor-first policy for clients whose private interface is only a window
+/// title: use the system session when it is complete (controls and seek stay
+/// on SMTC/MPRIS), otherwise fall back to the client's private title.
+pub fn resolve_system_or_private(
+    app: App,
+    system: Option<Media>,
+    private: Option<Media>,
+) -> Option<Media> {
+    if let Some(system) = system.as_ref() {
+        let profile = catalog::profile_for_app(app);
+        if catalog::system_complete(profile, system) {
+            return Some(system.clone());
+        }
+    }
+    private.or(system)
+}
+
 /// Rotate a rolling window title so it starts at `marker`.
 pub fn rotate_to_marker(raw: &str, marker: &[char]) -> Option<String> {
     let chars: Vec<char> = raw.chars().collect();
@@ -118,4 +136,51 @@ pub fn rotate_to_marker(raw: &str, marker: &[char]) -> Option<String> {
             .chain(chars[..index].iter())
             .collect::<String>(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn system(title: &str, position: f64) -> Media {
+        let mut media = Media::new("test.exe");
+        media.title = title.to_string();
+        media.playback_status = "Playing".to_string();
+        media.start_time = 0.0;
+        media.end_time = 100.0;
+        media.position = position;
+        media.can_seek = true;
+        media
+    }
+
+    fn private(title: &str) -> Media {
+        let mut media = Media::new("test.exe");
+        media.title = title.to_string();
+        media.provider = "private".to_string();
+        media
+    }
+
+    #[test]
+    fn vendor_prefers_a_complete_system_session() {
+        let chosen = resolve_system_or_private(
+            App::Spotify,
+            Some(system("System", 10.0)),
+            Some(private("Private")),
+        )
+        .unwrap();
+        assert_eq!(chosen.title, "System");
+    }
+
+    #[test]
+    fn vendor_falls_back_to_private_when_system_is_incomplete() {
+        // QQ requires a real position; zero means the session is not complete.
+        let chosen = resolve_system_or_private(
+            App::QQMusic,
+            Some(system("System", 0.0)),
+            Some(private("Private")),
+        )
+        .unwrap();
+        assert_eq!(chosen.title, "Private");
+        assert_eq!(chosen.provider, "private");
+    }
 }

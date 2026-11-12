@@ -220,6 +220,26 @@ node scripts/build-rust.mjs
 
 macOS 仅提供源码级实现，未在实机或 CI 验证；GPU/温度不实现，定位回退 IP。UI Automation / AX 读进度需要给运行 `dsh-probe` 的父进程授予「辅助功能」权限。
 
+### 网易云音乐 CDP（可选，红心/精确进度）
+
+新版网易云客户端的 SMTC 只提供歌曲信息和播放状态，不汇报播放进度。若希望手机端显示精确进度并支持点击红心，需要让网易云带 Chromium 远程调试端口启动。SMTC 可用时 CDP 只补进度和红心，播放/暂停/切歌仍由 SMTC 控制；SMTC 完全不可用时 CDP 会接管歌曲信息、封面和播放控制。
+
+1. 完全退出网易云音乐（包括托盘图标）。
+2. 右键桌面快捷方式 →「属性」→「目标」，在末尾追加（注意前面有空格）：
+   ```text
+   /remote-debugging-port=2015
+   ```
+   也可以直接运行：
+   ```powershell
+   & 'C:\Program Files\Netease\CloudMusic\cloudmusic.exe' /remote-debugging-port=2015
+   ```
+3. 启动后访问 `http://127.0.0.1:2015/json`，能看到 `orpheus://orpheus/pub/app.html` 页面即成功。
+4. 重启 DSH（或等待下一次媒体轮询）。音乐页会显示精确进度；登录网易云后红心徽标变为可点击。若网易云没有向系统注册 SMTC，歌曲信息、封面和播放控制会自动走 CDP。
+
+如果使用其他端口，在启动 DSH 前设置环境变量 `DSH_RC_NETEASE_CDP_PORT`（探针继承该变量）。Linux/macOS 版网易云若支持同样的调试参数也可这样启动：探针会先读取 MPRIS/Now Playing，检测到 CDP 后按平台合并进度/红心。未开启 CDP 时，进度回退到原有的窗口/UIA 探测逻辑，红心显示为未知且不可点击——不会读取本地数据库里的红心状态；如果连窗口/UIA 也不可用，媒体卡会显示为空。
+
+CDP 只监听本机回环地址，插件只读取当前页面 DOM、点击红心/播放控制，不调用外部数据接口、不导出 Cookie。若不再需要，删除快捷方式里的参数并重启网易云即可关闭端口。
+
 ### 验证探针
 
 ```powershell

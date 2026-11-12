@@ -9,10 +9,17 @@ use std::path::PathBuf;
 use rusqlite::{types::ValueRef, Connection, OpenFlags};
 
 use super::{truncate, NotificationItem, Snapshot, SnapshotResult};
+use crate::cli::{CliError, CliResult};
 use crate::util;
 
 pub const SOURCE: &str = "windows-notification-database";
 pub const LIVE_ONLY: bool = false;
+
+pub fn watch(_limit: usize) -> CliResult {
+    Err(CliError::usage(
+        "notifications watch is available on Linux only".to_string(),
+    ))
+}
 
 const MAX_AVATAR_BYTES: u64 = 768 * 1024;
 const MAX_BODY_CHARS: usize = 260;

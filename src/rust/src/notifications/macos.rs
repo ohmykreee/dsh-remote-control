@@ -13,10 +13,17 @@ use plist::{Dictionary, Value};
 use rusqlite::{types::ValueRef, Connection, OpenFlags};
 
 use super::{truncate, NotificationItem, Snapshot, SnapshotResult};
+use crate::cli::{CliError, CliResult};
 use crate::util;
 
 pub const SOURCE: &str = "macos-notification-center";
 pub const LIVE_ONLY: bool = false;
+
+pub fn watch(_limit: usize) -> CliResult {
+    Err(CliError::usage(
+        "notifications watch is available on Linux only".to_string(),
+    ))
+}
 
 const APP_LABELS: &[(&str, &str)] = &[
     ("com.apple.Music", "音乐"),

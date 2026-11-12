@@ -206,6 +206,8 @@ export interface MediaInfo {
   canNext?: boolean;
   canPrevious?: boolean;
   liked?: boolean;
+  canLike?: boolean;
+  canSetLiked?: boolean;
   thumbnail?: string | null;
 }
 

@@ -51,6 +51,7 @@ const h = await sample({
   lastUpdatedAt: 0,
   canSeek: false,
   canLike: true,
+  canSetLiked: true,
   liked: true,
   trackId: '42',
   thumbnail: 'data:image/jpeg;base64,AAAA',
@@ -59,6 +60,7 @@ assert.equal(h.canSeek, false);
 assert.ok(Math.abs(h.position - 75) < 0.05, `netease private position ${h.position}`);
 assert.equal(h.liked, true);
 assert.equal(h.canLike, true);
+assert.equal(h.canSetLiked, true);
 assert.equal(h.trackId, '42');
 
 const i = await sample({
@@ -73,6 +75,24 @@ const i = await sample({
   canSeek: false,
 }, t0 + 18000);
 assert.ok(i.position > 75.4 && i.position < 77.1, `stale position should advance smoothly, got ${i.position}`);
+
+// CDP-only NetEase is a responsive private transport; it may seek, but other
+// private/accessibility sources still cannot.
+const cdp = await sample({
+  appId: 'cloudmusic.exe',
+  title: 'CDP Song',
+  artist: 'Artist',
+  playbackStatus: 'Playing',
+  position: 10,
+  startTime: 0,
+  endTime: 100,
+  lastUpdatedAt: 0,
+  canSeek: true,
+  provider: 'private',
+  providerDetail: 'netease-cdp',
+}, t0 + 19000);
+assert.equal(cdp.canSeek, true);
+assert.equal(cdp.timelineSource, 'private');
 
 // IsPlaybackPositionEnabled alone is not enough: a player may advertise seek
 // support yet never report a position. Require an actual position report.

@@ -161,18 +161,7 @@ pub fn cli(args: &[String], _started_at: i64) -> CliResult {
     let sampled_at = util::now_ms();
     match action.as_str() {
         "read" => Ok(read(limit, sampled_at)),
-        "watch" => {
-            #[cfg(target_os = "linux")]
-            {
-                platform::watch(limit)
-            }
-            #[cfg(not(target_os = "linux"))]
-            {
-                Err(CliError::usage(
-                    "notifications watch is available on Linux only".to_string(),
-                ))
-            }
-        }
+        "watch" => platform::watch(limit),
         other => Err(CliError::usage(format!(
             "unsupported notifications action: {other} (expected read, watch)"
         ))),

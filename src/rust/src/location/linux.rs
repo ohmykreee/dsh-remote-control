@@ -10,7 +10,7 @@ use std::time::Duration;
 use zbus::blocking::{Connection, Proxy};
 use zbus::zvariant::OwnedObjectPath;
 
-use super::Reading;
+use super::{AccessReport, Reading};
 
 const GEOCLUE_SERVICE: &str = "org.freedesktop.GeoClue2";
 const GEOCLUE_MANAGER_PATH: &str = "/org/freedesktop/GeoClue2/Manager";
@@ -20,6 +20,23 @@ const GEOCLUE_LOCATION_INTERFACE: &str = "org.freedesktop.GeoClue2.Location";
 
 fn failure(error: impl std::fmt::Display) -> String {
     format!("GeoClue: {error}")
+}
+
+pub fn request_access(_open_settings: bool) -> AccessReport {
+    match read() {
+        Ok(_) => AccessReport {
+            access: "allowed",
+            low_integrity: false,
+            opened_settings: false,
+            reason: None,
+        },
+        Err(_) => AccessReport {
+            access: "denied",
+            low_integrity: false,
+            opened_settings: false,
+            reason: Some("unavailable"),
+        },
+    }
 }
 
 pub fn read() -> Result<Reading, String> {

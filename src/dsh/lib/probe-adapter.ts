@@ -16,7 +16,7 @@ import { clamp, finiteNumber, serializeError } from './util.js';
 const MEDIA_TTL_MS = 1400;
 const VOLUME_TTL_MS = 3000;
 const ERROR_TTL_MS = 5000;
-const MEDIA_ACTIONS = ['playpause', 'next', 'previous', 'seek', 'volume', 'mute'];
+const MEDIA_ACTIONS = ['playpause', 'next', 'previous', 'seek', 'like', 'volume', 'mute'];
 
 /** Cached `media read` / media action result, plus the cache-hit marker. */
 export interface MediaCache {
@@ -88,7 +88,7 @@ interface ProbeMediaAdapter {
   getState(): Promise<MediaStatePayload>;
   getMedia(force?: boolean): Promise<MediaCache>;
   getVolume(force?: boolean): Promise<VolumeCache>;
-  control(action: string, value?: number | null): Promise<VolumeControlResult | MediaControlResult>;
+  control(action: string, value?: number | boolean | null): Promise<VolumeControlResult | MediaControlResult>;
   status(): MediaAdapterStatus;
 }
 
@@ -205,12 +205,15 @@ export function createProbeMediaAdapter({ label = '平台' }: { label?: string }
 
   async function control(
     action: string,
-    value: number | null = null,
+    value: number | boolean | null = null,
   ): Promise<VolumeControlResult | MediaControlResult> {
     const normalized = String(action || '').toLowerCase();
     if (!MEDIA_ACTIONS.includes(normalized)) throw new Error('Unsupported media action');
     if (normalized === 'volume' || normalized === 'mute') {
-      return controlVolume(normalized, value);
+      return controlVolume(normalized, Number(value));
+    }
+    if (normalized === 'like' && !mediaCache?.media?.canSetLiked) {
+      throw new Error('当前播放器不支持修改红心');
     }
 
     let position = 0;
@@ -222,6 +225,9 @@ export function createProbeMediaAdapter({ label = '平台' }: { label?: string }
     if (normalized === 'seek') enrichment.markSeek(mediaKey(mediaCache?.media), position);
     const args = ['media', normalized];
     if (normalized === 'seek') args.push('--position', String(position));
+    if (normalized === 'like' && typeof value === 'boolean') {
+      args.push('--value', value ? 'true' : 'false');
+    }
     const appId = activeAppId();
     if (appId) args.push('--app-id', appId);
     const result = await callProbe(...args);

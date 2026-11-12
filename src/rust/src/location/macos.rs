@@ -6,7 +6,16 @@
 //! probe therefore reports a clear error and Node falls back to IP
 //! geolocation/timezone; manual coordinates remain available in settings.
 
-use super::Reading;
+use super::{AccessReport, Reading};
+
+pub fn request_access(_open_settings: bool) -> AccessReport {
+    AccessReport {
+        access: "denied",
+        low_integrity: false,
+        opened_settings: false,
+        reason: Some("unavailable"),
+    }
+}
 
 pub fn read() -> Result<Reading, String> {
     Err(

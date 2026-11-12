@@ -23,6 +23,21 @@ fn nowplaying_cli() -> Option<std::path::PathBuf> {
     util::find_executable("nowplaying-cli")
 }
 
+/// Best-effort client identity for nowplaying, which does not expose the
+/// bundle id. This keeps the vendor-first dispatch working on macOS.
+fn playing_app_id() -> Option<&'static str> {
+    for (process, app_id) in [
+        ("Music", "Music"),
+        ("Spotify", "Spotify"),
+        ("Cider", "Cider"),
+    ] {
+        if util::command_output("pgrep", &["-x", process]).is_ok() {
+            return Some(app_id);
+        }
+    }
+    None
+}
+
 fn parse_key_values(text: &str) -> std::collections::HashMap<String, String> {
     let mut values = std::collections::HashMap::new();
     for line in text.lines() {
@@ -170,6 +185,9 @@ return out
     media.end_time = duration;
     media.max_seek_time = duration;
     media.last_updated_at = util::now_ms();
+    media.can_play_pause = true;
+    media.can_next = true;
+    media.can_previous = true;
     media.can_seek = catalog::seek_allowed(Tier::System, duration > 0.0, false);
     Ok(Some(media))
 }
@@ -180,7 +198,7 @@ fn read_cider() -> Option<Media> {
     if util::command_output("pgrep", &["-x", "Cider"]).is_err() {
         return None;
     }
-    let parsed = crate::vendor::apple_music::cider_title()?;
+    let parsed = crate::media::vendor::apple_music::cider_title()?;
     let mut media = Media::new("Cider");
     media.provider = Tier::Private.as_str().to_string();
     media.provider_detail = "cider-title".to_string();
@@ -195,16 +213,39 @@ fn read_cider() -> Option<Media> {
     Some(media)
 }
 
+/// System-branch validity exposed to vendor modules.
+pub(crate) fn system_valid(media: &Media) -> bool {
+    !media.title.trim().is_empty()
+        && media.playback_status != "Closed"
+        && media.end_time > media.start_time
+        && media.end_time > 0.0
+        && media.can_seek
+}
+
 pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
     let mut media = if let Some(path) = nowplaying_cli() {
-        read_nowplaying(&path)?
+        read_nowplaying(&path).unwrap_or(None)
     } else {
-        read_applescript()?
+        None
     };
+    if media.is_none() {
+        // If the system route failed, try AppleScript before the private
+        // Cider title, then return an empty reading.
+        media = read_applescript().unwrap_or(None);
+    }
     if media.is_none() {
         media = read_cider();
     }
+    if media.is_none() {
+        // No Now Playing/AppleScript/Cider source: try the NetEase CDP page.
+        return Ok(crate::media::vendor::netease::cdp_media());
+    }
     if let Some(media) = media.as_mut() {
+        if media.app_id == "macOS" {
+            if let Some(app_id) = playing_app_id() {
+                media.app_id = app_id.to_string();
+            }
+        }
         // Accessibility is the last resort for a read-only progress display.
         // It is only attempted when the system/private tier did not provide a
         // duration; it never changes `canSeek`.
@@ -226,6 +267,28 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
             media.thumbnail = None;
             media.thumbnail_type = None;
         }
+
+        // Vendor-first: map the macOS app id to the catalog and let the vendor
+        // combine the Now Playing/AppleScript session with CDP when applicable.
+        let profile = catalog::profile_for_id(&media.app_id)
+            .or_else(|| catalog::profile_for_process(&media.app_id))
+            .or_else(|| match media.app_id.to_ascii_lowercase().as_str() {
+                "music" => catalog::profile_for_app(catalog::App::AppleMusic),
+                _ => None,
+            });
+        if let Some(profile) = profile {
+            if profile.app != catalog::App::Browser {
+                if let Some(resolved) = crate::media::vendor::resolve(
+                    crate::media::vendor::Platform::MacOS,
+                    profile.app,
+                    Some(media.clone()),
+                    None,
+                    || None,
+                ) {
+                    *media = resolved;
+                }
+            }
+        }
     }
     Ok(media)
 }
@@ -240,7 +303,17 @@ fn accessibility_process(app_id: &str) -> Option<&'static str> {
 }
 
 pub fn control(action: &str, position: f64, options: &ReadOptions) -> Result<(), String> {
-    let _ = options;
+    // A CDP-only NetEase session has no Now Playing entry; route its transport
+    // through the page before trying the AppleScript fallback.
+    let check = ReadOptions {
+        thumbnail: false,
+        ..options.clone()
+    };
+    if let Ok(Some(current)) = read(&check) {
+        if current.provider_detail.contains("cdp") {
+            return crate::media::vendor::netease::cdp_control(action, position);
+        }
+    }
     if let Some(path) = nowplaying_cli() {
         let args: Vec<String> = match action {
             "playpause" => vec!["togglePlayPause".to_string()],
@@ -273,6 +346,10 @@ pub fn control(action: &str, position: f64, options: &ReadOptions) -> Result<(),
     );
     applescript(&script)?;
     Ok(())
+}
+
+pub fn like(liked: Option<bool>, _options: &ReadOptions) -> Result<(), String> {
+    crate::media::vendor::netease::cdp_set_liked(liked).map(|_| ())
 }
 
 #[cfg(test)]

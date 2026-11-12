@@ -97,31 +97,10 @@ pub fn read_json(sampled_at: i64) -> Value {
     }
 }
 
-/// Ask for location permission. Only Windows has a real consent flow; other
-/// platforms report whether a location can be read at all.
+/// Ask for location permission. The platform module owns the consent flow
+/// (Windows) or reports whether a location can be read at all.
 fn request_access(open_settings: bool) -> AccessReport {
-    #[cfg(windows)]
-    {
-        platform::request_access(open_settings)
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = open_settings;
-        match platform::read() {
-            Ok(_) => AccessReport {
-                access: "allowed",
-                low_integrity: false,
-                opened_settings: false,
-                reason: None,
-            },
-            Err(_) => AccessReport {
-                access: "denied",
-                low_integrity: false,
-                opened_settings: false,
-                reason: Some("unavailable"),
-            },
-        }
-    }
+    platform::request_access(open_settings)
 }
 
 pub fn cli(args: &[String], started_at: i64) -> CliResult {

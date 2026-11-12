@@ -170,7 +170,7 @@ src/svelte/lib/components/ 页面与卡片组件
 src/svelte/styles/        全局颜色令牌与基础样式
 src/rust/src/cli.rs       命令行解析与 JSON 信封
 src/rust/src/media/       媒体适配层（catalog + 平台实现 + 无障碍）
-src/rust/src/vendor/      各客户端私有适配（网易云、QQ、酷狗、酷我、汽水、全民K歌、Spotify、Apple Music、YouTube Music）
+src/rust/src/media/vendor/      各客户端私有适配（网易云、QQ、酷狗、酷我、汽水、全民K歌、Spotify、Apple Music、YouTube Music）
 src/rust/src/perf/        性能采样
 src/rust/src/notifications/ 通知读取/监视
 src/rust/src/volume/      音量
@@ -235,7 +235,7 @@ docs/screenshots/         手机端截图（仅图片）
 
 | type | 内容 |
 |---|---|
-| `action` | `playpause` / `next` / `previous` / `seek` / `volume` / `mute`，可带 `value` |
+| `action` | `playpause` / `next` / `previous` / `seek` / `like` / `volume` / `mute`，可带 `value` |
 | `answer-question` | `sessionId`、`requestId`、结构化答案 |
 | `refresh` | 重发初始快照 |
 | `settings` | 请求设置快照 |
@@ -309,6 +309,8 @@ docs/screenshots/         手机端截图（仅图片）
 
 - 唯一 OS 探测层：媒体、音量、性能/GPU/温度、通知、定位。Node 不保留 PowerShell/C#/playerctl/osascript 回退。
 - 源码：`src/rust`（Cargo 项目，crate `dsh-probe`，版本 `0.1.0`）。
+- 每个功能目录（`media/`、`perf/`、`notifications/`、`volume/`、`location/`）都按同一方式分层：`mod.rs` 只做命令行、JSON 外形和平台模块选择；`windows.rs` / `linux.rs` / `macos.rs` 各自实现完整平台逻辑。平台文件缺失的能力也由该平台文件返回明确错误，不在 `mod.rs` 里写 `cfg` 分支。
+- 媒体层在此之上再做 vendor 调度：平台文件识别应用后调用 `vendor::resolve`，命中 vendor 进入对应客户端逻辑，未命中才回到系统 API。
 - 产物：`native/bin/<platform>-<arch>/dsh-probe[.exe]`，例如 `win32-x64`、`linux-x64`、`darwin-arm64`。
 - `src/dsh/lib/probe.ts` 按 `process.platform` / `process.arch` 定位，`DSH_RC_PROBE` 可覆盖；找不到时所有调用返回明确的“不可用”错误。
 - 每条命令输出一行 JSON；探针内部错误返回 `{"ok":false,...}` 且退出码 0（便于 Node 读取），参数错误退出码 2。
@@ -320,6 +322,8 @@ docs/screenshots/         手机端截图（仅图片）
 dsh-probe version
 dsh-probe media read [--app-id ID] [--player DEST] [--no-thumbnail]
 dsh-probe media playpause|next|previous|seek --position SECONDS [--app-id ID] [--player DEST]
+dsh-probe media like [--value true|false] [--app-id ID] [--player DEST]   # NetEase CDP
+dsh-probe media cdp                                                       # NetEase CDP diagnostics
 dsh-probe volume read
 dsh-probe volume set --value 0.0..1.0
 dsh-probe volume toggle
@@ -339,8 +343,8 @@ dsh-probe location request [--open-settings]    # 申请定位权限（Windows �
 - 基础字段：`appId`、`title`、`artist`、`album`、`albumArtist`、`trackNumber`、`playbackStatus`、`autoRepeatMode`、`shuffleActive`、`position`、`startTime`、`endTime`、`minSeekTime`、`maxSeekTime`、`lastUpdatedAt`；
 - 控制：`canPlayPause`、`canNext`、`canPrevious`、`canSeek`；
 - 封面：`thumbnail`、`thumbnailType`、`thumbnailError`、`thumbnailUrl`（Linux MPRIS 的 HTTP(S) 封面交给 Node 下载并转 data URL）；
-- 来源：`provider`（`system` / `private` / `accessibility`）、`providerDetail`（`smtc`、`smtc-partial`、`mpris`、`nowplaying`、`applescript`、`window-title`、`cider-title`、`window-title+uia`、`cider-title+ax` 等）；
-- 网易云：`liked`（`true`/`false`/`null`）、`canLike`、`trackId`。
+- 来源：`provider`（`system` / `private` / `accessibility`）、`providerDetail`（`smtc`、`smtc-partial`、`mpris`、`nowplaying`、`applescript`、`window-title`、`cider-title`、`window-title+uia`、`cider-title+ax`、`netease-cdp` 等）；
+- 网易云：`liked`（`true`/`false`/`null`）、`canLike`、`canSetLiked`、`trackId`。`liked` 只来自 CDP（客户端带远程调试端口启动）；无 CDP 时为 `null`，不读取本地数据库红心。
 
 通知：`available`、`reason`、`source`、`liveOnly`、`notifications[]`（`id`、`appKey`、`appName`、`title`、`body`、`avatar`、`hasImage`、`receivedAt`、`isGroup`）、`apps[]`（`key`、`name`、`count`）、`updatedAt`。Windows 的 `appName` 与 `appKey` 相同（原始应用标识），中文名由 Node 的软件映射生成。
 
@@ -368,16 +372,17 @@ dsh-probe location request [--open-settings]    # 申请定位权限（Windows �
 | `DSH_RC_TMPDIR` | 覆盖只读 SQLite 副本的临时目录 |
 | `DSH_RC_VCVARS` | 覆盖 Windows 构建的 `vcvars64.bat` 路径 |
 | `DSH_RC_SKIP_RUST_BUILD` | `1` 跳过 `pnpm install` 中的探针构建 |
+| `DSH_RC_NETEASE_CDP_PORT` | 网易云远程调试端口（默认 `2015`；仅在客户端带 `/remote-debugging-port=...` 启动时生效） |
 | `DSH_REMOTE_CONTROL_PORT` | 覆盖 LAN 控制台端口（默认 38765） |
 
 ### 平台后端
 
 | 能力 | Windows | Linux | macOS |
 |---|---|---|---|
-| 媒体读取/控制 | WinRT SMTC → 客户端窗口标题/Cider 标题文件 → UI Automation（只读） | MPRIS over D-Bus（zbus）→ 本地客户端数据 | `nowplaying-cli` → AppleScript → Cider `title.txt` → AX 进度（源码，未测试） |
-| 封面 | SMTC `Thumbnail` 流 → data URL（含 Edge/YouTube）；网易云本地缓存 | `file://`/`data:` 直接读取；HTTP(S) 由 Node 下载 | `nowplaying-cli` artwork |
+| 媒体读取/控制 | vendor-first：网易云 SMTC/CDP 组合、其他已知客户端各自适配 → 未命中时 WinRT SMTC；UI Automation 仅兜底（只读） | vendor-first：已知客户端进入 vendor；网易云 MPRIS+CDP，其他走 MPRIS | vendor-first：已知客户端进入 vendor；网易云 Now Playing/CDP，其他走 `nowplaying-cli`/AppleScript |
+| 封面 | SMTC `Thumbnail` 流 → data URL（含 Edge/YouTube）；网易云 SMTC 封面或 CDP 页面封面，本地 `Statics` 仅窗口标题兜底 | `file://`/`data:` 直接读取；HTTP(S) 由 Node 下载 | `nowplaying-cli` artwork |
 | 音量 | Core Audio `IAudioEndpointVolume` | `wpctl` → `pactl` → `amixer`（Rust 内调用） | `osascript`（Rust 内调用，未测试） |
-| 网易云封面/喜欢 | 本地 `webdb.dat` + `Statics` | 本地客户端数据（尽力） | 本地客户端数据（尽力） |
+| 网易云封面/喜欢 | SMTC 开启时封面取 SMTC；CDP-only 时取页面封面；红心仅 CDP | 封面取 MPRIS 或 CDP 页面；红心仅 CDP | 封面取 Now Playing 或 CDP 页面；红心仅 CDP |
 | CPU/内存/频率 | sysinfo + PDH `% Processor Performance` + 注册表 | sysinfo + `/proc/cpuinfo` + cpufreq | sysinfo + `sysctl`（未测试） |
 | GPU/温度 | DXGI + PDH GPU 计数器 + WDDM D3DKMT + 磁盘温度 | `nvidia-smi` 或 AMD sysfs + `/sys/class/hwmon` | 不实现 |
 | 通知 | 通知中心 SQLite 数据库 | `org.freedesktop.Notifications` D-Bus 监视（zbus） | 通知中心 SQLite 数据库（源码，未测试） |
@@ -389,26 +394,23 @@ Windows 只允许 Medium 完整性及以上的进程访问定位。插件目录�
 
 ## 媒体适配层
 
-`dsh-probe` 的媒体读取按固定优先级选择数据来源，并严格区分「展示进度」和「可拖动 seek」：
+`dsh-probe` 的媒体读取是 **vendor-first**：
 
-1. **系统媒体接口**
-   - Windows：WinRT SMTC（`GlobalSystemMediaTransportControlsSessionManager`）
-   - Linux：MPRIS 2 over D-Bus
-   - macOS：MediaRemote / `nowplaying-cli`
-2. **软件私有接口**
-   - 本机窗口标题（Win32 `EnumWindows`）、Cider 的 `Plugins/title.txt`、网易云客户端本地 SQLite 数据库/封面缓存等
-3. **UI Automation / 无障碍树**（下下策，只读）
-   - Windows：UI Automation `Text` 控件
-   - macOS：`System Events` UI scripting（受辅助功能权限控制）
-   - Linux：MPRIS 已覆盖受支持的原生客户端，因此未启用 AT-SPI 树遍历
+1. **识别当前播放软件**（SMTC AUMID / 进程 / MPRIS / bundle id）。
+2. **命中 vendor 适配** → 进入 `media/vendor/<client>.rs` 的逻辑：
+   - 网易云：SMTC 可用时用其元数据/封面/播放状态/传输控制，CDP 补精确进度和红心；SMTC 完全不可用但 CDP 可用时，CDP 提供歌曲信息/封面/进度/红心/传输控制；两者都不可用时窗口/UIA 兜底，仍取不到就返回空。
+   - QQ 音乐、酷狗、酷我、汽水、全民 K 歌、Spotify、Apple Music、YouTube Music：完整系统会话优先（控制与 seek 留在 SMTC/MPRIS），否则窗口标题/Cider/UIA 私有层。
+3. **未命中 vendor**（浏览器、未知播放器）→ 直接使用系统媒体接口（Windows SMTC、Linux MPRIS、macOS MediaRemote）。
 
-**不访问任何外部 Web API。** 封面来自 SMTC `Thumbnail`、MPRIS `mpris:artUrl` 或本地缓存；歌曲信息不通过网易云/QQ 音乐等网络接口查询。
+Windows 平台层只负责识别应用、收集 SMTC/窗口/音频会话并调用 vendor 调度；Linux/macOS 平台层收集 MPRIS/Now Playing 后同样调用 vendor。`vendor::resolve` 接收 `Platform` 和系统媒体，决定最终组合。所有 vendor 都遵循同一模式：私有解析/接口在 `media/vendor/<client>.rs`，平台机制在 `media/`。
+
+**不访问任何外部 Web API。** 封面来自 SMTC `Thumbnail`、MPRIS `mpris:artUrl`、网易云 CDP 页面的图片 data URL 或本地缓存；歌曲信息不通过网易云/QQ 音乐等网络接口查询。
 
 适配思路参考了 [Widdit/now-playing-service](https://github.com/Widdit/now-playing-service)（MIT）的 `GetMusicStatus` 实现，特别是各客户端的窗口标题修正、音频会话播放状态判断和网易云/全民 K 歌的 UI Automation 进度文本格式；Rust 侧为独立实现。
 
 ### 代码结构
 
-- `src/rust/src/vendor/<client>.rs`：每个客户端的私有接口/窗口标题解析（`netease.rs` 还包含本地 SQLite 与封面缓存；`apple_music.rs` 包含 Cider 的 `title.txt`）。
+- `src/rust/src/media/vendor/<client>.rs`：每个客户端的私有接口/窗口标题解析（`netease.rs` 还包含本地 SQLite 封面/时长缓存与 CDP 的进度、红心、完整媒体/控制桥；`apple_music.rs` 包含 Cider 的 `title.txt`）。vendor 可以直接调用平台模块暴露的系统辅助（如 `platform::system_valid`），不需要复制系统 API 逻辑。
 - `src/rust/src/media/catalog.rs`：应用识别、进程/AUMID 映射、进度文本解析、`SmtcPolicy` 和 seek 策略。
 - `src/rust/src/media/windows/`：Windows 的 SMTC、窗口/进程枚举、Core Audio 会话状态、UI Automation 文本树扫描。
 - `src/rust/src/media/linux.rs` / `macos.rs`：MPRIS / MediaRemote 系统接口及平台相关的无障碍兜底。通用 UIA/AX 扫描留在平台层，因为它是全应用通用的树遍历，不包含单个客户端的业务逻辑。
@@ -419,15 +421,16 @@ Windows 只允许 Medium 完整性及以上的进程访问定位。插件目录�
 
 - Spotify、Apple Music、YouTube Music、浏览器通常提供完整 SMTC/MPRIS，播放状态、时间轴、封面和 seek 都可用。
 - 网易云、QQ 音乐、酷狗、酷我、汽水、全民 K 歌经常只提供部分信息，或者 SMTC 会话存在但播放状态/位置不刷新（只有打开 Windows 媒体浮层才更新）。
-- 网易云的 SMTC 提供元数据/播放状态，但不汇报播放进度；部分旧客户端还会「声明可 seek」却不回报真实 `Position`。因此既要保留 SMTC 的元数据，又要从 UIA/本地数据补进度。
+- 网易云的 SMTC 提供元数据/播放状态，但不汇报播放进度；部分旧客户端还会「声明可 seek」却不回报真实 `Position`。客户端带 `/remote-debugging-port=2015` 启动时，CDP 页面能提供精确进度和红心状态/切换；未开启 CDP 时保留旧的 now-playing-service 进度兜底，红心不读取本地数据库。
 
-因此适配层先判断系统会话是否**完整**，不完整时保留可用的系统元数据，再降级到私有接口；只有进度仍缺失时才读无障碍树（只读）。
+因此适配层先识别播放软件并进入 vendor 策略；vendor 内部决定完整系统会话、私有接口或 CDP 的组合；只有未命中 vendor（浏览器/未知播放器）时才直接使用系统 API。无障碍树只作为 vendor 内部的最后兜底，且永远只读。
 
 ### Seek 规则
 
 | 来源 | 进度条展示 | 可拖动 seek |
 |---|---|---|
 | 完整系统会话 | 是 | **是** |
+| CDP-only 页面（SMTC 不存在） | 是 | **是**（页面滑块） |
 | 系统会话不完整（`smtc-partial`） | 是（若有时长） | 否 |
 | 私有接口 | 是（若有时长） | 默认否；仅当适配器显式声明实时可写接口时才是 |
 | UI Automation / AX / AT-SPI | 是 | **否** |
@@ -440,13 +443,13 @@ Windows 只允许 Medium 完整性及以上的进程访问定位。插件目录�
 - 播放器允许定位（SMTC `IsPlaybackPositionEnabled` / MPRIS `CanSeek`）；
 - 对标记为 `VerifyPosition` 的客户端（部分旧版 QQ/酷狗等）还要求实际收到过非零 `Position`。
 
-Node 侧 `media-enrich.ts` 会再次校验 `provider === 'system'`、时间轴和位置证据；即使 Rust 侧误给了 `canSeek`，私有/无障碍来源也不会出现可拖动进度条。
+Node 侧 `media-enrich.ts` 会再次校验 `provider === 'system'` 或经过确认的 `netease-cdp` 私有传输、时间轴和位置证据；即使 Rust 侧误给了 `canSeek`，其他私有/无障碍来源也不会出现可拖动进度条。
 
 ### 各客户端行为
 
 | 客户端 | Windows | Linux | macOS |
 |---|---|---|---|
-| 网易云音乐 | SMTC 元数据/状态/控制（MetadataOnly）→ 窗口标题兜底 + 本地 `webdb.dat`/`Statics` + UIA 进度 | MPRIS → 本地客户端数据（尽力） | MPRIS 不适用；`nowplaying-cli`/AppleScript → 本地客户端数据（尽力） |
+| 网易云音乐 | SMTC 元数据/封面/状态/控制（MetadataOnly）→ CDP 进度/红心；SMTC 不存在且 CDP 可用时 CDP 提供全量信息/封面/控制；两者都不可用时窗口标题 + UIA；仍无则空 | MPRIS（有效时保留其 seek）+ CDP 进度/红心；MPRIS 不存在时 CDP 全量 | `nowplaying-cli`/AppleScript（有效时保留控制）+ CDP 进度/红心；系统源不存在时 CDP 全量 |
 | QQ 音乐 | SMTC（需真实位置）→ 窗口标题 | MPRIS | `nowplaying-cli`/AppleScript |
 | 酷狗音乐 | SMTC（需真实位置）→ 窗口标题（滚动标题修正） | MPRIS | `nowplaying-cli`/AppleScript |
 | 酷我音乐 | SMTC（需真实位置）→ 窗口标题（滚动标题修正） | MPRIS | `nowplaying-cli`/AppleScript |
@@ -466,7 +469,8 @@ Node 侧 `media-enrich.ts` 会再次校验 `provider === 'system'`、时间轴�
 ### 已知限制
 
 - 私有接口通常是只读的：窗口标题只有「歌名/歌手」，没有可靠的暂停状态和进度。播放/暂停优先用 Core Audio 会话状态/峰值判断；静音或独占音频仍可能误判。
-- 网易云最新版的 SMTC 只提供元数据/播放状态/控制，不汇报播放进度。适配器将其视为 `MetadataOnly`：保留 SMTC 的歌曲信息与控制，进度由 UIA/本地数据补齐，永远不把 SMTC 当作完整时间轴，也不展示 seek。
+- 网易云最新版的 SMTC 只提供元数据/播放状态/控制，不汇报播放进度。适配器将其视为 `MetadataOnly`：SMTC 可用时进度和红心走 CDP；SMTC 完全不可用时若 CDP 可用，歌曲信息/封面/进度/红心/传输控制全部走 CDP；两者都不可用才退回窗口/UIA，仍取不到返回空。
+- Windows 上部分网易云版本用 `Microsoft.AutoGenerated.{GUID}` 作为 SMTC AUMID，而不是 `cloudmusic.exe`。适配器会用当前 CDP 页面的标题/歌手与该未知会话匹配，匹配成功后仍进入网易云 vendor 路径，红心和进度不会丢失。
 - 网易云/全民 K 歌的 UIA 进度在切歌瞬间可能短暂读不到，此时只展示标题和本地时长（网易云）；不会伪造位置。
 - 滚动窗口标题（酷狗/酷我）的修正是启发式的，极端标题（歌名本身含 `-`）可能需要等待客户端刷新标题。
 - Linux 的私有层只读取本地客户端数据；受支持的原生客户端都通过 MPRIS 暴露完整信息，因此没有启用 AT-SPI 全树遍历。
@@ -576,12 +580,13 @@ pnpm build:rust
 - Windows 位置需要系统隐私授权；`location request` 被拒绝时会打开「位置」设置页。低完整性工作区会永久拒绝定位，需按 `INSTALLATION.md` 修复。
 - Linux 只读取 NVIDIA（`nvidia-smi`）和 AMD（sysfs）GPU；Intel 核显不显示利用率。温度取决于 `hwmon`；通知监视依赖 D-Bus `BecomeMonitor` 权限，部分加固系统会拒绝。
 - macOS 媒体/音量/性能/通知/位置均为源码级实现，未测试；GPU/温度不实现；CoreLocation 不适用于无 bundle 的 sidecar；AX 进度需要辅助功能权限。
-- NetEase 本地数据库 schema 随客户端版本变化；匹配不到曲目时 `liked` 为 `null`、封面为空，不伪造。
-- 私有层（窗口标题/Cider 标题文件）只读：可展示歌曲与进度，但不提供播放/暂停/切歌/seek 控制；控制仍依赖完整 SMTC/MPRIS。播放/暂停用 Core Audio 会话状态/峰值判断，系统静音或独占音频时可能误判。
+- NetEase 本地数据库 schema 随客户端版本变化；匹配不到曲目时封面/时长为空，不伪造。
+- 私有层（窗口标题/Cider 标题文件）只读：可展示歌曲与进度，但不提供播放/暂停/切歌/seek 控制；控制仍依赖完整 SMTC/MPRIS。例外是网易云 CDP：SMTC 不存在时它提供全量媒体、封面和播放控制（含页面滑块 seek）；SMTC 存在时只补进度/红心。播放/暂停用 Core Audio 会话状态/峰值判断，系统静音或独占音频时可能误判。
 - UI Automation（Windows）与 AX（macOS）只用于补齐只读进度，永远不授予 seek；Windows UIA 每次读取有 800 ms 超时，macOS AX 有 1.5 s 超时；切歌瞬间读不到进度时只展示标题。
 - 酷狗/酷我的滚动窗口标题使用启发式修正，歌名本身含 `-` 等极端标题可能解析不完美；Linux 原生客户端由 MPRIS 覆盖。
-- SMTC 封面依赖播放器暴露缩略图；网易云使用本地缓存补齐。
-- 网易云红心为只读展示，不提供写入。
+- SMTC 封面依赖播放器暴露缩略图。SMTC 开启时网易云封面只取 SMTC；CDP-only 时取页面图片；本地 `Statics` 缓存仅供窗口标题兜底路径。
+- 无系统 API、无 vendor 私有接口、无 UI Automation 时，`media read` 返回 `ok: true, available: true, media: null`（空媒体）；Node 清空媒体卡，不伪造占位信息。
+- 网易云红心仅在 CDP 可用时读写：客户端带 `/remote-debugging-port=2015`（或用 `DSH_RC_NETEASE_CDP_PORT` 指定端口）启动后，手机端红心可点击切换；未登录时点击会打开客户端登录页、红心状态不变；未开启 CDP 时 `liked = null`、`canSetLiked = false`，不读取本地数据库红心。
 - 会话页只读；媒体和音量可写；开启「推送问询」后才能远程回答用户问题。
 - 「推送问询」默认关闭；只支持 DSH 正常的用户问题（`ask_user_question`），工具审批仍需在 DSH 中处理。远程回答后 DSH 自己的提问卡片可能需要手动关闭。
 - 手机端布局优先保证 1280×800 横屏；竖屏使用紧凑降级布局。
@@ -592,7 +597,7 @@ pnpm build:rust
 - 改 `src/dsh`、`src/svelte` 或 `static/` 后必须重新构建；不要在提交中带 `index.js`、`client.js`、`lib/`、`web/`、`native/bin/`。
 - 不要在 `src/dsh/lib` 里重新引入 PowerShell / C# / playerctl / osascript 回退；探针缺失必须是显式错误状态。
 - 新增平台能力时同时更新：Rust 平台模块、`platform` 矩阵、`AGENTS.md` 的载荷/限制、必要时的 `INSTALLATION.md` 依赖说明。
-- 新增客户端适配时：在 `media/catalog.rs` 注册 profile，在 `vendor/` 加解析，在 `AGENTS.md` 的客户端表补一行；不要在媒体载荷里伪造进度。
+- 新增客户端适配时：在 `media/catalog.rs` 注册 profile，在 `media/vendor/` 加解析，在 `AGENTS.md` 的客户端表补一行；不要在媒体载荷里伪造进度。
 - 改设置字段时同时更新：`settings.ts` 的 normalize/default、`client.ts` 的编辑/保存、`README.md` 菜单说明；保持旧 `settings.json` 可迁移。
 - 改协议消息时同时更新 `service.ts`、`src/svelte/lib/ws.ts`、本文件的 WebSocket 表。
 - 新增文档文件时同步 `package.json` 的 `files`，并按“文档分工”放置内容。

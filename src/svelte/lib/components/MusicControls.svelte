@@ -83,6 +83,11 @@
     sendAction('volume', value);
   }
 
+  function handleLike(): void {
+    if (!media?.canSetLiked || typeof media.liked !== 'boolean') return;
+    sendAction('like', !media.liked);
+  }
+
 </script>
 
 <div class="music-controls">
@@ -92,10 +97,18 @@
     <p>{media ? media.artist || media.albumArtist || '未知艺术家' : payload?.media?.error || '在电脑上打开播放器后，这里会显示当前媒体。'}</p>
     <div class="track-tools">
       {#if typeof media?.liked === 'boolean'}
-        <span class="like-badge" class:is-liked={media.liked}>
+        <button
+          type="button"
+          class="like-badge"
+          class:is-liked={media.liked}
+          class:is-interactive={media.canSetLiked}
+          disabled={!media.canSetLiked}
+          title={media.canSetLiked ? (media.liked ? '取消喜欢' : '喜欢') : '红心状态（只读）'}
+          onclick={handleLike}
+        >
           <Icon name={media.liked ? 'heart-filled' : 'heart'} />
           <span>{media.liked ? '已喜欢' : '未喜欢'}</span>
-        </span>
+        </button>
       {/if}
     </div>
   </div>
@@ -218,9 +231,25 @@ display: inline-flex;
   border-radius: 999px;
   background: color-mix(in srgb, var(--card) 60%, transparent);
   color: var(--muted);
+  font: inherit;
   font-size: 10.5px;
   font-weight: 600;
   user-select: none;
+  appearance: none;
+  cursor: default;
+}
+
+.like-badge.is-interactive {
+  cursor: pointer;
+}
+
+.like-badge.is-interactive:hover {
+  border-color: color-mix(in srgb, var(--red) 30%, var(--line));
+  color: var(--text);
+}
+
+.like-badge:disabled {
+  opacity: 1;
 }
 
 .like-badge :global(svg) {

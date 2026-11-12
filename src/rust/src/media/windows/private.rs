@@ -113,7 +113,7 @@ pub fn read(
     }
     let window = best_window(profile, windows)?;
     let (parsed, detail) = match profile.private {
-        PrivateKind::CiderTitleFile => match crate::vendor::apple_music::cider_title() {
+        PrivateKind::CiderTitleFile => match crate::media::vendor::apple_music::cider_title() {
             Some(parsed) => (parsed, "cider-title"),
             None => (profile.parse_title(&window.title)?, "window-title"),
         },
@@ -156,25 +156,27 @@ pub fn read(
     media.last_updated_at = util::now_ms();
 
     // Accessibility is the last resort for a read-only progress display. It is
-    // never allowed to grant seek (see `catalog::seek_allowed`).
-    attach_progress(profile, windows, &mut media);
+    // never allowed to grant seek (see `catalog::seek_allowed`). NetEase defers
+    // this to `vendor::netease::resolve` so CDP can take precedence.
+    if profile.smtc_policy != catalog::SmtcPolicy::MetadataOnly {
+        attach_progress(profile, windows, &mut media);
+    }
     Some(media)
 }
 
-/// Attach `MM:SS | MM:SS` progress from the UI Automation text tree.
-///
-/// Returns `true` when a window was found and progress was attached. This is
-/// also used for a metadata-only SMTC session (NetEase): the metadata and
-/// transport status stay on the system tier, while the displayed position comes
-/// from UI Automation.
-pub fn attach_progress(profile: &Profile, windows: &[WindowInfo], media: &mut Media) -> bool {
+/// Find `MM:SS | MM:SS` progress for a profile's window. The caller decides
+/// whether accessibility is appropriate; this only performs the scan.
+pub fn progress_for_profile(profile: &Profile, windows: &[WindowInfo]) -> Option<(f64, f64)> {
     if !profile.accessibility {
-        return false;
+        return None;
     }
-    let Some(window) = best_window(profile, windows) else {
-        return false;
-    };
-    let Some((position, total)) = super::accessibility::progress(window.hwnd) else {
+    let window = best_window(profile, windows)?;
+    super::accessibility::progress(window.hwnd)
+}
+
+/// Attach UI Automation progress to a media item.
+pub fn attach_progress(profile: &Profile, windows: &[WindowInfo], media: &mut Media) -> bool {
+    let Some((position, total)) = progress_for_profile(profile, windows) else {
         return false;
     };
     if total <= 0.0 {
@@ -269,7 +271,7 @@ fn best_window<'a>(profile: &Profile, windows: &'a [WindowInfo]) -> Option<&'a W
         }
     }
     if matches!(profile.private, PrivateKind::CiderTitleFile)
-        && crate::vendor::apple_music::cider_title().is_some()
+        && crate::media::vendor::apple_music::cider_title().is_some()
         && !candidates.is_empty()
     {
         return candidates.first().copied();

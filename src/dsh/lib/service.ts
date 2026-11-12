@@ -1122,12 +1122,19 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     if (!isRecord(message)) return;
     if (message.type === 'action') {
       const action = safeString(message.action, 40).toLowerCase();
-      if (!['playpause', 'next', 'previous', 'seek', 'volume', 'mute'].includes(action)) {
+      if (!['playpause', 'next', 'previous', 'seek', 'like', 'volume', 'mute'].includes(action)) {
         client.send({ type: 'action-result', ok: false, action, error: 'Unsupported action' });
         return;
       }
       try {
-        const value = finiteNumber(message.value, null);
+        const value =
+          action === 'like'
+            ? message.value === true
+              ? true
+              : message.value === false
+                ? false
+                : null
+            : finiteNumber(message.value, null);
         await adapters.media.control(action, value);
         client.send({ type: 'action-result', ok: true, action });
         await pushMedia(true);

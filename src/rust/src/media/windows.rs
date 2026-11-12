@@ -29,7 +29,7 @@ use windows::Media::Control::{
 use windows::Media::MediaPlaybackAutoRepeatMode;
 use windows::Storage::Streams::{DataReader, IRandomAccessStreamReference};
 
-use super::catalog::{self, Profile, SmtcPolicy, Tier};
+use super::catalog::{self, Profile, Tier};
 use super::{Media, ReadOptions};
 use crate::util;
 
@@ -335,32 +335,14 @@ fn media_from_session(
 
 /// A complete SMTC session is the only source allowed to expose seek.
 fn is_complete(profile: Option<&Profile>, media: &Media) -> bool {
-    if media.title.trim().is_empty() {
-        return false;
-    }
-    if media.playback_status == "Closed" {
-        return false;
-    }
-    if media.end_time <= media.start_time || media.end_time <= 0.0 {
-        return false;
-    }
-    if !media.can_seek {
-        return false;
-    }
-    match profile
-        .map(|profile| profile.smtc_policy)
-        .unwrap_or(SmtcPolicy::Trusted)
-    {
-        SmtcPolicy::Trusted => true,
-        // Older builds (notably some QQ/KuGou releases) advertise a seekable
-        // timeline but keep the position at zero. Require an actual position
-        // report for those adapters.
-        SmtcPolicy::VerifyPosition => media.position > 0.01,
-        // NetEase exposes SMTC metadata/controls but not playback progress.
-        // It must never be treated as a complete timeline (and never grants
-        // seek); the accessibility/local tier supplies the displayed progress.
-        SmtcPolicy::MetadataOnly => false,
-    }
+    catalog::system_complete(profile, media)
+}
+
+/// System-branch validity exposed to vendor modules.
+pub(crate) fn system_valid(media: &Media) -> bool {
+    let profile = catalog::profile_for_id(&media.app_id)
+        .or_else(|| catalog::profile_for_process(&media.app_id));
+    is_complete(profile, media)
 }
 
 #[derive(Clone)]
@@ -418,8 +400,7 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
     let windows = private::enumerate_windows();
     let activities = audio::snapshot();
 
-    let mut candidates: Vec<Candidate> = Vec::new();
-    let mut smtc_error: Option<String> = None;
+    let mut system_candidates: Vec<Candidate> = Vec::new();
     let mut current_app_id = String::new();
 
     match manager() {
@@ -443,14 +424,14 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
                         {
                             continue;
                         }
-                        let complete = is_complete(profile, &media);
+                        let complete = catalog::system_complete(profile, &media);
                         media.can_seek = catalog::seek_allowed(Tier::System, complete, false);
                         if !complete {
                             // An incomplete system session may still give us the
                             // metadata/controls, but never the seek grant.
                             media.provider_detail = "smtc-partial".to_string();
                         }
-                        candidates.push(Candidate {
+                        system_candidates.push(Candidate {
                             raw_app_id: app_id,
                             media,
                             profile,
@@ -461,71 +442,74 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
                         });
                     }
                 }
-                Err(error) => smtc_error = Some(failure(error)),
+                Err(_) => {}
             }
         }
-        Err(error) => smtc_error = Some(error),
+        Err(_) => {}
     }
 
     // Mark the session Windows currently reports as the system-wide current
     // one; it breaks ties after the "is playing" check.
-    for candidate in candidates.iter_mut() {
+    for candidate in system_candidates.iter_mut() {
         candidate.current = !current_app_id.is_empty()
             && candidate.raw_app_id.eq_ignore_ascii_case(&current_app_id);
     }
 
-    // NetEase exposes SMTC metadata/status but not playback progress. Keep the
-    // SMTC metadata and attach read-only progress from UI Automation (the local
-    // NetEase database later supplies duration/cover/liked in `finish`).
-    for candidate in candidates.iter_mut() {
-        if candidate.complete || candidate.media.title.trim().is_empty() {
-            continue;
-        }
-        let Some(profile) = candidate.profile else {
-            continue;
-        };
-        if profile.smtc_policy == SmtcPolicy::MetadataOnly {
-            let attached = private::attach_progress(profile, &windows, &mut candidate.media);
-            if !attached {
-                // NetEase's SMTC LastUpdatedTime is not a reliable playback
-                // anchor. Without a UIA position, keep the progress bar at the
-                // reported position (usually 0) instead of projecting a
-                // synthetic timeline forward.
-                candidate.media.last_updated_at = util::now_ms();
+    // NetEase sometimes exposes a generated AUMID (for example
+    // `Microsoft.AutoGenerated.{GUID}`) instead of `cloudmusic.exe`. Match that
+    // unknown SMTC session against the current CDP page so it still enters the
+    // NetEase vendor path and gets the heart/progress combination.
+    if system_candidates
+        .iter()
+        .any(|candidate| candidate.profile.is_none())
+    {
+        if let Some((title, artist)) = crate::media::vendor::netease::cdp_identity() {
+            for candidate in system_candidates
+                .iter_mut()
+                .filter(|candidate| candidate.profile.is_none())
+            {
+                let same_title = !title.is_empty()
+                    && candidate
+                        .media
+                        .title
+                        .trim()
+                        .eq_ignore_ascii_case(title.trim());
+                let same_artist = artist.is_empty()
+                    || candidate.media.artist.trim().is_empty()
+                    || candidate
+                        .media
+                        .artist
+                        .trim()
+                        .eq_ignore_ascii_case(artist.trim());
+                if !same_title || !same_artist {
+                    continue;
+                }
+                let Some(profile) = catalog::profile_for_app(catalog::App::Netease) else {
+                    continue;
+                };
+                candidate.profile = Some(profile);
+                candidate.complete = catalog::system_complete(Some(profile), &candidate.media);
+                candidate.media.can_seek =
+                    catalog::seek_allowed(Tier::System, candidate.complete, false);
+                if !candidate.complete {
+                    candidate.media.provider_detail = "smtc-partial".to_string();
+                }
             }
         }
     }
 
-    // Private tier: only when the app has no complete system session.
+    // Build the private (window-title / Cider file) candidate for every known
+    // vendor. The vendor dispatcher decides whether it or the system session is
+    // used; generic callers never see this detail.
+    let mut private_candidates: Vec<Candidate> = Vec::new();
     for (index, profile) in catalog::PROFILES.iter().enumerate() {
-        let has_complete = candidates.iter().any(|candidate| {
-            candidate.complete && candidate.profile.map(|value| value.app) == Some(profile.app)
-        });
-        if has_complete {
+        if matches!(profile.private, catalog::PrivateKind::None) {
             continue;
         }
-        // Metadata-only clients keep the system metadata (SMTC title/artist is
-        // richer than the window title); the title fallback is only used when
-        // the system session has no usable title at all.
-        let keep_metadata = profile.smtc_policy == SmtcPolicy::MetadataOnly
-            && candidates.iter().any(|candidate| {
-                candidate.profile.map(|value| value.app) == Some(profile.app)
-                    && !candidate.media.title.trim().is_empty()
-            });
-        if keep_metadata {
-            continue;
-        }
-        let smtc_media = candidates
-            .iter()
-            .find(|candidate| candidate.profile.map(|value| value.app) == Some(profile.app))
-            .map(|candidate| &candidate.media);
+        let smtc_media =
+            best_for_app(&system_candidates, profile.app).map(|candidate| &candidate.media);
         if let Some(media) = private::read(profile, &windows, &activities, smtc_media, options) {
-            // A private result outranks a partial system session for the same app.
-            candidates.retain(|candidate| {
-                !(candidate.profile.map(|value| value.app) == Some(profile.app)
-                    && !candidate.complete)
-            });
-            candidates.push(Candidate {
+            private_candidates.push(Candidate {
                 raw_app_id: media.app_id.clone(),
                 media,
                 profile: Some(profile),
@@ -535,6 +519,69 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
                 current: false,
             });
         }
+    }
+
+    let mut candidates: Vec<Candidate> = Vec::new();
+
+    // Applications without a vendor profile only have the system API. Browsers
+    // have no private interface either, so keep every browser session.
+    for candidate in system_candidates.iter() {
+        let is_browser = candidate
+            .profile
+            .map(|profile| profile.app == catalog::App::Browser)
+            .unwrap_or(false);
+        if candidate.profile.is_none() || is_browser {
+            candidates.push(candidate.clone());
+        }
+    }
+
+    // Vendor-first dispatch for every known application.
+    for (index, profile) in catalog::PROFILES.iter().enumerate() {
+        if profile.app == catalog::App::Browser {
+            continue;
+        }
+        let system = best_for_app(&system_candidates, profile.app);
+        let private = best_for_app(&private_candidates, profile.app);
+        if system.is_none() && private.is_none() && profile.app != catalog::App::Netease {
+            continue;
+        }
+        let system_media = system.map(|candidate| candidate.media.clone());
+        let private_media = private.map(|candidate| candidate.media.clone());
+        let windows_ref = &windows;
+        let resolved = crate::media::vendor::resolve(
+            crate::media::vendor::Platform::Windows,
+            profile.app,
+            system_media,
+            private_media,
+            || private::progress_for_profile(profile, windows_ref),
+        );
+        let Some(mut media) = resolved else {
+            continue;
+        };
+        let complete = catalog::system_complete(Some(profile), &media);
+        if media.provider_detail.contains("cdp") {
+            // CDP-only mode: the page slider is the transport; keep its seek
+            // grant only when the page reported a real duration.
+            media.can_seek = media.can_seek && media.end_time > media.start_time;
+        } else {
+            media.can_seek = catalog::seek_allowed(Tier::System, complete, false);
+        }
+        let tier = if media.provider == "private" || media.provider == "accessibility" {
+            Tier::Private
+        } else {
+            Tier::System
+        };
+        candidates.push(Candidate {
+            raw_app_id: media.app_id.clone(),
+            media,
+            profile: Some(profile),
+            tier,
+            complete,
+            order: system
+                .map(|candidate| candidate.order)
+                .unwrap_or(10_000 + index),
+            current: system.map(|candidate| candidate.current).unwrap_or(false),
+        });
     }
 
     // The reference project uses the audio meter to repair a stale status for
@@ -556,10 +603,9 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
     }
 
     if candidates.is_empty() {
-        return match smtc_error {
-            Some(error) => Err(error),
-            None => Ok(None),
-        };
+        // No system API, no vendor interface, no accessibility tree: this is
+        // an empty reading, not an error. The Node bridge clears the media card.
+        return Ok(None);
     }
 
     let preferred = options
@@ -582,9 +628,32 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
     Ok(selected.map(|candidate| candidate.media))
 }
 
+fn best_for_app<'a>(candidates: &'a [Candidate], app: catalog::App) -> Option<&'a Candidate> {
+    candidates
+        .iter()
+        .filter(|candidate| candidate.profile.map(|profile| profile.app) == Some(app))
+        .min_by_key(|candidate| rank(candidate))
+}
+
 pub fn control(action: &str, position: f64, options: &ReadOptions) -> Result<(), String> {
     let preferred = options.app_id.as_deref().or(options.player.as_deref());
-    let Some(session) = select(preferred)? else {
+    let session = match select(preferred) {
+        Ok(session) => session,
+        Err(_) => None,
+    };
+    let Some(session) = session else {
+        // No SMTC session: CDP-only NetEase still has its page transport.
+        let netease = preferred
+            .map(|value| {
+                catalog::profile_for_id(value)
+                    .or_else(|| catalog::profile_for_process(value))
+                    .map(|profile| profile.app == catalog::App::Netease)
+                    .unwrap_or_else(|| value.to_ascii_lowercase().contains("cloudmusic"))
+            })
+            .unwrap_or(true);
+        if netease && crate::media::vendor::netease::cdp_control(action, position).is_ok() {
+            return Ok(());
+        }
         return Err(
             "no active SMTC session; this player is read-only in the private tier".to_string(),
         );
@@ -637,6 +706,10 @@ pub fn control(action: &str, position: f64, options: &ReadOptions) -> Result<(),
         return Err(format!("SMTC rejected {action}"));
     }
     Ok(())
+}
+
+pub fn like(liked: Option<bool>, _options: &ReadOptions) -> Result<(), String> {
+    crate::media::vendor::netease::cdp_set_liked(liked).map(|_| ())
 }
 
 #[cfg(test)]

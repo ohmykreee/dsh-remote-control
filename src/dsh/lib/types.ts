@@ -116,6 +116,7 @@ export interface ProbeMedia extends JsonRecord {
   canPrevious?: boolean;
   canSeek?: boolean;
   canLike?: boolean;
+  canSetLiked?: boolean;
   thumbnail?: string | null;
   thumbnailType?: string | null;
   thumbnailUrl?: string | null;
@@ -156,6 +157,7 @@ export interface PublicMedia {
   thumbnailType: string | null;
   liked: boolean | null;
   canLike: boolean;
+  canSetLiked: boolean;
   trackId: string | number | null;
   estimatedDuration: boolean;
   sampledAt: number;

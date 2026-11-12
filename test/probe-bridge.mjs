@@ -30,6 +30,6 @@ assert.equal(state.volume.ok, false);
 assert.equal(state.volume.available, false);
 assert.equal(state.volume.backend, 'rust');
 await assert.rejects(() => adapter.control('playpause'), /native probe not built|native probe unavailable/);
-await assert.rejects(() => adapter.control('like'), /Unsupported media action/);
+await assert.rejects(() => adapter.control('like'), /不支持修改红心|native probe not built|native probe unavailable/);
 
 console.log('probe bridge ok');

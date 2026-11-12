@@ -152,18 +152,42 @@ fn artwork(media: &mut Media, art_url: &str) {
     }
 }
 
+/// System-branch validity exposed to vendor modules.
+pub(crate) fn system_valid(media: &Media) -> bool {
+    !media.title.trim().is_empty()
+        && media.playback_status != "Closed"
+        && media.end_time > media.start_time
+        && media.end_time > 0.0
+        && media.can_seek
+}
+
 pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
-    let connection = connection()?;
-    let names = player_names(&connection)?;
+    let connection = match connection() {
+        Ok(connection) => connection,
+        // No session bus / no MPRIS service: try the NetEase CDP page, then
+        // return an empty reading.
+        Err(_) => return Ok(crate::media::vendor::netease::cdp_media()),
+    };
+    let names = match player_names(&connection) {
+        Ok(names) => names,
+        Err(_) => return Ok(crate::media::vendor::netease::cdp_media()),
+    };
     let Some(name) = choose_player(&connection, &names, options) else {
-        return Ok(None);
+        return Ok(crate::media::vendor::netease::cdp_media());
     };
     let proxy = player_proxy(&connection, &name)?;
     let metadata = metadata_of(&proxy);
     let title = string_value(&metadata, "xesam:title");
     let artists = string_array(&metadata, "xesam:artist");
     if title.trim().is_empty() && artists.is_empty() {
-        return Ok(None);
+        let netease = catalog::profile_for_id(&name)
+            .map(|profile| profile.app == catalog::App::Netease)
+            .unwrap_or(false);
+        return Ok(if netease {
+            crate::media::vendor::netease::cdp_media()
+        } else {
+            None
+        });
     }
 
     let status = proxy
@@ -202,14 +226,60 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
     if options.thumbnail {
         artwork(&mut media, &string_value(&metadata, "mpris:artUrl"));
     }
+
+    // Vendor-first: identify the MPRIS player and let its adapter combine the
+    // system session with any private interface (NetEase CDP on Linux).
+    let profile = catalog::profile_for_id(&media.app_id)
+        .or_else(|| catalog::profile_for_process(&media.app_id));
+    if let Some(profile) = profile {
+        if profile.app != catalog::App::Browser {
+            if let Some(resolved) = crate::media::vendor::resolve(
+                crate::media::vendor::Platform::Linux,
+                profile.app,
+                Some(media.clone()),
+                None,
+                || None,
+            ) {
+                return Ok(Some(resolved));
+            }
+        }
+    }
     Ok(Some(media))
 }
 
+fn preferred_is_netease(options: &ReadOptions) -> bool {
+    options
+        .app_id
+        .as_deref()
+        .or(options.player.as_deref())
+        .map(|value| {
+            catalog::profile_for_id(value)
+                .or_else(|| catalog::profile_for_process(value))
+                .map(|profile| profile.app == catalog::App::Netease)
+                .unwrap_or_else(|| value.to_ascii_lowercase().contains("cloudmusic"))
+        })
+        .unwrap_or(true)
+}
+
+fn cdp_fallback(action: &str, position: f64, options: &ReadOptions) -> Result<(), String> {
+    if preferred_is_netease(options) {
+        crate::media::vendor::netease::cdp_control(action, position)
+    } else {
+        Err("no MPRIS player is running".to_string())
+    }
+}
+
 pub fn control(action: &str, position: f64, options: &ReadOptions) -> Result<(), String> {
-    let connection = connection()?;
-    let names = player_names(&connection)?;
+    let connection = match connection() {
+        Ok(connection) => connection,
+        Err(_) => return cdp_fallback(action, position, options),
+    };
+    let names = match player_names(&connection) {
+        Ok(names) => names,
+        Err(_) => return cdp_fallback(action, position, options),
+    };
     let Some(name) = choose_player(&connection, &names, options) else {
-        return Err("no MPRIS player is running".to_string());
+        return cdp_fallback(action, position, options);
     };
     let proxy = player_proxy(&connection, &name)?;
     match action {
@@ -250,6 +320,10 @@ pub fn control(action: &str, position: f64, options: &ReadOptions) -> Result<(),
         other => return Err(format!("unsupported media action: {other}")),
     }
     Ok(())
+}
+
+pub fn like(liked: Option<bool>, _options: &ReadOptions) -> Result<(), String> {
+    crate::media::vendor::netease::cdp_set_liked(liked).map(|_| ())
 }
 
 #[cfg(test)]

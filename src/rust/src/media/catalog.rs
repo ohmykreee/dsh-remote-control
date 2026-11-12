@@ -281,7 +281,42 @@ pub fn profile_for_app(app: App) -> Option<&'static Profile> {
 impl Profile {
     /// Parse this client's window title through its vendor adapter.
     pub fn parse_title(&self, raw: &str) -> Option<ParsedTitle> {
-        crate::vendor::parse_title(self.app, raw)
+        crate::media::vendor::parse_title(self.app, raw)
+    }
+}
+
+use super::Media;
+
+/// A complete system session is the only source allowed to expose seek.
+///
+/// This is shared by the vendor dispatchers so each vendor decides whether its
+/// system-API path is usable, while the generic fallback uses the same rule.
+pub fn system_complete(profile: Option<&Profile>, media: &Media) -> bool {
+    if media.title.trim().is_empty() {
+        return false;
+    }
+    if media.playback_status == "Closed" {
+        return false;
+    }
+    if media.end_time <= media.start_time || media.end_time <= 0.0 {
+        return false;
+    }
+    if !media.can_seek {
+        return false;
+    }
+    match profile
+        .map(|profile| profile.smtc_policy)
+        .unwrap_or(SmtcPolicy::Trusted)
+    {
+        SmtcPolicy::Trusted => true,
+        // Older builds (notably some QQ/KuGou releases) advertise a seekable
+        // timeline but keep the position at zero. Require an actual position
+        // report for those adapters.
+        SmtcPolicy::VerifyPosition => media.position > 0.01,
+        // NetEase exposes SMTC metadata/controls but not playback progress.
+        // It must never be treated as a complete timeline (and never grants
+        // seek); the accessibility/local tier supplies the displayed progress.
+        SmtcPolicy::MetadataOnly => false,
     }
 }
 

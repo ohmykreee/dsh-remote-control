@@ -11,6 +11,7 @@ use crate::cli::{action_of, has_flag, option_number, option_value, CliError, Cli
 use crate::util;
 
 pub(crate) mod catalog;
+pub(crate) mod vendor;
 
 #[cfg(windows)]
 #[path = "windows.rs"]
@@ -58,11 +59,14 @@ pub struct Media {
     /// HTTP(S) artwork reference (Linux MPRIS). The Node bridge downloads it and
     /// turns it into `thumbnail` so the sidecar needs no HTTP client.
     pub thumbnail_url: Option<String>,
-    /// Local NetEase liked state. `Some(true)`/`Some(false)` when the local
-    /// client database has a matching track, `None` when unknown.
+    /// NetEase liked state from CDP. `Some(true)`/`Some(false)` when the
+    /// remote-debugging page reports the heart state, `None` when CDP is
+    /// unavailable or the state is unknown.
     pub liked: Option<bool>,
-    /// Display-only flag: the current app is NetEase Cloud Music.
+    /// Display-only flag: the current app supports liked state.
     pub can_like: bool,
+    /// Whether the liked state can be changed through the current provider.
+    pub can_set_liked: bool,
     pub track_id: Option<String>,
     /// Which layer produced this payload: `system`, `private` or
     /// `accessibility`. Only `system` may expose transport seeking.
@@ -100,6 +104,7 @@ impl Media {
             thumbnail_url: None,
             liked: None,
             can_like: false,
+            can_set_liked: false,
             track_id: None,
             provider: catalog::Tier::System.as_str().to_string(),
             provider_detail: String::new(),
@@ -110,7 +115,7 @@ impl Media {
         if self.last_updated_at <= 0 {
             self.last_updated_at = util::now_ms();
         }
-        crate::vendor::netease::enrich(&mut self);
+        crate::media::vendor::netease::enrich(&mut self);
         self
     }
 }
@@ -197,6 +202,39 @@ pub fn control(action: &str, position: f64, options: &ReadOptions) -> Value {
     }
 }
 
+/// Change the liked state through the provider's private interface (NetEase
+/// CDP). The client is re-read after the action so the caller gets the new
+/// snapshot. `liked = None` toggles.
+pub fn like(liked: Option<bool>, options: &ReadOptions) -> Value {
+    let started_at = util::now_ms();
+    match platform::like(liked, options) {
+        Ok(()) => {
+            std::thread::sleep(std::time::Duration::from_millis(160));
+            let (media, media_error) = match platform::read(options) {
+                Ok(Some(media)) => (Some(media.finish()), None),
+                Ok(None) => (None, None),
+                Err(error) => (None, Some(error)),
+            };
+            json!({
+                "ok": true,
+                "action": "like",
+                "actionError": media_error,
+                "media": media,
+                "backend": platform::BACKEND,
+                "sampledAt": util::now_ms(),
+            })
+        }
+        Err(error) => json!({
+            "ok": false,
+            "action": "like",
+            "actionError": error,
+            "media": null,
+            "backend": platform::BACKEND,
+            "sampledAt": started_at,
+        }),
+    }
+}
+
 pub fn cli(args: &[String], _started_at: i64) -> CliResult {
     let action = action_of(args);
     let options = ReadOptions::from_args(args);
@@ -210,8 +248,17 @@ pub fn cli(args: &[String], _started_at: i64) -> CliResult {
             };
             Ok(control(&action, position, &options))
         }
+        "like" => {
+            let liked = option_value(args, "--value").and_then(|value| match value.trim().to_ascii_lowercase().as_str() {
+                "1" | "true" | "yes" | "on" | "like" => Some(true),
+                "0" | "false" | "no" | "off" | "unlike" => Some(false),
+                _ => None,
+            });
+            Ok(like(liked, &options))
+        }
+        "cdp" => Ok(crate::media::vendor::netease::cdp_diagnostic()),
         other => Err(CliError::usage(format!(
-            "unsupported media action: {other} (expected read, playpause, next, previous, seek)"
+            "unsupported media action: {other} (expected read, playpause, next, previous, seek, like)"
         ))),
     }
 }
@@ -231,6 +278,7 @@ mod tests {
         assert_eq!(value["canPlayPause"], true);
         assert_eq!(value["startTime"], 0.0);
         assert_eq!(value["provider"], "system");
+        assert_eq!(value["canSetLiked"], false);
         assert!(value.get("lastUpdatedAt").is_some());
         assert!(value.get("thumbnailUrl").is_some());
     }
