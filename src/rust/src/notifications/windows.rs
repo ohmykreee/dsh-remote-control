@@ -1,10 +1,15 @@
 //! Windows notification probe: read the notification center SQLite database.
 //!
 //! The live database is copied (with its WAL/SHM sidecars) to a temporary
-//! directory before opening read-only. Toast payloads are normalized from their
+//! directory before opening read-only. The copy is only refreshed when the
+//! database, WAL or SHM metadata changes; an unchanged poll reuses the parsed
+//! snapshot, so the normal 2.5 s poll performs `stat` calls instead of rewriting
+//! several megabytes of database pages. Toast payloads are normalized from their
 //! XML, including the app-logo/hero image when it points at a local file.
 
-use std::path::PathBuf;
+use std::cell::RefCell;
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use rusqlite::{types::ValueRef, Connection, OpenFlags};
 
@@ -24,6 +29,39 @@ pub fn watch(_limit: usize) -> CliResult {
 const MAX_AVATAR_BYTES: u64 = 768 * 1024;
 const MAX_BODY_CHARS: usize = 260;
 const MAX_TITLE_CHARS: usize = 160;
+/// Mirrors `notifications::clamp_limit`; a request can never ask for more.
+const CACHE_LIMIT: usize = 20;
+
+#[derive(Clone, PartialEq, Eq)]
+struct FileStamp {
+    len: u64,
+    modified: Option<SystemTime>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct DatabaseSignature {
+    database: FileStamp,
+    wal: FileStamp,
+    shm: FileStamp,
+}
+
+struct CachedNotification {
+    item: NotificationItem,
+    expires_at: Option<i64>,
+}
+
+struct CachedSnapshot {
+    signature: DatabaseSignature,
+    items: Vec<CachedNotification>,
+}
+
+thread_local! {
+    /// The daemon handles notification requests on one thread. Keep the last
+    /// parsed snapshot and copy the OS database again only when its metadata
+    /// changes; the common case (a poll every 2.5 s with no new toast) becomes
+    /// three `stat` calls instead of rewriting a multi-megabyte database.
+    static CACHE: RefCell<Option<CachedSnapshot>> = const { RefCell::new(None) };
+}
 
 fn database_path() -> PathBuf {
     let local = std::env::var_os("LOCALAPPDATA")
@@ -104,20 +142,85 @@ fn read_rows(connection: &Connection, limit: usize) -> Result<Vec<Row>, String> 
     Ok(rows.flatten().collect())
 }
 
+fn sidecar_path(source: &Path, suffix: &str) -> PathBuf {
+    let mut path = source.as_os_str().to_os_string();
+    path.push(suffix);
+    PathBuf::from(path)
+}
+
+fn file_stamp(path: &Path) -> FileStamp {
+    match std::fs::metadata(path) {
+        Ok(metadata) => FileStamp {
+            len: metadata.len(),
+            modified: metadata.modified().ok(),
+        },
+        Err(_) => FileStamp {
+            len: 0,
+            modified: None,
+        },
+    }
+}
+
+fn database_signature(source: &Path) -> DatabaseSignature {
+    DatabaseSignature {
+        database: file_stamp(source),
+        wal: file_stamp(&sidecar_path(source, "-wal")),
+        shm: file_stamp(&sidecar_path(source, "-shm")),
+    }
+}
+
+fn is_fresh(notification: &CachedNotification, now: i64) -> bool {
+    let received_at = notification.item.received_at;
+    if received_at > now + 60_000 || now - received_at > 7 * 24 * 60 * 60 * 1000 {
+        return false;
+    }
+    notification.expires_at.map_or(true, |expiry| expiry >= now)
+}
+
+fn snapshot_from_items(items: &[CachedNotification], limit: usize, now: i64) -> Snapshot {
+    Snapshot {
+        source: SOURCE,
+        live_only: LIVE_ONLY,
+        notifications: items
+            .iter()
+            .filter(|item| is_fresh(item, now))
+            .take(limit.min(CACHE_LIMIT))
+            .map(|item| item.item.clone())
+            .collect(),
+        updated_at: now,
+    }
+}
+
 pub fn read(limit: usize) -> SnapshotResult {
     let source = database_path();
     if !source.is_file() {
         return Err("Windows notification database not found".to_string());
     }
+    let signature = database_signature(&source);
+    let now = util::now_ms();
+
+    // `stat` is cheap; only rebuild the snapshot when the database, WAL or SHM
+    // changed. Expiry is applied on every read, so a cached snapshot still
+    // drops notifications whose expiry passed without a database write.
+    if let Some(snapshot) = CACHE.with(|cache| {
+        let cache = cache.borrow();
+        let cached = cache.as_ref()?;
+        if cached.signature != signature {
+            return None;
+        }
+        Some(snapshot_from_items(&cached.items, limit, now))
+    }) {
+        return Ok(snapshot);
+    }
+
     let temp = util::TempDir::create("dsh-probe-wpn")?;
     let target = temp.path().join("wpndatabase.db");
     util::copy_sqlite_database(&source, &target)?;
     let connection = Connection::open_with_flags(&target, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|error| format!("could not open the notification database: {error}"))?;
-    let rows = read_rows(&connection, limit)?;
+    let rows = read_rows(&connection, CACHE_LIMIT)?;
 
-    let now = util::now_ms();
-    let mut notifications = Vec::new();
+    let mut items = Vec::new();
     for row in rows {
         let Some(received_at) = row.arrival.and_then(filetime_to_unix_ms) else {
             continue;
@@ -125,10 +228,9 @@ pub fn read(limit: usize) -> SnapshotResult {
         if received_at > now + 60_000 || now - received_at > 7 * 24 * 60 * 60 * 1000 {
             continue;
         }
-        if let Some(expiry) = row.expiry.and_then(filetime_to_unix_ms) {
-            if expiry < now {
-                continue;
-            }
+        let expires_at = row.expiry.and_then(filetime_to_unix_ms);
+        if expires_at.is_some_and(|expiry| expiry < now) {
+            continue;
         }
         let payload = String::from_utf8_lossy(&row.payload);
         let parsed = parse_toast_xml(&payload);
@@ -161,32 +263,34 @@ pub fn read(limit: usize) -> SnapshotResult {
         if body == title {
             body.clear();
         }
-        notifications.push(NotificationItem {
-            id: if row.id.is_empty() {
-                format!("{received_at}-{}", notifications.len())
-            } else {
-                row.id
+        items.push(CachedNotification {
+            item: NotificationItem {
+                id: if row.id.is_empty() {
+                    format!("{received_at}-{}", items.len())
+                } else {
+                    row.id
+                },
+                app_key,
+                app_name,
+                title: truncate(&title, MAX_TITLE_CHARS),
+                body: truncate(&body, MAX_BODY_CHARS),
+                avatar: parsed.image.as_deref().and_then(avatar_data_url),
+                has_image: parsed.has_inline_image,
+                received_at,
+                is_group: is_group_title(&title),
             },
-            app_key,
-            app_name,
-            title: truncate(&title, MAX_TITLE_CHARS),
-            body: truncate(&body, MAX_BODY_CHARS),
-            avatar: parsed.image.as_deref().and_then(avatar_data_url),
-            has_image: parsed.has_inline_image,
-            received_at,
-            is_group: is_group_title(&title),
+            expires_at,
         });
-        if notifications.len() >= limit {
+        if items.len() >= CACHE_LIMIT {
             break;
         }
     }
 
-    Ok(Snapshot {
-        source: SOURCE,
-        live_only: LIVE_ONLY,
-        notifications,
-        updated_at: now,
-    })
+    let result = snapshot_from_items(&items, limit, now);
+    CACHE.with(|cache| {
+        *cache.borrow_mut() = Some(CachedSnapshot { signature, items });
+    });
+    Ok(result)
 }
 
 fn is_group_title(title: &str) -> bool {
@@ -436,5 +540,26 @@ mod tests {
         assert!(is_group_title("项目群"));
         assert!(is_group_title("Team channel"));
         assert!(!is_group_title("Alice"));
+    }
+
+    #[test]
+    fn cached_snapshot_drops_expired_and_old_items() {
+        let now = 1_000_000_000_i64;
+        let make = |received_at: i64, expires_at: Option<i64>| CachedNotification {
+            item: NotificationItem {
+                received_at,
+                ..Default::default()
+            },
+            expires_at,
+        };
+        let items = vec![
+            make(now, Some(now + 1_000)),
+            make(now, Some(now - 1_000)),
+            make(now - 8 * 24 * 60 * 60 * 1000, None),
+            make(now + 120_000, None),
+        ];
+        let snapshot = snapshot_from_items(&items, 8, now);
+        assert_eq!(snapshot.notifications.len(), 1);
+        assert_eq!(snapshot.updated_at, now);
     }
 }

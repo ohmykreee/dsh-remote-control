@@ -200,7 +200,6 @@ display: flex;
   border: 1px solid var(--line);
   border-radius: 16px;
   background: var(--card);
-  transition: border-color 0.18s ease, background 0.18s ease;
 }
 
 .session-row {
@@ -209,6 +208,14 @@ display: flex;
   gap: 10px;
   align-items: center;
   min-width: 0;
+}
+
+.session-hit {
+  border-radius: 12px;
+}
+
+.session-card.is-clickable .session-hit {
+  cursor: pointer;
 }
 
 /* Subagent cards live inside the dispatching agent's card and step right. */
@@ -261,18 +268,6 @@ display: flex;
   color: var(--green);
   font-variant-numeric: tabular-nums;
   font-weight: 650;
-}
-
-.session-card:hover {
-border-color: var(--line-strong);
-}
-
-.session-hit {
-  border-radius: 12px;
-}
-
-.session-card.is-clickable .session-hit {
-  cursor: pointer;
 }
 
 .session-hit:focus-visible {

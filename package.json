@@ -20,7 +20,7 @@
     "build:rust": "node scripts/build-rust.mjs",
     "preview": "vite preview",
     "check": "tsc -p tsconfig.dsh.json --noEmit && tsc -p tsconfig.dsh-client.json --noEmit && svelte-check --tsconfig ./tsconfig.json",
-    "test": "node test/smoke.mjs && node test/media-progress.mjs && node test/probe-bridge.mjs && node test/notifications.mjs && node test/notification-watch.mjs && node test/app-mapping.mjs && node test/questions.mjs",
+    "test": "node test/smoke.mjs && node test/media-progress.mjs && node test/probe-bridge.mjs && node test/probe-daemon.mjs && node test/notifications.mjs && node test/notification-watch.mjs && node test/app-mapping.mjs && node test/questions.mjs",
     "postinstall": "node scripts/build-dsh.mjs && node scripts/build-web.mjs && node scripts/build-rust.mjs --optional"
   },
   "files": [

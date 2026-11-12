@@ -8,8 +8,10 @@
 //! come from the WDDM performance data (`D3DKMTQueryAdapterInfo`), which is the
 //! same source Task Manager uses. None of this goes through WMI or PowerShell.
 
-use std::collections::HashSet;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::mem::size_of;
+use std::time::{Duration, Instant};
 
 use windows::core::{HSTRING, PCWSTR};
 use windows::Wdk::Graphics::Direct3D::{
@@ -49,6 +51,13 @@ const GPU_MEMORY_COUNTER: &str = "\\GPU Adapter Memory(*)\\Dedicated Usage";
 const THERMAL_PRECISION_COUNTER: &str = "\\Thermal Zone Information(*)\\High Precision Temperature";
 const THERMAL_COUNTER: &str = "\\Thermal Zone Information(*)\\Temperature";
 const PDH_MORE_DATA: u32 = 0x8000_07D2;
+/// Rate counters need two collects; skip a re-collect when requests arrive in a
+/// burst so the second read reuses the last valid value instead of sleeping.
+const PDH_MIN_INTERVAL: Duration = Duration::from_millis(200);
+/// After a long idle gap the previous rate baseline is too old; take a fresh
+/// two-sample window instead of averaging across the whole idle period.
+const PDH_RESAMPLE_AFTER: Duration = Duration::from_secs(5);
+const PDH_WARMUP: Duration = Duration::from_millis(150);
 const GPU_CLASS_KEY: &str =
     "SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}";
 
@@ -111,111 +120,214 @@ fn power_frequency() -> Option<(f64, f64)> {
     Some((util::round1(current), util::round1(max)))
 }
 
-/// Returns the counter value as a percentage of nominal frequency (100 = base).
-fn pdh_performance_percent() -> Option<f64> {
-    unsafe {
-        let mut query = PDH_HQUERY(std::ptr::null_mut());
-        if PdhOpenQueryW(PCWSTR::null(), 0, &mut query) != 0 {
-            return None;
+/// A PDH query kept open across samples. Opening the query and resolving the
+/// counter path is expensive for wildcard GPU counters, and the rate counters
+/// need a previous sample anyway; both costs disappear after the first request.
+struct PdhCounter {
+    query: PDH_HQUERY,
+    counter: PDH_HCOUNTER,
+    last_collect: Option<Instant>,
+}
+
+impl PdhCounter {
+    fn open(path: &str) -> Result<Self, String> {
+        unsafe {
+            let mut query = PDH_HQUERY(std::ptr::null_mut());
+            if PdhOpenQueryW(PCWSTR::null(), 0, &mut query) != 0 {
+                return Err("PdhOpenQueryW failed".to_string());
+            }
+            let wide = HSTRING::from(path);
+            let mut counter = PDH_HCOUNTER(std::ptr::null_mut());
+            let status = PdhAddEnglishCounterW(query, &wide, 0, &mut counter);
+            if status != 0 {
+                let _ = PdhCloseQuery(query);
+                return Err(format!("counter unavailable (status {status})"));
+            }
+            Ok(Self {
+                query,
+                counter,
+                last_collect: None,
+            })
         }
-        let path = HSTRING::from(PROCESSOR_PERFORMANCE_COUNTER);
-        let mut counter = PDH_HCOUNTER(std::ptr::null_mut());
-        let status = PdhAddEnglishCounterW(query, &path, 0, &mut counter);
-        if status != 0 {
-            let _ = PdhCloseQuery(query);
-            return None;
+    }
+
+    fn collect(&mut self) -> Result<(), String> {
+        let now = Instant::now();
+        let elapsed = self.last_collect.map(|last| now.duration_since(last));
+        if let Some(elapsed) = elapsed {
+            if elapsed < PDH_MIN_INTERVAL {
+                // A burst of requests (overview + page refresh) must not pay the
+                // warm-up window again; PDH still holds the last valid sample.
+                return Ok(());
+            }
         }
-        // PDH rate counters need two samples.
-        if PdhCollectQueryData(query) != 0 {
-            let _ = PdhCloseQuery(query);
-            return None;
+        let stale = elapsed.map_or(true, |elapsed| elapsed >= PDH_RESAMPLE_AFTER);
+        unsafe {
+            if PdhCollectQueryData(self.query) != 0 {
+                return Err("PdhCollectQueryData failed".to_string());
+            }
+            if stale {
+                std::thread::sleep(PDH_WARMUP);
+                if PdhCollectQueryData(self.query) != 0 {
+                    return Err("PdhCollectQueryData failed".to_string());
+                }
+            }
         }
-        std::thread::sleep(std::time::Duration::from_millis(120));
-        if PdhCollectQueryData(query) != 0 {
-            let _ = PdhCloseQuery(query);
-            return None;
-        }
-        let mut value = PDH_FMT_COUNTERVALUE::default();
-        let status = PdhGetFormattedCounterValue(counter, PDH_FMT_DOUBLE, None, &mut value);
-        let _ = PdhCloseQuery(query);
-        if status != 0 {
-            return None;
-        }
-        let percent = value.Anonymous.doubleValue;
-        if percent.is_finite() && percent > 0.0 {
-            Some(percent)
-        } else {
-            None
+        self.last_collect = Some(Instant::now());
+        Ok(())
+    }
+
+    fn formatted_array(&self) -> Result<Vec<(String, f64)>, String> {
+        unsafe {
+            let mut size = 0_u32;
+            let mut count = 0_u32;
+            let status = PdhGetFormattedCounterArrayW(
+                self.counter,
+                PDH_FMT_DOUBLE,
+                &mut size,
+                &mut count,
+                None,
+            );
+            if status != 0 && status != PDH_MORE_DATA {
+                return Err(format!("counter query failed (status {status})"));
+            }
+            if size == 0 || count == 0 {
+                return Ok(Vec::new());
+            }
+
+            // `size` is a byte count; allocate word-aligned storage for the array.
+            let words = (size as usize).div_ceil(size_of::<usize>());
+            let mut buffer = vec![0_usize; words];
+            let items = buffer.as_mut_ptr() as *mut PDH_FMT_COUNTERVALUE_ITEM_W;
+            let status = PdhGetFormattedCounterArrayW(
+                self.counter,
+                PDH_FMT_DOUBLE,
+                &mut size,
+                &mut count,
+                Some(items),
+            );
+            if status != 0 {
+                return Err(format!("counter array failed (status {status})"));
+            }
+            let slice = std::slice::from_raw_parts(items, count as usize);
+            let mut values = Vec::with_capacity(slice.len());
+            for item in slice {
+                let name = if item.szName.is_null() {
+                    String::new()
+                } else {
+                    item.szName.to_string().unwrap_or_default()
+                };
+                values.push((name, item.FmtValue.Anonymous.doubleValue));
+            }
+            Ok(values)
         }
     }
 }
 
-/// Read every instance of a wildcard PDH counter, taking two samples so rate
-/// counters have a value. Returns `(instance name, value)` pairs.
-fn pdh_array(counter_path: &str) -> Result<Vec<(String, f64)>, String> {
-    unsafe {
-        let mut query = PDH_HQUERY(std::ptr::null_mut());
-        if PdhOpenQueryW(PCWSTR::null(), 0, &mut query) != 0 {
-            return Err("PdhOpenQueryW failed".to_string());
+impl Drop for PdhCounter {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = PdhCloseQuery(self.query);
         }
-        let path = HSTRING::from(counter_path);
-        let mut counter = PDH_HCOUNTER(std::ptr::null_mut());
-        let status = PdhAddEnglishCounterW(query, &path, 0, &mut counter);
-        if status != 0 {
-            let _ = PdhCloseQuery(query);
-            return Err(format!("counter unavailable (status {status})"));
-        }
-        if PdhCollectQueryData(query) != 0 {
-            let _ = PdhCloseQuery(query);
-            return Err("PdhCollectQueryData failed".to_string());
-        }
-        std::thread::sleep(std::time::Duration::from_millis(180));
-        if PdhCollectQueryData(query) != 0 {
-            let _ = PdhCloseQuery(query);
-            return Err("PdhCollectQueryData failed".to_string());
-        }
-
-        let mut size = 0_u32;
-        let mut count = 0_u32;
-        let status =
-            PdhGetFormattedCounterArrayW(counter, PDH_FMT_DOUBLE, &mut size, &mut count, None);
-        if status != 0 && status != PDH_MORE_DATA {
-            let _ = PdhCloseQuery(query);
-            return Err(format!("counter query failed (status {status})"));
-        }
-        if size == 0 || count == 0 {
-            let _ = PdhCloseQuery(query);
-            return Ok(Vec::new());
-        }
-
-        // `size` is a byte count; allocate word-aligned storage for the array.
-        let words = (size as usize).div_ceil(size_of::<usize>());
-        let mut buffer = vec![0_usize; words];
-        let items = buffer.as_mut_ptr() as *mut PDH_FMT_COUNTERVALUE_ITEM_W;
-        let status = PdhGetFormattedCounterArrayW(
-            counter,
-            PDH_FMT_DOUBLE,
-            &mut size,
-            &mut count,
-            Some(items),
-        );
-        if status != 0 {
-            let _ = PdhCloseQuery(query);
-            return Err(format!("counter array failed (status {status})"));
-        }
-        let slice = std::slice::from_raw_parts(items, count as usize);
-        let mut values = Vec::with_capacity(slice.len());
-        for item in slice {
-            let name = if item.szName.is_null() {
-                String::new()
-            } else {
-                item.szName.to_string().unwrap_or_default()
-            };
-            values.push((name, item.FmtValue.Anonymous.doubleValue));
-        }
-        let _ = PdhCloseQuery(query);
-        Ok(values)
     }
+}
+
+enum PdhEntry {
+    Ready(PdhCounter),
+    /// Cache a missing/failed counter for a while so an unsupported thermal or
+    /// GPU counter does not retry its setup on every sample.
+    Failed {
+        until: Instant,
+        error: String,
+    },
+}
+
+thread_local! {
+    static PDH_COUNTERS: RefCell<HashMap<String, PdhEntry>> = RefCell::new(HashMap::new());
+}
+
+fn with_pdh_counter<T>(
+    path: &str,
+    read: impl FnOnce(&PdhCounter) -> Result<T, String>,
+) -> Result<T, String> {
+    PDH_COUNTERS.with(|cell| {
+        let mut counters = cell.borrow_mut();
+        let now = Instant::now();
+        let failure = counters.get(path).and_then(|entry| match entry {
+            PdhEntry::Failed { until, error } => Some((*until, error.clone())),
+            PdhEntry::Ready(_) => None,
+        });
+        if let Some((until, error)) = failure {
+            if now < until {
+                return Err(error);
+            }
+            counters.remove(path);
+        }
+        if !counters.contains_key(path) {
+            match PdhCounter::open(path) {
+                Ok(counter) => {
+                    counters.insert(path.to_string(), PdhEntry::Ready(counter));
+                }
+                Err(error) => {
+                    counters.insert(
+                        path.to_string(),
+                        PdhEntry::Failed {
+                            until: now + Duration::from_secs(60),
+                            error: error.clone(),
+                        },
+                    );
+                    return Err(error);
+                }
+            }
+        }
+
+        let collected = match counters.get_mut(path) {
+            Some(PdhEntry::Ready(counter)) => counter.collect(),
+            _ => unreachable!("PDH counter was inserted above"),
+        };
+        if let Err(error) = collected {
+            counters.insert(
+                path.to_string(),
+                PdhEntry::Failed {
+                    until: now + Duration::from_secs(30),
+                    error: error.clone(),
+                },
+            );
+            return Err(error);
+        }
+        match counters.get(path) {
+            Some(PdhEntry::Ready(counter)) => read(counter),
+            _ => unreachable!("PDH counter was collected above"),
+        }
+    })
+}
+
+/// Returns the counter value as a percentage of nominal frequency (100 = base).
+fn pdh_performance_percent() -> Option<f64> {
+    with_pdh_counter(PROCESSOR_PERFORMANCE_COUNTER, |counter| {
+        let mut value = PDH_FMT_COUNTERVALUE::default();
+        let status = unsafe {
+            PdhGetFormattedCounterValue(counter.counter, PDH_FMT_DOUBLE, None, &mut value)
+        };
+        if status != 0 {
+            return Err(format!("counter value failed (status {status})"));
+        }
+        let percent = unsafe { value.Anonymous.doubleValue };
+        if percent.is_finite() && percent > 0.0 {
+            Ok(Some(percent))
+        } else {
+            Ok(None)
+        }
+    })
+    .ok()
+    .flatten()
+}
+
+/// Read every instance of a wildcard PDH counter. The query is reused between
+/// samples; the first read (and any read after an idle gap) takes two samples so
+/// rate counters have a value.
+fn pdh_array(counter_path: &str) -> Result<Vec<(String, f64)>, String> {
+    with_pdh_counter(counter_path, PdhCounter::formatted_array)
 }
 
 fn is_virtual_adapter(name: &str) -> bool {

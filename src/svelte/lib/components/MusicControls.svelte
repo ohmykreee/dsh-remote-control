@@ -34,7 +34,7 @@
     return volume ? clampVolume(volume.volume ?? 0.5) : 0.2;
   });
   const volumePercent = $derived(displayVolume * 100);
-  const seekDisabled = $derived(media ? !seekable || Number(media.endTime) <= 0 : loaded);
+  const seekDisabled = $derived(media ? !seekable || Number(media.endTime) <= 0 : true);
   const previousDisabled = $derived(media ? !media.canPrevious : loaded);
   const nextDisabled = $derived(media ? !media.canNext : loaded);
 
@@ -243,11 +243,6 @@ display: inline-flex;
   cursor: pointer;
 }
 
-.like-badge.is-interactive:hover {
-  border-color: color-mix(in srgb, var(--red) 30%, var(--line));
-  color: var(--text);
-}
-
 .like-badge:disabled {
   opacity: 1;
 }
@@ -344,16 +339,12 @@ width: 64px;
   border-radius: 50%;
   background: color-mix(in srgb, var(--card) 70%, transparent);
   color: var(--text);
-  transition: transform 0.16s ease, background 0.16s ease, opacity 0.16s ease;
+  transition: transform 0.16s ease, opacity 0.16s ease;
 }
 
 .transport-button :global(svg) {
 width: 24px;
   height: 24px;
-}
-
-.transport-button:hover {
-background: color-mix(in srgb, var(--text) 8%, transparent);
 }
 
 .transport-button:active {
@@ -395,11 +386,6 @@ width: 34px;
   color: var(--muted);
 }
 
-.volume-button:hover {
-color: var(--text);
-  background: color-mix(in srgb, var(--text) 6%, transparent);
-}
-
 .volume-button :global(svg) {
 width: 20px;
   height: 20px;
@@ -430,12 +416,14 @@ cursor: default;
 }
 
 .range:disabled::-webkit-slider-thumb {
-opacity: 0;
+display: none;
+  opacity: 0;
   box-shadow: none;
 }
 
 .range:disabled::-moz-range-thumb {
-opacity: 0;
+display: none;
+  opacity: 0;
 }
 
 .volume-label {

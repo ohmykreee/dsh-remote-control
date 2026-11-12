@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { serializeError } from './util.js';
 import type { JsonRecord, ProbeMediaResult } from './types.js';
 import { isRecord } from './types.js';
+import { ProbeDaemonClient, ProbeDaemonStartError } from './probe-daemon.js';
 
 const ARCH = process.arch;
 const DIRECTORY = `${process.platform}-${ARCH}`;
@@ -28,6 +29,7 @@ const BINARY = process.platform === 'win32' ? 'dsh-probe.exe' : 'dsh-probe';
 const DEFAULT_BINARY = fileURLToPath(new URL(`../native/bin/${DIRECTORY}/${BINARY}`, import.meta.url));
 const SCRATCH_DIRECTORY = fileURLToPath(new URL('../.probe-tmp', import.meta.url));
 const FAILURE_COOLDOWN_MS = 15_000;
+const DAEMON_RETRY_MS = 60_000;
 const MAX_BUFFER = 24 * 1024 * 1024;
 
 export interface ProbeInfo {
@@ -92,6 +94,9 @@ function scratchDirectory(): string | null {
 let cachedInfo: ProbeInfo | null = null;
 let failureUntil = 0;
 let lastFailure: string | null = null;
+let daemonClient: ProbeDaemonClient | null = null;
+let daemonDisabledUntil = 0;
+let exitHookInstalled = false;
 
 /** Resolve (and cache) the sidecar location. Never throws. */
 export function probeInfo(): ProbeInfo {
@@ -162,19 +167,59 @@ function failureMessage(error: unknown): string {
   return serializeError(error);
 }
 
-/**
- * Run a sidecar subcommand and return its JSON payload.
- *
- * Throws only when the process cannot run or produces no JSON; a well-formed
- * `{ ok: false }` payload is returned so callers can show its error.
- */
-export async function runProbe(args: string[], options: RunProbeOptions = {}): Promise<JsonRecord> {
-  const info = probeInfo();
-  if (!info.available) throw new Error(info.error || 'native probe unavailable');
-  if (Date.now() < failureUntil) {
-    throw new Error(`native probe temporarily unavailable: ${lastFailure || 'previous failure'}`);
+/** Commands that only read state and are safe to replay after a daemon crash. */
+function isReadOnlyCommand(args: string[]): boolean {
+  const command = args[0];
+  if (command === 'version' || command === 'performance' || command === 'perf') return true;
+  if (command === 'notifications' || command === 'notification') return args[1] !== 'watch';
+  if (command === 'location') return args[1] !== 'request';
+  if (command === 'media') {
+    const action = args[1] || 'read';
+    return action === 'read';
   }
-  const timeout = Number.isFinite(Number(options.timeout)) ? Number(options.timeout) : 15_000;
+  if (command === 'volume') {
+    const action = args[1] || 'read';
+    return action === 'read';
+  }
+  return false;
+}
+
+function daemonAllowed(): boolean {
+  if (Date.now() < daemonDisabledUntil) return false;
+  return !/^(0|false|no|off)$/i.test(process.env.DSH_RC_DISABLE_PROBE_DAEMON || '');
+}
+
+function installExitHook(): void {
+  if (exitHookInstalled) return;
+  exitHookInstalled = true;
+  process.once('exit', () => {
+    daemonClient?.kill();
+  });
+}
+
+function ensureDaemon(info: ProbeInfo): ProbeDaemonClient {
+  if (!daemonClient) {
+    const scratch = scratchDirectory();
+    const env = scratch ? { ...process.env, DSH_RC_TMPDIR: scratch } : process.env;
+    daemonClient = new ProbeDaemonClient(info.binary, env);
+    installExitHook();
+  }
+  return daemonClient;
+}
+
+function dropDaemon(): void {
+  const client = daemonClient;
+  daemonClient = null;
+  client?.shutdown();
+}
+
+/** Stop the daemon on plugin unload; the next probe call starts a fresh one. */
+export function shutdownProbeDaemon(): void {
+  dropDaemon();
+}
+
+/** One-shot fallback used when the daemon is disabled or unsupported. */
+async function runProbeOnce(args: string[], timeout: number, info: ProbeInfo): Promise<JsonRecord> {
   const scratch = scratchDirectory();
   try {
     const { stdout, stderr } = await execFileAsync(info.binary, args, {
@@ -201,6 +246,52 @@ export async function runProbe(args: string[], options: RunProbeOptions = {}): P
     wrapped.cause = error;
     throw wrapped;
   }
+}
+
+/**
+ * Run a sidecar subcommand and return its JSON payload.
+ *
+ * Uses the persistent daemon when available; falls back to a one-shot process
+ * when the daemon cannot start (older binary, spawn failure) or the environment
+ * disables it. A request that already reached a running daemon is not replayed
+ * unless it is read-only, so media actions cannot be executed twice.
+ *
+ * Throws only when the process cannot run or produces no JSON; a well-formed
+ * `{ ok: false }` payload is returned so callers can show its error.
+ */
+export async function runProbe(args: string[], options: RunProbeOptions = {}): Promise<JsonRecord> {
+  const info = probeInfo();
+  if (!info.available) throw new Error(info.error || 'native probe unavailable');
+  if (Date.now() < failureUntil) {
+    throw new Error(`native probe temporarily unavailable: ${lastFailure || 'previous failure'}`);
+  }
+  const timeout = Number.isFinite(Number(options.timeout)) ? Number(options.timeout) : 15_000;
+
+  if (daemonAllowed()) {
+    try {
+      const result = await ensureDaemon(info).request(args, timeout);
+      lastFailure = null;
+      failureUntil = 0;
+      return result;
+    } catch (error) {
+      const startFailure = error instanceof ProbeDaemonStartError;
+      if (startFailure) {
+        // Nothing was executed yet, so every command may retry one-shot.
+        daemonDisabledUntil = Date.now() + DAEMON_RETRY_MS;
+        dropDaemon();
+        return runProbeOnce(args, timeout, info);
+      }
+      daemonDisabledUntil = Date.now() + DAEMON_RETRY_MS;
+      dropDaemon();
+      if (isReadOnlyCommand(args)) return runProbeOnce(args, timeout, info);
+      lastFailure = failureMessage(error);
+      const wrapped = new Error(`dsh-probe ${args.join(' ')} failed: ${lastFailure}`);
+      wrapped.cause = error;
+      throw wrapped;
+    }
+  }
+
+  return runProbeOnce(args, timeout, info);
 }
 
 /**

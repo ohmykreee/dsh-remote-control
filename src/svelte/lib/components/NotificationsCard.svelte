@@ -110,12 +110,6 @@ display: grid;
   padding: 10px;
   border-radius: 16px;
   border: 1px solid transparent;
-  transition: background 0.18s ease, border-color 0.18s ease;
-}
-
-.notification-row:hover {
-background: color-mix(in srgb, var(--text) 4%, transparent);
-  border-color: var(--line);
 }
 
 .notification-avatar {

@@ -157,6 +157,7 @@ src/dsh/lib/weather.ts    系统/IP 定位、Open-Meteo、小时/7 天预报
 src/dsh/lib/performance.ts Rust performance 载荷（仅 CPU/内存 JS 兜底）
 src/dsh/lib/media-enrich.ts 媒体归一化、进度平滑、seek 规则
 src/dsh/lib/probe.ts      探针定位、执行、JSON 解析、临时目录
+src/dsh/lib/probe-daemon.ts 常驻探针的 stdio 请求/响应客户端与回退
 src/dsh/lib/probe-adapter.ts Rust 媒体/音量适配器（无回退）
 src/dsh/lib/notifications.ts Rust 通知服务（Linux watch / 其他一次性）
 src/dsh/lib/app-mapping.ts 应用历史与软件映射
@@ -169,6 +170,7 @@ src/svelte/lib/           状态、WebSocket、格式化、图标、媒体投影
 src/svelte/lib/components/ 页面与卡片组件
 src/svelte/styles/        全局颜色令牌与基础样式
 src/rust/src/cli.rs       命令行解析与 JSON 信封
+src/rust/src/daemon.rs    常驻模式：stdin/stdout 按行请求/响应
 src/rust/src/media/       媒体适配层（catalog + 平台实现 + 无障碍）
 src/rust/src/media/vendor/      各客户端私有适配（网易云、QQ、酷狗、酷我、汽水、全民K歌、Spotify、Apple Music、YouTube Music）
 src/rust/src/perf/        性能采样
@@ -176,7 +178,7 @@ src/rust/src/notifications/ 通知读取/监视
 src/rust/src/volume/      音量
 src/rust/src/location/    定位
 src/rust/tests/cli.rs     CLI 端到端测试
-test/                     Node 集成测试（7 个 .mjs）
+test/                     Node 集成测试（8 个 .mjs）
 static/                   Vite 公共资源（图标、manifest、字体许可、天气图标）
 docs/screenshots/         手机端截图（仅图片）
 .probe-tmp/               探针只读 SQLite 副本的临时目录（运行时生成）
@@ -315,11 +317,13 @@ docs/screenshots/         手机端截图（仅图片）
 - `src/dsh/lib/probe.ts` 按 `process.platform` / `process.arch` 定位，`DSH_RC_PROBE` 可覆盖；找不到时所有调用返回明确的“不可用”错误。
 - 每条命令输出一行 JSON；探针内部错误返回 `{"ok":false,...}` 且退出码 0（便于 Node 读取），参数错误退出码 2。
 - `notifications watch`（Linux）是长进程，逐行输出快照，Node 负责重启与冷却。
+- 探针支持常驻 `daemon` 模式：Node 通过 stdin/stdout 按行发送命令与接收同一格式的 JSON；daemon 起不来或不支持时自动回退到一次性进程。
 
 ### 命令
 
 ```text
 dsh-probe version
+dsh-probe daemon                                  # Host 内部：stdin/stdout 按行请求
 dsh-probe media read [--app-id ID] [--player DEST] [--no-thumbnail]
 dsh-probe media playpause|next|previous|seek --position SECONDS [--app-id ID] [--player DEST]
 dsh-probe media like [--value true|false] [--app-id ID] [--player DEST]   # NetEase CDP
@@ -356,7 +360,8 @@ dsh-probe location request [--open-settings]    # 申请定位权限（Windows �
 
 ### Node 桥
 
-- `probe.ts`：定位二进制、`execFile`、取最后一行 JSON、15 s 失败冷却、`DSH_RC_TMPDIR` 临时目录（默认仓库 `.probe-tmp/`）。
+- `probe.ts`：定位二进制、`execFile`、取最后一行 JSON、15 s 失败冷却、`DSH_RC_TMPDIR` 临时目录（默认仓库 `.probe-tmp/`）；优先复用常驻 daemon，启动失败时回退一次性进程。
+- `probe-daemon.ts`：常驻探针的启动、按 id 匹配响应、超时、崩溃/退出处理；只读命令可在 daemon 崩溃后重放，写操作不重放。
 - `probe-adapter.ts`：只调用 Rust 媒体/音量命令；失败直接返回错误，不静默回退。
 - `performance.ts`：只用 Rust 载荷；探针缺失时 CPU/内存用 Node 兜底，GPU/温度为空。
 - `notifications.ts`：Windows/macOS 一次性，Linux `watch` 长进程。
@@ -527,10 +532,11 @@ Node 侧 `media-enrich.ts` 会再次校验 `provider === 'system'` 或经过确�
 ```powershell
 pnpm check                      # tsc（Host + 浏览器端）+ svelte-check
 pnpm build                      # src/dsh + src/svelte
-pnpm test                       # 下面 7 个 Node 测试
+pnpm test                       # 下面 8 个 Node 测试
 node test/smoke.mjs
 node test/media-progress.mjs
 node test/probe-bridge.mjs
+node test/probe-daemon.mjs
 node test/notifications.mjs
 node test/notification-watch.mjs
 node test/app-mapping.mjs
@@ -546,6 +552,7 @@ pnpm build:rust
 - `smoke.mjs`：临时 `DSH_PROFILE_DIR` 启动服务，检查令牌页面、`/assets/`、WebSocket welcome/overview，确认旧 HTTP overview 路由不存在；
 - `media-progress.mjs`：进度平滑与 seek 规则；
 - `probe-bridge.mjs`：探针缺失时媒体/音量返回错误状态，且没有静默回退；
+- `probe-daemon.mjs`：真实二进制 daemon 的 version/performance/volume 请求、并发请求、关闭后重启与禁用开关；
 - `notifications.mjs`：字段归一化、数量限制、应用聚合、探针缺失载荷；
 - `notification-watch.mjs`：假探针验证 Linux 流式监视逐行解析；
 - `app-mapping.mjs`：默认名称/自动推导、来源记录、改名/恢复默认、持久化、旧缓存迁移；

@@ -88,7 +88,7 @@ position: relative;
   place-items: center;
   border-radius: 18px;
   color: var(--faint);
-  transition: color 0.2s ease, background 0.2s ease, transform 0.15s ease;
+  transition: transform 0.15s ease;
 }
 
 .rail-badge {
@@ -111,11 +111,6 @@ background: var(--red);
 .rail-button :global(svg) {
 width: 23px;
   height: 23px;
-}
-
-.rail-button:hover {
-color: var(--text);
-  background: color-mix(in srgb, var(--text) 5%, transparent);
 }
 
 .rail-button.is-active {
@@ -146,12 +141,6 @@ width: 40px;
   place-items: center;
   border-radius: 12px;
   color: var(--faint);
-  transition: color 0.18s ease, background 0.18s ease;
-}
-
-.rail-utility:hover {
-color: var(--text);
-  background: color-mix(in srgb, var(--text) 6%, transparent);
 }
 
 .rail-utility :global(svg) {

@@ -396,7 +396,6 @@ const CSS = `
         cursor: pointer;
       }
       .drc-menu-item svg { width: 16px; height: 16px; flex: 0 0 auto; color: var(--dsw-alias-label-secondary); }
-      .drc-menu-item:hover { background: var(--dsw-alias-bg-layer-2); }
       .drc-menu-item.is-active {
         background: var(--dsw-alias-bg-layer-2);
         box-shadow: inset 2px 0 0 var(--dsw-alias-brand-primary);
@@ -412,8 +411,9 @@ const CSS = `
       .drc-main::-webkit-scrollbar { width: 8px; }
       .drc-main::-webkit-scrollbar-thumb { background: var(--dsw-alias-border-l2); border-radius: 999px; }
       .drc-section { max-width: 760px; }
-      .drc-section h2 { margin: 0; font-size: 18px; letter-spacing: -.02em; font-weight: 620; }
+      .drc-section h2 { margin: 0; font-size: 20px; letter-spacing: -.02em; font-weight: 620; }
       .drc-desc { margin: 5px 0 14px; color: var(--dsw-alias-label-secondary); font-size: 11.5px; line-height: 1.6; }
+      .drc-section > .drc-desc, .drc-page-desc { margin: 6px 0 18px; max-width: 680px; font-size: 12px; line-height: 1.65; }
       .drc-card {
         margin-top: 12px;
         padding: 16px;
@@ -422,7 +422,8 @@ const CSS = `
         background: var(--dsw-alias-bg-layer-1);
       }
       .drc-card + .drc-card { margin-top: 10px; }
-      .drc-card h3 { margin: 0 0 4px; font-size: 13px; font-weight: 600; }
+      .drc-card h3 { margin: 0 0 5px; font-size: 16px; font-weight: 620; letter-spacing: -.01em; }
+      .drc-card .drc-desc { margin: 0 0 12px; font-size: 11px; line-height: 1.55; }
       .drc-muted { color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.55; }
       .drc-row {
         display: flex;
@@ -452,7 +453,6 @@ const CSS = `
         cursor: pointer;
         white-space: nowrap;
       }
-      .drc-btn:hover { background: var(--dsw-alias-bg-layer-2); }
       .drc-btn.is-primary { border-color: transparent; background: var(--dsw-alias-brand-primary); color: var(--dsw-alias-bg-base); }
       .drc-btn.is-danger { border-color: transparent; background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent); color: var(--dsw-alias-state-error-primary); }
       .drc-btn:disabled { opacity: .45; cursor: default; }
@@ -589,10 +589,10 @@ const zh: Record<string, string> = {
   forecastDisplay: '天气卡片显示', hourly: '小时天气', daily: '7 天天气',
   saveSettings: '保存设置', pagePerformance: '性能',
   auto: '本机位置', manual: '手动位置', locationName: '位置名称', latitude: '纬度', longitude: '经度', saveLocation: '保存位置',
-  balance: '余额显示', balanceHint: '控制手机端 7 天消耗的计算方式和低余额提醒。',
+  balance: '余额显示', balanceHint: '选择本周（日历）或最近 7 天（滚动）作为消耗统计窗口。',
   calendar: '本周（日历）', rolling: '最近 7 天（滚动）', lowThreshold: '低余额提醒线',
   lowThresholdHint: '低于这个金额时，手机端余额会显示为红色。留空关闭提醒。', saveThreshold: '保存提醒线',
-  notifications: '通知设置', notificationsHint: '本地缓存出现过的通知应用；未勾选的应用不会显示在手机端。',
+  notifications: '通知设置', notificationsHint: '所有应用默认接收通知；取消勾选的应用不会显示在手机端。',
   allApps: '全部显示', limit: '显示数量', noApps: '还没有记录到通知应用。',
   status: '服务状态', statusHint: '当前系统服务能力。', clients: '已连接设备', clientsHint: '正在访问控制台的手机或浏览器。', noClients: '当前没有已连接设备。', disconnect: '断开',
   diagnostics: '诊断信息', systemName: '系统', version: '版本', protocol: '连接方式', clientCount: '设备数量',
@@ -601,18 +601,18 @@ const zh: Record<string, string> = {
   pageHome: '首页', pageSessions: '会话', pageMusic: '音乐', moveUp: '上移', moveDown: '下移',
   noWebServer: '当前部署没有可用的 webServer。', serviceRunning: '服务运行中', serviceStopped: '服务未运行',
 };
-const en: Record<string, string> = { ...zh, title: 'Remote control', heading: 'Remote control', subtitle: 'Connection, display, and data preferences for the phone console.', running: 'Running', stopped: 'Stopped', refresh: 'Refresh', save: 'Save', saved: 'Saved', error: 'Action failed', loading: 'Reading settings…', pairing: 'Scan to connect', pairingHint: 'Connect the phone to the same LAN and scan the QR code.', open: 'Open on this computer', copy: 'Copy link', copied: 'Copied', connection: 'Connection', menuPlugin: 'Plugin settings', menuNetwork: 'Open interfaces', menuAccess: 'Access verification', menuTheme: 'Theme & pages', menuTls: 'HTTPS certificate', menuWeather: 'Weather', menuBalance: 'Balance display', menuNotifications: 'Notifications', menuSystem: 'System information', menuStatus: 'Service status', menuClients: 'Connected devices', menuDiagnostics: 'Diagnostics', network: 'Open network interfaces', networkHint: 'Only devices on the checked interface subnets can access the console.', pluginHint: 'Access, temperature unit, theme, page order, and HTTPS for the phone console; changes apply after Save.', access: 'Access verification', accessHint: 'When enabled, the first open requires a link with a verification token.', token: 'Link verification', rotate: 'Rotate verification token', rotateHint: 'Rotating disconnects existing devices; scan again to reconnect.', theme: 'Theme & pages', themeHint: 'Follow DSH, or force light or dark mode on the phone console.', temperatureUnit: 'Temperature unit', temperatureUnitHint: 'Temperature unit used by the phone weather and performance pages.', celsius: 'Celsius (°C)', fahrenheit: 'Fahrenheit (°F)', followDsh: 'Follow DSH', light: 'Light', dark: 'Dark', pageOrder: 'Page order', pageOrderHint: 'Drag to reorder the four phone pages; disabled pages stop polling.', tls: 'HTTPS certificate', tlsHint: 'Optional. Provide PEM certificate and key paths, then enable HTTPS. Saving briefly drops connections.', certPath: 'Certificate path', keyPath: 'Private key path', saveTls: 'Save certificate', tlsOn: 'HTTPS enabled', tlsOff: 'HTTPS disabled', tlsError: 'Certificate error; still serving HTTP', weather: 'Weather', weatherHint: 'Automatic uses this computer location; or pin a city.', auto: 'This computer', manual: 'Manual', locationName: 'Location name', latitude: 'Latitude', longitude: 'Longitude', saveLocation: 'Save location', balance: 'Balance display', balanceHint: 'Choose the 7-day spend mode and the low-balance warning.', calendar: 'This week (calendar)', rolling: 'Last 7 days (rolling)', lowThreshold: 'Low-balance warning', lowThresholdHint: 'Show the phone balance in red below this amount. Leave empty to disable.', saveThreshold: 'Save warning', notifications: 'Notifications', notificationsHint: 'Seen apps are cached locally. Unchecked apps are hidden on the phone.', allApps: 'Show all', limit: 'Visible count', noApps: 'No notification apps recorded yet.', status: 'Service status', statusHint: 'Current system service capabilities.', clients: 'Connected devices', clientsHint: 'Phones or browsers currently using the console.', noClients: 'No device is connected.', disconnect: 'Disconnect', diagnostics: 'Diagnostics', systemName: 'System', version: 'Version', protocol: 'Transport', clientCount: 'Devices', notificationsStatus: 'Notifications', mediaStatus: 'Media', volumeStatus: 'Volume', weatherStatus: 'Weather', healthy: 'Healthy', unavailable: 'Unavailable', checking: 'Not checked', pageHome: 'Home', pageSessions: 'Sessions', pageMusic: 'Music', moveUp: 'Move up', moveDown: 'Move down', noWebServer: 'This deployment has no webServer.', serviceRunning: 'Service running', serviceStopped: 'Service stopped', forecastDisplay: 'Weather card', hourly: 'Hourly', daily: '7 days', saveSettings: 'Save settings', pagePerformance: 'Performance' };
+const en: Record<string, string> = { ...zh, title: 'Remote control', heading: 'Remote control', subtitle: 'Connection, display, and data preferences for the phone console.', running: 'Running', stopped: 'Stopped', refresh: 'Refresh', save: 'Save', saved: 'Saved', error: 'Action failed', loading: 'Reading settings…', pairing: 'Scan to connect', pairingHint: 'Connect the phone to the same LAN and scan the QR code.', open: 'Open on this computer', copy: 'Copy link', copied: 'Copied', connection: 'Connection', menuPlugin: 'Plugin settings', menuNetwork: 'Open interfaces', menuAccess: 'Access verification', menuTheme: 'Theme & pages', menuTls: 'HTTPS certificate', menuWeather: 'Weather', menuBalance: 'Balance display', menuNotifications: 'Notifications', menuSystem: 'System information', menuStatus: 'Service status', menuClients: 'Connected devices', menuDiagnostics: 'Diagnostics', network: 'Open network interfaces', networkHint: 'Only devices on the checked interface subnets can access the console.', pluginHint: 'Access, temperature unit, theme, page order, and HTTPS for the phone console; changes apply after Save.', access: 'Access verification', accessHint: 'When enabled, the first open requires a link with a verification token.', token: 'Link verification', rotate: 'Rotate verification token', rotateHint: 'Rotating disconnects existing devices; scan again to reconnect.', theme: 'Theme & pages', themeHint: 'Follow DSH, or force light or dark mode on the phone console.', temperatureUnit: 'Temperature unit', temperatureUnitHint: 'Temperature unit used by the phone weather and performance pages.', celsius: 'Celsius (°C)', fahrenheit: 'Fahrenheit (°F)', followDsh: 'Follow DSH', light: 'Light', dark: 'Dark', pageOrder: 'Page order', pageOrderHint: 'Drag to reorder the four phone pages; disabled pages stop polling.', tls: 'HTTPS certificate', tlsHint: 'Optional. Provide PEM certificate and key paths, then enable HTTPS. Saving briefly drops connections.', certPath: 'Certificate path', keyPath: 'Private key path', saveTls: 'Save certificate', tlsOn: 'HTTPS enabled', tlsOff: 'HTTPS disabled', tlsError: 'Certificate error; still serving HTTP', weather: 'Weather', weatherHint: 'Automatic uses this computer location; or pin a city.', auto: 'This computer', manual: 'Manual', locationName: 'Location name', latitude: 'Latitude', longitude: 'Longitude', saveLocation: 'Save location', balance: 'Balance display', balanceHint: 'Choose the current week (calendar) or the latest 7 days (rolling) as the spend window.', calendar: 'This week (calendar)', rolling: 'Last 7 days (rolling)', lowThreshold: 'Low-balance warning', lowThresholdHint: 'Show the phone balance in red below this amount. Leave empty to disable.', saveThreshold: 'Save warning', notifications: 'Notifications', notificationsHint: 'All apps are enabled by default. Unchecked apps are hidden on the phone.', allApps: 'Show all', limit: 'Visible count', noApps: 'No notification apps recorded yet.', status: 'Service status', statusHint: 'Current system service capabilities.', clients: 'Connected devices', clientsHint: 'Phones or browsers currently using the console.', noClients: 'No device is connected.', disconnect: 'Disconnect', diagnostics: 'Diagnostics', systemName: 'System', version: 'Version', protocol: 'Transport', clientCount: 'Devices', notificationsStatus: 'Notifications', mediaStatus: 'Media', volumeStatus: 'Volume', weatherStatus: 'Weather', healthy: 'Healthy', unavailable: 'Unavailable', checking: 'Not checked', pageHome: 'Home', pageSessions: 'Sessions', pageMusic: 'Music', moveUp: 'Move up', moveDown: 'Move down', noWebServer: 'This deployment has no webServer.', serviceRunning: 'Service running', serviceStopped: 'Service stopped', forecastDisplay: 'Weather card', hourly: 'Hourly', daily: '7 days', saveSettings: 'Save settings', pagePerformance: 'Performance' };
 
 const extraZh: Record<string, string> = {
   menuPlugin: '偏好设置',
   menuPomodoro: '番茄钟设置',
-  connectionHint: '扫码配对、可访问的网卡与 HTTPS 证书。',
+  connectionHint: '扫码配对、可访问的网卡、访问验证与 HTTPS 证书。',
   preferencesHint: '手机端的温度单位、主题、页面顺序与导航栏位置；修改后点击保存设置生效。',
   navPosition: '导航栏位置',
   navPositionHint: '选择手机控制台导航栏停靠在屏幕的哪一侧。',
   navLeft: '左侧', navRight: '右侧', navTop: '上方', navBottom: '下方',
   pomodoro: '番茄钟设置',
-  pomodoroHint: '番茄钟显示在手机控制台的时钟下方，计时只在手机浏览器中进行。关闭后会从手机端整个卸载。',
+  pomodoroHint: '手机端番茄钟的启用、时长、提示音与循环响铃。',
   pomodoroEnable: '启用番茄钟',
   pomodoroEnableHint: '开启后，时钟下方会出现番茄钟卡片。',
   pomodoroFocus: '专注时长（分钟）',
@@ -644,17 +644,37 @@ const extraZh: Record<string, string> = {
   accessAllowed: '已授权', accessDenied: '已拒绝', accessUnspecified: '未授权', accessUnknown: '未知',
   pushQuestions: '推送问询',
   pushQuestionsHint: '开启后，会话进入等待回答时会推送完整的问题和选项。手机控制台的会话页点击该会话，会弹出悬浮框，可直接点选选项或填写自定义回复。',
+  tlsEnable: '启用 HTTPS',
+  pomodoroTimer: '番茄钟',
+  pomodoroTimerHint: '启用后显示在手机端时钟下方；设置专注与休息时长。',
+  weatherPageHint: '手机端天气的位置来源、显示方式与定位权限。',
+  weatherSource: '天气位置',
+  forecastDisplayHint: '选择天气卡片展示小时预报还是 7 天预报。',
+  balancePageHint: '手机端余额卡片的统计窗口、低余额提醒与峰谷标记。',
+  balanceSpend: '消耗统计',
+  peakValleyBlock: '峰谷标记',
+  peakValleyToggle: '显示峰谷标记',
+  notificationsPageHint: '手机端通知卡片的推送、可见应用与显示数量。',
+  notificationApps: '通知应用',
+  pushQuestionsToggle: '允许远程回答',
+  limitDisplay: '显示数量',
+  limitField: '数量',
+  notificationLimitHint: '手机端通知卡片最多显示的通知数量（1–20）。',
+  appsPageHint: '手机端通知和音乐里显示的应用名称；修改后立即保存。',
+  appNamesBlock: '应用名称',
+  systemPageHint: '服务运行状态、已连接设备与诊断信息。',
+  diagnosticsHint: '版本、协议与已连接设备数量。',
 };
 const extraEn: Record<string, string> = {
   menuPlugin: 'Preferences',
   menuPomodoro: 'Pomodoro',
-  connectionHint: 'Pairing, reachable interfaces, and the HTTPS certificate.',
+  connectionHint: 'Pairing, reachable interfaces, access verification, and the HTTPS certificate.',
   preferencesHint: 'Temperature unit, theme, page order, and navigation placement for the phone console; save to apply.',
   navPosition: 'Navigation bar',
   navPositionHint: 'Choose which screen edge hosts the phone console navigation bar.',
   navLeft: 'Left', navRight: 'Right', navTop: 'Top', navBottom: 'Bottom',
   pomodoro: 'Pomodoro',
-  pomodoroHint: 'The timer sits below the clock on the phone console and only runs in that browser. Disabling it unmounts the widget entirely.',
+  pomodoroHint: 'Enable, duration, alert sound, and looping for the phone pomodoro.',
   pomodoroEnable: 'Enable pomodoro',
   pomodoroEnableHint: 'Show a pomodoro card below the clock.',
   pomodoroFocus: 'Focus minutes',
@@ -686,6 +706,26 @@ const extraEn: Record<string, string> = {
   accessAllowed: 'Allowed', accessDenied: 'Denied', accessUnspecified: 'Not granted', accessUnknown: 'Unknown',
   pushQuestions: 'Push inquiries',
   pushQuestionsHint: 'When enabled, a session waiting for an answer pushes the complete question and options. Tapping that session on the phone opens a floating sheet where you can choose an option or type a custom reply.',
+  tlsEnable: 'Enable HTTPS',
+  pomodoroTimer: 'Pomodoro timer',
+  pomodoroTimerHint: 'Show the timer below the clock and set focus and break lengths.',
+  weatherPageHint: 'Location source, display mode, and location permission for the phone weather page.',
+  weatherSource: 'Weather location',
+  forecastDisplayHint: 'Choose hourly or 7-day forecast for the weather card.',
+  balancePageHint: 'Spend window, low-balance alert, and peak/off-peak marker for the phone balance card.',
+  balanceSpend: 'Spend window',
+  peakValleyBlock: 'Peak / off-peak marker',
+  peakValleyToggle: 'Show peak/off-peak marker',
+  notificationsPageHint: 'Push questions, visible apps, and display limit for phone notifications.',
+  notificationApps: 'Notification apps',
+  pushQuestionsToggle: 'Allow remote answers',
+  limitDisplay: 'Display limit',
+  limitField: 'Count',
+  notificationLimitHint: 'Maximum number of notifications shown on the phone card (1–20).',
+  appsPageHint: 'App names shown in phone notifications and media; changes save immediately.',
+  appNamesBlock: 'App names',
+  systemPageHint: 'Service status, connected devices, and diagnostics.',
+  diagnosticsHint: 'Version, protocol, and connected device count.',
 };
 Object.assign(zh, extraZh);
 Object.assign(en, extraEn);
@@ -1104,7 +1144,8 @@ function RemotePanel(): React.ReactElement {
     void save(patch);
   };
 
-  const sectionHead = (title: string, desc: string): React.ReactElement => h('div', null, h('h2', null, title), h('p', { className: 'drc-desc' }, desc));
+  const sectionHead = (title: string, desc: string): React.ReactElement => h('div', null, h('h2', null, title), desc ? h('p', { className: 'drc-desc drc-page-desc' }, desc) : null);
+  const blockHead = (title: string, desc: string): React.ReactElement => h('div', null, h('h3', null, title), desc ? h('p', { className: 'drc-desc' }, desc) : null);
 
   const renderConnection = (): React.ReactElement => h('div', { className: 'drc-section' },
     sectionHead(t('connection'), t('connectionHint')),
@@ -1143,6 +1184,7 @@ function RemotePanel(): React.ReactElement {
   );
 
   const accessBlock = (): React.ReactElement => h('div', { className: 'drc-card' },
+    blockHead(t('access'), t('accessHint')),
     h(Row, { title: t('token'), description: t('rotateHint') }, h(Toggle, { checked: settings.tokenEnabled, label: t('token'), onChange: (checked) => stage({ tokenEnabled: checked }) })),
     h('div', { className: 'drc-actions' }, h(Btn, { danger: true, onClick: () => void rotate(), disabled: busy }, t('rotate'))),
   );
@@ -1205,11 +1247,12 @@ function RemotePanel(): React.ReactElement {
   };
 
   const themeBlock = (): React.ReactElement => h('div', { className: 'drc-card' },
-    h('h3', null, t('theme')),
-    h('p', { className: 'drc-desc' }, t('themeHint')),
+    blockHead(t('theme'), t('themeHint')),
     h(Seg, { options: [{ value: 'dsh', label: t('followDsh') }, { value: 'light', label: t('light') }, { value: 'dark', label: t('dark') }], value: settings.theme, onChange: (value) => stage({ theme: value }) }),
-    h('h3', { style: { marginTop: 16 } }, t('pageOrder')),
-    h('p', { className: 'drc-desc' }, t('pageOrderHint')),
+  );
+
+  const orderBlock = (): React.ReactElement => h('div', { className: 'drc-card' },
+    blockHead(t('pageOrder'), t('pageOrderHint')),
     h('div', { className: 'drc-list', ref: orderListRef }, orderRows()),
   );
 
@@ -1229,8 +1272,9 @@ function RemotePanel(): React.ReactElement {
   );
 
   const tlsBlock = (): React.ReactElement => h('div', { className: 'drc-card' },
-    h(Row, { title: t('tls'), description: t('tlsHint') }, h(Toggle, {
-      checked: settings.tls?.enabled, label: t('tls'), onChange: (checked) => {
+    blockHead(t('tls'), t('tlsHint')),
+    h(Row, { title: t('tlsEnable') }, h(Toggle, {
+      checked: settings.tls?.enabled, label: t('tlsEnable'), onChange: (checked) => {
         if (checked && (!draft.certPath || !draft.keyPath)) { setError('请先填写证书和私钥路径'); return; }
         stage({ tls: { enabled: checked } });
       },
@@ -1261,31 +1305,36 @@ function RemotePanel(): React.ReactElement {
   );
 
   const renderWeather = (): React.ReactElement => h('div', { className: 'drc-section' },
-    sectionHead(t('weather'), ''),
+    sectionHead(t('weather'), t('weatherPageHint')),
     locationBlock(),
     h('div', { className: 'drc-card' },
-      h('p', { className: 'drc-desc' }, t('weatherHint')),
+      blockHead(t('weatherSource'), t('weatherHint')),
       h(Seg, { options: [{ value: 'auto', label: t('auto') }, { value: 'manual', label: t('manual') }], value: settings.weather?.mode ?? 'auto', onChange: (value) => stage({ weather: { mode: value } }) }),
-      h('h3', { style: { marginTop: 16 } }, t('forecastDisplay')),
-      h(Seg, { options: [{ value: 'hourly', label: t('hourly') }, { value: 'daily', label: t('daily') }], value: settings.weather?.forecastMode ?? 'hourly', onChange: (value) => stage({ weather: { forecastMode: value } }) }),
       h('div', { className: 'drc-fields' },
         h(Field, { label: t('locationName'), value: draft.locationName, onChange: (value) => setDraft((current) => ({ ...current, locationName: value })), placeholder: '例如：示例城市' }),
         h(Field, { label: t('latitude'), value: draft.latitude, onChange: (value) => setDraft((current) => ({ ...current, latitude: value })), placeholder: '0.0000', inputMode: 'decimal' }),
         h(Field, { label: t('longitude'), value: draft.longitude, onChange: (value) => setDraft((current) => ({ ...current, longitude: value })), placeholder: '0.0000', inputMode: 'decimal' }),
       ),
     ),
+    h('div', { className: 'drc-card' },
+      blockHead(t('forecastDisplay'), t('forecastDisplayHint')),
+      h(Seg, { options: [{ value: 'hourly', label: t('hourly') }, { value: 'daily', label: t('daily') }], value: settings.weather?.forecastMode ?? 'hourly', onChange: (value) => stage({ weather: { forecastMode: value } }) }),
+    ),
   );
 
   const renderBalance = (): React.ReactElement => h('div', { className: 'drc-section' },
-    sectionHead(t('balance'), ''),
+    sectionHead(t('balance'), t('balancePageHint')),
     h('div', { className: 'drc-card' },
-      h('p', { className: 'drc-desc' }, t('balanceHint')),
+      blockHead(t('balanceSpend'), t('balanceHint')),
       h(Seg, { options: [{ value: 'calendar', label: t('calendar') }, { value: 'rolling', label: t('rolling') }], value: settings.balance?.spendWindow ?? 'calendar', onChange: (value) => stage({ balance: { spendWindow: value } }) }),
-      h('div', { className: 'drc-fields' }, h(Field, { label: t('lowThreshold'), value: draft.threshold, onChange: (value) => setDraft((current) => ({ ...current, threshold: value })), placeholder: '例如：5', inputMode: 'decimal' })),
-      h('p', { className: 'drc-desc' }, t('lowThresholdHint')),
     ),
     h('div', { className: 'drc-card' },
-      h(Row, { title: t('peakValley'), description: t('peakValleyHint') }, h(Toggle, {
+      blockHead(t('lowThreshold'), t('lowThresholdHint')),
+      h('div', { className: 'drc-fields' }, h(Field, { label: t('lowThreshold'), value: draft.threshold, onChange: (value) => setDraft((current) => ({ ...current, threshold: value })), placeholder: '例如：5', inputMode: 'decimal' })),
+    ),
+    h('div', { className: 'drc-card' },
+      blockHead(t('peakValleyBlock'), t('peakValleyHint')),
+      h(Row, { title: t('peakValleyToggle') }, h(Toggle, {
         checked: settings.balance?.showPeakValley !== false,
         label: t('peakValley'),
         onChange: (checked) => stage({ balance: { showPeakValley: checked } }),
@@ -1293,32 +1342,37 @@ function RemotePanel(): React.ReactElement {
     ),
   );
 
-  const notificationApps = apps.filter((app) => !app.sources || app.sources.includes('notification'));
+  const notificationApps = apps;
 
   const renderNotifications = (): React.ReactElement => h('div', { className: 'drc-section' },
-    sectionHead(t('notifications'), ''),
+    sectionHead(t('notifications'), t('notificationsPageHint')),
     h('div', { className: 'drc-card' },
-      h(Row, { title: t('pushQuestions'), description: t('pushQuestionsHint') }, h(Toggle, {
+      blockHead(t('pushQuestions'), t('pushQuestionsHint')),
+      h(Row, { title: t('pushQuestionsToggle') }, h(Toggle, {
         checked: Boolean(settings.notifications?.pushQuestions),
         label: t('pushQuestions'),
         onChange: (checked) => stage({ notifications: { pushQuestions: checked } }),
       })),
     ),
     h('div', { className: 'drc-card' },
-      h('p', { className: 'drc-desc' }, t('notificationsHint')),
+      blockHead(t('notificationApps'), t('notificationsHint')),
       notificationApps.length === 0 ? h('p', { className: 'drc-muted' }, t('noApps')) : h('div', { className: 'drc-apps' }, notificationApps.map((app) => h('button', { key: app.key, type: 'button', className: `drc-app${selectedApps.includes(app.key) ? ' is-on' : ''}`, onClick: () => toggleApp(app.key) }, h('i'), app.name))),
       h('div', { className: 'drc-actions' },
         h(Btn, { onClick: () => setSelectedApps(notificationApps.map((app) => app.key)) }, t('allApps')),
       ),
+    ),
+    h('div', { className: 'drc-card' },
+      blockHead(t('limitDisplay'), t('notificationLimitHint')),
       h('div', { className: 'drc-fields' },
-        h(Field, { label: t('limit'), value: draft.notificationLimit, onChange: (value) => setDraft((current) => ({ ...current, notificationLimit: value })), placeholder: '5', inputMode: 'numeric' }),
+        h(Field, { label: t('limitField'), value: draft.notificationLimit, onChange: (value) => setDraft((current) => ({ ...current, notificationLimit: value })), placeholder: '5', inputMode: 'numeric' }),
       ),
     ),
   );
 
   const renderAppMapping = (): React.ReactElement => h('div', { className: 'drc-section' },
-    sectionHead(t('appMapping'), t('appMappingHint')),
+    sectionHead(t('appMapping'), t('appsPageHint')),
     h('div', { className: 'drc-card' },
+      blockHead(t('appNamesBlock'), t('appMappingHint')),
       apps.length === 0 ? h('p', { className: 'drc-muted' }, t('noApps')) : h('div', null, apps.map((app) => h('div', { className: 'drc-map-row', key: app.key },
         h('div', { className: 'drc-map-main' },
           h('input', {
@@ -1348,12 +1402,14 @@ function RemotePanel(): React.ReactElement {
     sectionHead(t('menuPlugin'), t('preferencesHint')),
     unitBlock(),
     themeBlock(),
+    orderBlock(),
     navBlock(),
   );
 
   const renderPomodoro = (): React.ReactElement => h('div', { className: 'drc-section' },
     sectionHead(t('pomodoro'), t('pomodoroHint')),
     h('div', { className: 'drc-card' },
+      blockHead(t('pomodoroTimer'), t('pomodoroTimerHint')),
       h(Row, { title: t('pomodoroEnable'), description: t('pomodoroEnableHint') }, h(Toggle, {
         checked: Boolean(settings.pomodoro?.enabled),
         label: t('pomodoroEnable'),
@@ -1398,6 +1454,7 @@ function RemotePanel(): React.ReactElement {
 
   const diagnosticsBlock = (): React.ReactElement => h('div', { className: 'drc-card' },
     h('h3', null, t('diagnostics')),
+    h('p', { className: 'drc-desc' }, t('diagnosticsHint')),
     h('div', { className: 'drc-facts' },
       h('span', null, `${t('systemName')} · ${data.diagnostics?.platformLabel || info.platformLabel || '—'}`),
       h('span', null, `${t('version')} · ${data.diagnostics?.version || info.version || '—'}`),
@@ -1407,7 +1464,7 @@ function RemotePanel(): React.ReactElement {
   );
 
   const renderSystem = (): React.ReactElement => h('div', { className: 'drc-section' },
-    sectionHead(t('menuSystem'), t('statusHint')),
+    sectionHead(t('menuSystem'), t('systemPageHint')),
     statusBlock(),
     clientsBlock(),
     diagnosticsBlock(),

@@ -199,11 +199,6 @@
   color: var(--muted);
 }
 
-.pomodoro-reset:hover {
-  color: var(--text);
-  background: color-mix(in srgb, var(--text) 6%, transparent);
-}
-
 .pomodoro-primary :global(svg) {
   width: 15px;
   height: 15px;

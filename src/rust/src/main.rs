@@ -10,6 +10,7 @@
 //! reachable from a WebAssembly sandbox.
 
 mod cli;
+mod daemon;
 mod location;
 mod media;
 mod notifications;
@@ -19,6 +20,11 @@ mod volume;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // The long-lived mode must own stdout (JSON lines) and stdin (requests);
+    // it never returns through the one-shot printing path below.
+    if args.first().map(String::as_str) == Some("daemon") {
+        std::process::exit(daemon::run());
+    }
     let (value, exit_code) = cli::dispatch(&args);
     match serde_json::to_string(&value) {
         Ok(text) => println!("{text}"),

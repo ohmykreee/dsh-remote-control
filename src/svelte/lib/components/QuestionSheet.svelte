@@ -329,11 +329,6 @@
   line-height: 1;
 }
 
-.sheet-close:hover {
-  color: var(--text);
-  border-color: var(--line-strong);
-}
-
 .sheet-body {
   flex: 1 1 auto;
   min-height: 0;
@@ -440,12 +435,6 @@
   background: color-mix(in srgb, var(--card) 72%, transparent);
   color: var(--text);
   text-align: left;
-  transition: border-color 0.15s ease, background 0.15s ease;
-}
-
-.option:hover:not(:disabled) {
-  border-color: var(--line-strong);
-  background: var(--card);
 }
 
 .option.is-selected {
@@ -582,10 +571,6 @@
   text-underline-offset: 3px;
 }
 
-.skip:hover:not(:disabled) {
-  color: var(--muted);
-}
-
 .skip-note {
   color: var(--amber);
   font-size: 9px;
@@ -638,11 +623,6 @@
   border: 1px solid var(--line);
   background: transparent;
   color: var(--muted);
-}
-
-.btn.ghost:hover:not(:disabled) {
-  color: var(--text);
-  border-color: var(--line-strong);
 }
 
 .btn.primary {

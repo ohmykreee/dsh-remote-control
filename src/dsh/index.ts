@@ -8,6 +8,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createRemoteControlService } from './lib/service.js';
+import { shutdownProbeDaemon } from './lib/probe.js';
 import type { DshContext, DshLogger } from './lib/types.js';
 import {
   APP_NAMES_PATH,
@@ -62,7 +63,10 @@ export async function apply(ctx: DshContext): Promise<void> {
   }
 
   ctx.effect?.(
-    () => () => service.dispose(),
+    () => () => {
+      service.dispose();
+      shutdownProbeDaemon();
+    },
     'dsh-remote-control: LAN server and native adapters',
   );
 
