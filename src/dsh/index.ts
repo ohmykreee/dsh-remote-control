@@ -10,8 +10,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createRemoteControlService } from './lib/service.js';
 import type { DshContext, DshLogger } from './lib/types.js';
 import {
+  APP_NAMES_PATH,
   DISCONNECT_PATH,
   INFO_PATH,
+  LOCATION_PATH,
   PANEL_ID,
   QR_PATH,
   SETTINGS_PATH,
@@ -75,6 +77,8 @@ export async function apply(ctx: DshContext): Promise<void> {
           req.method === 'POST' ? service.handleSettingsPost(req, res) : service.handleSettingsGet(req, res),
         'settings',
       ],
+      [APP_NAMES_PATH, (req, res) => service.handleAppNames(req, res), 'app name mapping'],
+      [LOCATION_PATH, (req, res) => service.handleLocation(req, res), 'location permission'],
       [THEME_PATH, (req, res) => service.handleTheme(req, res), 'theme sync'],
       [TOKEN_ROTATE_PATH, (req, res) => service.handleTokenRotate(req, res), 'token rotation'],
       [DISCONNECT_PATH, (req, res) => service.handleDisconnect(req, res), 'device disconnect'],

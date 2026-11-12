@@ -116,6 +116,8 @@ export interface WeatherPayload {
 export interface WeatherService {
   getWeather(input?: WeatherQuery): Promise<WeatherPayload>;
   resolveLocation(): Promise<ResolvedLocation>;
+  /** Drop cached coordinates so a permission change is picked up immediately. */
+  resetLocation(): void;
 }
 
 interface WeatherCacheEntry {
@@ -168,6 +170,12 @@ async function fetchJson(url: string, timeoutMs = 9000): Promise<unknown> {
 
 let probeLocationCache: ProbeLocationCache | null = null;
 let probeLocationAt = 0;
+
+/** Forget the cached OS-location result (called after a permission request). */
+export function resetProbeLocationCache(): void {
+  probeLocationCache = null;
+  probeLocationAt = 0;
+}
 
 /** Ask the OS location API (via the Rust probe) before falling back to IP. */
 async function readProbeLocation(): Promise<ProbeLocationSuccess | null> {
@@ -227,6 +235,12 @@ export function createWeatherService(): WeatherService {
   let locationCache: ResolvedLocation | null = null;
   let locationCacheAt = 0;
   const weatherCache = new Map<string, WeatherCacheEntry>();
+
+  function resetLocation(): void {
+    resetProbeLocationCache();
+    locationCache = null;
+    locationCacheAt = 0;
+  }
 
   async function resolveLocation(): Promise<ResolvedLocation> {
     const now = Date.now();
@@ -430,5 +444,5 @@ export function createWeatherService(): WeatherService {
     }
   }
 
-  return { getWeather, resolveLocation };
+  return { getWeather, resolveLocation, resetLocation };
 }

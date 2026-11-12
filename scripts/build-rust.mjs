@@ -21,6 +21,7 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  rmSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -166,6 +167,108 @@ if (!existsSync(manifest)) {
   bail(`Cargo manifest not found: ${manifest}`);
 }
 
+/**
+ * Windows process integrity guard.
+ *
+ * Windows refuses location access to Low-integrity processes. A workspace that
+ * was once created by a sandboxed process can carry a `Low` mandatory label on
+ * the project directory; every build artifact inherits it, so `dsh-probe.exe`
+ * would run at Low integrity and WinRT geolocation always answers "denied"
+ * even when the privacy settings allow desktop apps.
+ *
+ * Raising a *file* from Low to Medium needs `SeRelabelPrivilege` (admin), but
+ * raising a directory to the caller's own level does not, and recreating a
+ * generated child directory makes it inherit the parent's Medium label. This
+ * repair only runs when a Low label is actually present, so normal checkouts
+ * keep their ACLs untouched.
+ */
+function runIcacls(args) {
+  try {
+    execFileSync('icacls', args, { stdio: 'ignore', windowsHide: true, timeout: 20_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function hasLowLabel(target) {
+  try {
+    const output = execFileSync('icacls', [target], {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 20_000,
+    });
+    return /Low Mandatory Level/i.test(output);
+  } catch {
+    return false;
+  }
+}
+
+function ensureMediumIntegrity(directory) {
+  if (process.platform !== 'win32') return;
+  const segments = path.relative(root, directory).split(path.sep).filter(Boolean);
+  const targets = [root, ...segments.map((_, index) => path.join(root, ...segments.slice(0, index + 1)))];
+  if (!targets.some((target) => existsSync(target) && hasLowLabel(target))) return;
+
+  console.log('> repairing Low integrity labels on the probe build directory');
+  if (hasLowLabel(root)) {
+    runIcacls([root, '/setintegritylevel', '(OI)(CI)Medium']);
+    if (hasLowLabel(root)) {
+      console.warn(
+        [
+          'The workspace directory is still Low integrity after the repair attempt.',
+          'Windows needs SeRelabelPrivilege to raise a directory inherited from a parent,',
+          'so run the build from a normal (non-sandboxed) terminal, or follow the',
+          '"Windows low-integrity workspace" guide in README.md.',
+        ].join('\n'),
+      );
+      return;
+    }
+  }
+  let current = root;
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    if (!existsSync(current)) {
+      mkdirSync(current, { recursive: true });
+      continue;
+    }
+    runIcacls([current, '/setintegritylevel', '(OI)(CI)Medium']);
+    if (!hasLowLabel(current)) continue;
+    // Generated directories under native/ can be recreated; the child then
+    // inherits the parent's Medium label instead of the stale Low one.
+    if (current === path.join(root, 'native') || current.startsWith(`${path.join(root, 'native')}${path.sep}`)) {
+      rmSync(current, { recursive: true, force: true });
+      mkdirSync(current, { recursive: true });
+      if (hasLowLabel(current)) {
+        console.warn(`Could not raise the integrity label of ${path.relative(root, current)}; location may be denied.`);
+      }
+    }
+  }
+}
+
+function installBinary(sourceFile, targetFile) {
+  const deadline = Date.now() + 20_000;
+  let lastError = null;
+  for (;;) {
+    try {
+      if (existsSync(targetFile)) rmSync(targetFile, { force: true });
+      copyFileSync(sourceFile, targetFile);
+      return;
+    } catch (error) {
+      lastError = error;
+      const code = error?.code;
+      // Windows locks running executables; the console polls the probe every
+      // couple of seconds, so wait for a poll gap instead of failing the build.
+      if (code !== 'EBUSY' && code !== 'EPERM' && code !== 'EACCES') throw error;
+      if (Date.now() >= deadline) break;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+    }
+  }
+  throw new Error(
+    `could not replace ${path.relative(root, targetFile)} because it is running (${lastError?.message || lastError}); stop the remote console or retry in a moment`,
+  );
+}
+
 const profile = debug ? 'debug' : 'release';
 const cargo = process.env.CARGO || 'cargo';
 
@@ -198,7 +301,8 @@ if (!existsSync(source)) {
 
 try {
   mkdirSync(outputDir, { recursive: true });
-  copyFileSync(source, output);
+  ensureMediumIntegrity(outputDir);
+  installBinary(source, output);
   if (effective.platform !== 'win32') chmodSync(output, 0o755);
 } catch (error) {
   bail(`Could not install the Rust probe: ${error?.message || error}`);

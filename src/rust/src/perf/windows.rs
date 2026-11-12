@@ -4,13 +4,25 @@
 //! `% Processor Performance` counter with a `CallNtPowerInformation` fallback.
 //! GPU name/VRAM come from DXGI (registry as a fallback), GPU utilization and
 //! dedicated memory from PDH GPU performance counters, and temperatures from the
-//! PDH thermal-zone counters. None of this goes through WMI or PowerShell.
+//! PDH thermal-zone counters. GPU clocks, die temperature, power and fan speed
+//! come from the WDDM performance data (`D3DKMTQueryAdapterInfo`), which is the
+//! same source Task Manager uses. None of this goes through WMI or PowerShell.
 
 use std::collections::HashSet;
 use std::mem::size_of;
 
 use windows::core::{HSTRING, PCWSTR};
+use windows::Wdk::Graphics::Direct3D::{
+    D3DKMTCloseAdapter, D3DKMTOpenAdapterFromLuid, D3DKMTQueryAdapterInfo, D3DKMT_ADAPTER_PERFDATA,
+    D3DKMT_CLOSEADAPTER, D3DKMT_NODEMETADATA, D3DKMT_NODE_PERFDATA, D3DKMT_OPENADAPTERFROMLUID,
+    D3DKMT_QUERYADAPTERINFO, DXGK_ENGINE_TYPE_3D, KMTQAITYPE_ADAPTERPERFDATA,
+    KMTQAITYPE_NODEMETADATA, KMTQAITYPE_NODEPERFDATA, KMTQUERYADAPTERINFOTYPE,
+};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, LUID};
 use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1};
+use windows::Win32::Storage::FileSystem::{
+    CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+};
 use windows::Win32::System::Performance::{
     PdhAddEnglishCounterW, PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterArrayW,
     PdhGetFormattedCounterValue, PdhOpenQueryW, PDH_FMT_COUNTERVALUE, PDH_FMT_COUNTERVALUE_ITEM_W,
@@ -19,13 +31,14 @@ use windows::Win32::System::Performance::{
 use windows::Win32::System::Power::{
     CallNtPowerInformation, ProcessorInformation, PROCESSOR_POWER_INFORMATION,
 };
+use windows::Win32::System::IO::DeviceIoControl;
 use winreg::enums::{HKEY_LOCAL_MACHINE, REG_BINARY, REG_QWORD};
 use winreg::RegKey;
 
 use super::{common, Gpu, Performance, Temperature};
 use crate::util;
 
-pub const BACKEND: &str = "win32-dxgi-pdh+sysinfo";
+pub const BACKEND: &str = "win32-dxgi-pdh-d3dkmt+sysinfo";
 
 /// `\\Processor Information(_Total)\\% Processor Performance`, the same counter
 /// the old PowerShell probe used (`PercentProcessorPerformance`).
@@ -233,6 +246,121 @@ struct RegistryAdapter {
     memory_total: Option<u64>,
 }
 
+/// Per-adapter performance data from the WDDM kernel-mode interface
+/// (`D3DKMTQueryAdapterInfo`). This is the vendor-neutral source Task Manager
+/// uses for the GPU clock, temperature, power and fan speed.
+#[derive(Debug, Clone, Copy, Default)]
+struct AdapterPerf {
+    core_clock_mhz: Option<f64>,
+    core_clock_max_mhz: Option<f64>,
+    memory_clock_mhz: Option<f64>,
+    temperature_celsius: Option<f64>,
+    power_percent: Option<f64>,
+    fan_rpm: Option<u32>,
+}
+
+fn query_adapter_info<T>(h_adapter: u32, kind: KMTQUERYADAPTERINFOTYPE, value: &mut T) -> bool {
+    let mut query = D3DKMT_QUERYADAPTERINFO {
+        hAdapter: h_adapter,
+        Type: kind,
+        pPrivateDriverData: value as *mut T as *mut core::ffi::c_void,
+        PrivateDriverDataSize: size_of::<T>() as u32,
+    };
+    unsafe { D3DKMTQueryAdapterInfo(&mut query).0 >= 0 }
+}
+
+/// Read WDDM performance data for an adapter identified by its DXGI LUID.
+///
+/// * `D3DKMT_ADAPTER_PERFDATA` reports memory clock, die temperature, power
+///   (tenths of a percent) and fan RPM.
+/// * `D3DKMT_NODE_PERFDATA` reports per-engine clocks in hertz; the 3D engine is
+///   the graphics clock shown in Task Manager.
+fn adapter_perf(luid: LUID) -> Option<AdapterPerf> {
+    unsafe {
+        let mut open = D3DKMT_OPENADAPTERFROMLUID {
+            AdapterLuid: luid,
+            hAdapter: 0,
+        };
+        if D3DKMTOpenAdapterFromLuid(&mut open).0 < 0 || open.hAdapter == 0 {
+            return None;
+        }
+        let mut perf = AdapterPerf::default();
+
+        let mut adapter = D3DKMT_ADAPTER_PERFDATA::default();
+        if query_adapter_info(open.hAdapter, KMTQAITYPE_ADAPTERPERFDATA, &mut adapter) {
+            if adapter.Temperature > 0 {
+                let celsius = adapter.Temperature as f64 / 10.0;
+                if (5.0..=125.0).contains(&celsius) {
+                    perf.temperature_celsius = Some(util::round1(celsius));
+                }
+            }
+            if adapter.MemoryFrequency > 0 {
+                perf.memory_clock_mhz =
+                    Some(util::round1(adapter.MemoryFrequency as f64 / 1_000_000.0));
+            }
+            // The driver reports tenths of a percent; 0 means "unsupported".
+            if adapter.Power > 0 && adapter.Power <= 1000 {
+                perf.power_percent = Some(util::round1(adapter.Power as f64 / 10.0));
+            }
+            if adapter.FanRPM > 0 {
+                perf.fan_rpm = Some(adapter.FanRPM);
+            }
+        }
+
+        // Engine nodes are 1-based in the WDDM metadata (node 0 is a placeholder
+        // on some drivers), so probe a generous range and pick the 3D engine.
+        let mut fallback_clock: Option<(f64, f64)> = None;
+        for node in 0..16u32 {
+            let mut metadata = D3DKMT_NODEMETADATA {
+                NodeOrdinalAndAdapterIndex: node,
+                ..Default::default()
+            };
+            if !query_adapter_info(open.hAdapter, KMTQAITYPE_NODEMETADATA, &mut metadata) {
+                continue;
+            }
+            let engine = metadata.NodeData.EngineType;
+            let mut data = D3DKMT_NODE_PERFDATA {
+                NodeOrdinal: node,
+                PhysicalAdapterIndex: 0,
+                ..Default::default()
+            };
+            if !query_adapter_info(open.hAdapter, KMTQAITYPE_NODEPERFDATA, &mut data) {
+                continue;
+            }
+            if data.Frequency == 0 && data.MaxFrequency == 0 {
+                continue;
+            }
+            let frequency = data.Frequency as f64 / 1_000_000.0;
+            let maximum = data.MaxFrequency as f64 / 1_000_000.0;
+            if engine == DXGK_ENGINE_TYPE_3D {
+                // An idle GPU may legitimately report 0 MHz on the 3D node;
+                // forward it instead of pretending the clock is unavailable.
+                perf.core_clock_mhz = Some(util::round1(frequency));
+                if maximum > 0.0 {
+                    perf.core_clock_max_mhz = Some(util::round1(maximum));
+                }
+            } else if frequency > 0.0 && fallback_clock.map_or(true, |(value, _)| frequency > value)
+            {
+                fallback_clock = Some((frequency, maximum));
+            }
+        }
+        if perf.core_clock_mhz.is_none() {
+            if let Some((frequency, maximum)) = fallback_clock {
+                perf.core_clock_mhz = Some(util::round1(frequency));
+                if maximum > 0.0 {
+                    perf.core_clock_max_mhz = Some(util::round1(maximum));
+                }
+            }
+        }
+
+        let close = D3DKMT_CLOSEADAPTER {
+            hAdapter: open.hAdapter,
+        };
+        let _ = D3DKMTCloseAdapter(&close);
+        Some(perf)
+    }
+}
+
 fn registry_adapters() -> Vec<RegistryAdapter> {
     let Ok(root) = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey(GPU_CLASS_KEY) else {
         return Vec::new();
@@ -286,6 +414,10 @@ struct DxgiAdapter {
     name: String,
     memory_total: u64,
     driver: String,
+    /// DXGI LUID, used to open the adapter for WDDM performance data.
+    luid: Option<LUID>,
+    /// Whether the adapter drives at least one display output.
+    has_output: bool,
 }
 
 fn dxgi_adapters() -> Result<Vec<DxgiAdapter>, String> {
@@ -317,6 +449,8 @@ fn dxgi_adapters() -> Result<Vec<DxgiAdapter>, String> {
                 name,
                 memory_total: desc.DedicatedVideoMemory as u64,
                 driver,
+                luid: Some(desc.AdapterLuid),
+                has_output: adapter.EnumOutputs(0).is_ok(),
             });
         }
         Ok(adapters)
@@ -335,10 +469,12 @@ fn gpu_from_adapters(adapters: &[DxgiAdapter], source: &str) -> Option<Gpu> {
     if adapters.is_empty() {
         return None;
     }
+    // The adapter that drives a display output is the "primary" one and the one
+    // Task Manager reports; fall back to the largest VRAM.
     let primary = adapters
         .iter()
-        .max_by_key(|adapter| adapter.memory_total)
-        .unwrap();
+        .find(|adapter| adapter.has_output)
+        .or_else(|| adapters.iter().max_by_key(|adapter| adapter.memory_total))?;
     let registry = registry_adapters();
     let registry_total = registry
         .iter()
@@ -376,6 +512,7 @@ fn gpu_from_adapters(adapters: &[DxgiAdapter], source: &str) -> Option<Gpu> {
         }
         _ => None,
     };
+    let perf = primary.luid.and_then(adapter_perf);
     Some(Gpu {
         name: primary.name.clone(),
         driver: primary.driver.clone(),
@@ -387,6 +524,12 @@ fn gpu_from_adapters(adapters: &[DxgiAdapter], source: &str) -> Option<Gpu> {
         memory_used,
         memory_total,
         memory_percent,
+        core_clock_mhz: perf.and_then(|value| value.core_clock_mhz),
+        core_clock_max_mhz: perf.and_then(|value| value.core_clock_max_mhz),
+        memory_clock_mhz: perf.and_then(|value| value.memory_clock_mhz),
+        temperature_celsius: perf.and_then(|value| value.temperature_celsius),
+        power_percent: perf.and_then(|value| value.power_percent),
+        fan_rpm: perf.and_then(|value| value.fan_rpm),
         ok: true,
         source: source.to_string(),
         error: None,
@@ -406,6 +549,7 @@ fn read_gpu() -> Option<Gpu> {
             name: adapter.name.clone(),
             memory_total: adapter.memory_total.unwrap_or(0),
             driver: adapter.driver.clone(),
+            ..Default::default()
         })
         .collect();
     gpu_from_adapters(&adapters, "registry-pdh")
@@ -422,13 +566,151 @@ fn thermal_value(raw: f64, high_precision: bool) -> Option<f64> {
         .find(|celsius| (5.0..=125.0).contains(celsius))
 }
 
-fn read_temperatures() -> Vec<Temperature> {
+/// `IOCTL_STORAGE_QUERY_PROPERTY` with `StorageDeviceTemperatureProperty`.
+/// Works for NVMe/SATA drives as a standard user (the device is opened with no
+/// access rights: the query itself only needs a handle).
+const IOCTL_STORAGE_QUERY_PROPERTY: u32 = 0x002D_1400;
+const STORAGE_DEVICE_TEMPERATURE_PROPERTY: u32 = 51;
+/// `STORAGE_TEMPERATURE_VALUE_NOT_REPORTED` as a signed 16-bit value.
+const TEMPERATURE_NOT_REPORTED: i16 = i16::MIN;
+const MAX_PHYSICAL_DRIVES: u32 = 8;
+
+#[repr(C)]
+#[derive(Default)]
+struct StoragePropertyQuery {
+    property_id: u32,
+    query_type: u32,
+    additional: [u8; 1],
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+struct StorageTemperatureInfo {
+    index: u16,
+    temperature: i16,
+    over_threshold: i16,
+    under_threshold: i16,
+    over_threshold_changeable: u8,
+    under_threshold_changeable: u8,
+    event_generated: u8,
+    reserved0: u8,
+    reserved1: u32,
+}
+
+#[repr(C)]
+#[derive(Default)]
+struct StorageTemperatureDescriptor {
+    version: u32,
+    size: u32,
+    critical_temperature: i16,
+    warning_temperature: i16,
+    info_count: u16,
+    reserved0: [u8; 2],
+    reserved1: [u32; 2],
+    temperature_info: [StorageTemperatureInfo; 16],
+}
+
+/// The device temperature (sensor index 0 is the composite reading) of one
+/// physical drive, or `None` when the drive does not report it.
+fn disk_temperature(index: u32) -> Option<f64> {
+    let path = HSTRING::from(format!(r"\\.\PhysicalDrive{index}"));
+    let handle: HANDLE = unsafe {
+        CreateFileW(
+            &path,
+            0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            None,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            None,
+        )
+    }
+    .ok()?;
+    if handle.is_invalid() {
+        return None;
+    }
+    let mut query = StoragePropertyQuery {
+        property_id: STORAGE_DEVICE_TEMPERATURE_PROPERTY,
+        query_type: 0,
+        additional: [0],
+    };
+    let mut output = StorageTemperatureDescriptor::default();
+    let mut returned = 0_u32;
+    let ok = unsafe {
+        DeviceIoControl(
+            handle,
+            IOCTL_STORAGE_QUERY_PROPERTY,
+            Some(&mut query as *mut _ as *mut core::ffi::c_void),
+            size_of::<StoragePropertyQuery>() as u32,
+            Some(&mut output as *mut _ as *mut core::ffi::c_void),
+            size_of::<StorageTemperatureDescriptor>() as u32,
+            Some(&mut returned),
+            None,
+        )
+    };
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
+    if ok.is_err() {
+        return None;
+    }
+    let count = (output.info_count as usize).min(output.temperature_info.len());
+    let mut fallback = None;
+    for info in output.temperature_info.iter().take(count) {
+        let value = info.temperature;
+        if value == TEMPERATURE_NOT_REPORTED || value <= 0 || value > 125 {
+            continue;
+        }
+        // Sensor 0 is the composite (drive-level) reading; prefer it.
+        if info.index == 0 {
+            return Some(util::round1(value as f64));
+        }
+        fallback = Some(fallback.map_or(value, |current: i16| current.max(value)));
+    }
+    fallback.map(|value| util::round1(value as f64))
+}
+
+fn disk_temperatures() -> Vec<(String, f64)> {
+    (0..MAX_PHYSICAL_DRIVES)
+        .filter_map(|index| {
+            disk_temperature(index).map(|celsius| (format!("磁盘 {index}"), celsius))
+        })
+        .collect()
+}
+
+fn is_cpu_sensor_name(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    ["cpu", "core", "package", "processor", "tdie", "tctl"]
+        .iter()
+        .any(|marker| lower.contains(marker))
+}
+
+fn read_temperatures(gpu: Option<&Gpu>) -> Vec<Temperature> {
     let mut temperatures = Vec::new();
     let mut seen = HashSet::new();
+    // The WDDM die temperature is the reading Task Manager shows under GPU.
+    if let Some(gpu) = gpu {
+        if let Some(celsius) = gpu.temperature_celsius {
+            seen.insert(gpu.name.to_lowercase());
+            temperatures.push(Temperature {
+                name: gpu.name.clone(),
+                celsius,
+            });
+        }
+    }
+    for (name, celsius) in disk_temperatures() {
+        if !seen.insert(name.to_lowercase()) {
+            continue;
+        }
+        temperatures.push(Temperature { name, celsius });
+    }
+
+    let mut zones: Vec<Temperature> = Vec::new();
     for (counter, high_precision) in [(THERMAL_PRECISION_COUNTER, true), (THERMAL_COUNTER, false)] {
         let Ok(values) = pdh_array(counter) else {
             continue;
         };
+        let mut zone_seen = HashSet::new();
         for (name, raw) in values {
             if !raw.is_finite() {
                 continue;
@@ -441,16 +723,32 @@ fn read_temperatures() -> Vec<Temperature> {
             } else {
                 name
             };
-            if !seen.insert(name.clone()) {
+            if !zone_seen.insert(name.to_lowercase()) {
                 continue;
             }
-            temperatures.push(Temperature {
+            zones.push(Temperature {
                 name,
                 celsius: util::round1(celsius),
             });
         }
-        if !temperatures.is_empty() {
+        if !zones.is_empty() {
             break;
+        }
+    }
+    // ACPI thermal zones rarely carry a friendly name. The hottest zone is the
+    // CPU package on virtually every laptop/board that exposes zones, so label
+    // it explicitly instead of showing an opaque `\_TZ.TZ00`.
+    if !zones.is_empty() && !zones.iter().any(|zone| is_cpu_sensor_name(&zone.name)) {
+        if let Some(hottest) = zones
+            .iter_mut()
+            .max_by(|left, right| left.celsius.total_cmp(&right.celsius))
+        {
+            hottest.name = "CPU".to_string();
+        }
+    }
+    for zone in zones {
+        if seen.insert(zone.name.to_lowercase()) {
+            temperatures.push(zone);
         }
     }
     temperatures
@@ -490,9 +788,11 @@ pub fn read() -> Result<Performance, String> {
     }
     cpu.speed_mhz = speed;
 
+    let gpu = read_gpu();
+    let temperatures = read_temperatures(gpu.as_ref());
     let mut performance = Performance::success(cpu, memory);
-    performance.gpu = read_gpu();
-    performance.temperatures = read_temperatures();
+    performance.gpu = gpu;
+    performance.temperatures = temperatures;
     Ok(performance)
 }
 
@@ -539,6 +839,30 @@ mod tests {
             assert!(!gpu.name.is_empty());
             if let Some(value) = gpu.utilization {
                 assert!((0.0..=100.0).contains(&value));
+            }
+        }
+    }
+
+    #[test]
+    fn gpu_perf_values_are_plausible() {
+        if let Some(gpu) = read_gpu() {
+            if let Some(value) = gpu.core_clock_mhz {
+                assert!((0.0..10_000.0).contains(&value), "core clock {value}");
+            }
+            if let Some(value) = gpu.core_clock_max_mhz {
+                assert!(value > 0.0 && value < 10_000.0, "max clock {value}");
+            }
+            if let Some(value) = gpu.memory_clock_mhz {
+                assert!(value > 0.0 && value < 30_000.0, "memory clock {value}");
+            }
+            if let Some(value) = gpu.temperature_celsius {
+                assert!((5.0..=125.0).contains(&value), "temperature {value}");
+            }
+            if let Some(value) = gpu.power_percent {
+                assert!((0.0..=100.0).contains(&value), "power {value}");
+            }
+            if let Some(value) = gpu.fan_rpm {
+                assert!(value < 20_000, "fan {value}");
             }
         }
     }

@@ -1,6 +1,7 @@
 //! Current location from each platform's system location API.
 //!
-//! * Windows: WinRT `Windows.Devices.Geolocation.Geolocator`
+//! * Windows: WinRT `Windows.Devices.Geolocation.Geolocator`, plus an explicit
+//!   permission-request command that reports privacy/integrity blockers.
 //! * Linux: GeoClue2 (`org.freedesktop.GeoClue2`) over the session/system bus
 //! * macOS: CoreLocation requires an app bundle/usage description, which a
 //!   sidecar process cannot provide; returns a clear error so Node can fall
@@ -11,7 +12,7 @@
 
 use serde_json::{json, Value};
 
-use crate::cli::CliResult;
+use crate::cli::{action_of, has_flag, CliError, CliResult};
 
 #[cfg(windows)]
 #[path = "windows.rs"]
@@ -34,6 +35,20 @@ pub struct Reading {
     pub longitude: f64,
     pub accuracy: Option<f64>,
     pub source: &'static str,
+}
+
+/// The outcome of asking the OS for location permission.
+#[derive(Debug, Clone)]
+pub struct AccessReport {
+    /// `allowed`, `denied`, `unspecified`, `unknown` or `unsupported`.
+    pub access: &'static str,
+    /// The process runs at the Low integrity level (Windows only).
+    pub low_integrity: bool,
+    /// The privacy settings page was opened for the user.
+    pub opened_settings: bool,
+    /// Machine-readable blocker: `low-integrity`, `privacy-denied`,
+    /// `unspecified`, `request-failed`, `unavailable`.
+    pub reason: Option<&'static str>,
 }
 
 fn reading_json(reading: &Reading, sampled_at: i64) -> Value {
@@ -62,6 +77,19 @@ fn error_json(error: &str, sampled_at: i64) -> Value {
     })
 }
 
+fn access_json(report: &AccessReport, sampled_at: i64) -> Value {
+    json!({
+        "ok": true,
+        "available": report.access == "allowed",
+        "access": report.access,
+        "allowed": report.access == "allowed",
+        "lowIntegrity": report.low_integrity,
+        "openedSettings": report.opened_settings,
+        "reason": report.reason,
+        "sampledAt": sampled_at,
+    })
+}
+
 pub fn read_json(sampled_at: i64) -> Value {
     match platform::read() {
         Ok(reading) => reading_json(&reading, sampled_at),
@@ -69,8 +97,44 @@ pub fn read_json(sampled_at: i64) -> Value {
     }
 }
 
-pub fn cli(_args: &[String], started_at: i64) -> CliResult {
-    Ok(read_json(started_at))
+/// Ask for location permission. Only Windows has a real consent flow; other
+/// platforms report whether a location can be read at all.
+fn request_access(open_settings: bool) -> AccessReport {
+    #[cfg(windows)]
+    {
+        platform::request_access(open_settings)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = open_settings;
+        match platform::read() {
+            Ok(_) => AccessReport {
+                access: "allowed",
+                low_integrity: false,
+                opened_settings: false,
+                reason: None,
+            },
+            Err(_) => AccessReport {
+                access: "denied",
+                low_integrity: false,
+                opened_settings: false,
+                reason: Some("unavailable"),
+            },
+        }
+    }
+}
+
+pub fn cli(args: &[String], started_at: i64) -> CliResult {
+    match action_of(args).as_str() {
+        "read" => Ok(read_json(started_at)),
+        "request" => Ok(access_json(
+            &request_access(has_flag(args, "--open-settings")),
+            started_at,
+        )),
+        other => Err(CliError::usage(format!(
+            "unsupported location action: {other} (expected read, request)"
+        ))),
+    }
 }
 
 #[cfg(test)]
@@ -102,5 +166,26 @@ mod tests {
         assert_eq!(value["available"], false);
         assert_eq!(value["latitude"], serde_json::Value::Null);
         assert_eq!(value["error"], "no location");
+    }
+
+    #[test]
+    fn access_shape_reports_the_blocker() {
+        let value = access_json(
+            &AccessReport {
+                access: "denied",
+                low_integrity: true,
+                opened_settings: true,
+                reason: Some("low-integrity"),
+            },
+            7,
+        );
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["available"], false);
+        assert_eq!(value["access"], "denied");
+        assert_eq!(value["allowed"], false);
+        assert_eq!(value["lowIntegrity"], true);
+        assert_eq!(value["openedSettings"], true);
+        assert_eq!(value["reason"], "low-integrity");
+        assert_eq!(value["sampledAt"], 7);
     }
 }

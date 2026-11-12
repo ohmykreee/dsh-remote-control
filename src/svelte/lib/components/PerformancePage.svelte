@@ -23,7 +23,7 @@ display: grid;
 
 :global(.performance-main) {
 display: grid;
-  grid-template-rows: minmax(0, 1.12fr) minmax(0, 0.88fr);
+  grid-template-rows: repeat(2, minmax(0, 1fr));
   gap: 14px;
   min-height: 0;
 }
@@ -319,7 +319,7 @@ margin: 8px 0 0;
     gap: 10px;
   }
   :global(.performance-main) {
-    grid-template-rows: minmax(0, 1.08fr) minmax(0, 0.92fr);
+    grid-template-rows: repeat(2, minmax(0, 1fr));
     gap: 10px;
   }
   :global(.perf-combo) {

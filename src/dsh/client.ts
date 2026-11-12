@@ -71,10 +71,16 @@ interface RemoteInterface {
   cidr?: string;
 }
 
-/** Notification application as reported by the settings API. */
+/** Notification/media application as reported by the settings API. */
 interface RemoteApp {
   key: string;
   name: string;
+  customName?: string | null;
+  defaultName?: string | null;
+  count?: number;
+  firstSeen?: number;
+  lastSeen?: number;
+  sources?: string[];
 }
 
 /** One connected phone/browser as reported by the settings API. */
@@ -296,6 +302,8 @@ function readClients(value: unknown): RemoteClient[] {
 const NS = 'dsh-remote-control';
 const PANEL_ID = 'remote-control';
 const SETTINGS_URL = '/dsh-remote-control/api/settings';
+const APP_NAMES_URL = '/dsh-remote-control/api/apps';
+const LOCATION_URL = '/dsh-remote-control/api/location';
 const THEME_URL = '/dsh-remote-control/api/theme';
 const TOKEN_URL = '/dsh-remote-control/api/token/rotate';
 const DISCONNECT_URL = '/dsh-remote-control/api/disconnect';
@@ -504,6 +512,23 @@ const CSS = `
       .drc-app.is-on { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-label-primary); background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent); }
       .drc-app i { width: 6px; height: 6px; border-radius: 50%; background: var(--dsw-alias-label-secondary); }
       .drc-app.is-on i { background: var(--dsw-alias-brand-primary); }
+      .drc-map-row {
+        display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 9px;
+        border-radius: 8px; background: var(--dsw-alias-bg-layer-2);
+      }
+      .drc-map-row + .drc-map-row { margin-top: 6px; }
+      .drc-map-main { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 3px; }
+      .drc-map-input {
+        width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--dsw-alias-border-l1);
+        border-radius: 6px; background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 11.5px;
+      }
+      .drc-map-input:focus { outline: none; border-color: var(--dsw-alias-brand-primary); }
+      .drc-map-key { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+      .drc-map-meta { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
+      .drc-tag {
+        padding: 2px 6px; border-radius: 999px; border: 1px solid var(--dsw-alias-border-l1);
+        color: var(--dsw-alias-label-secondary); font-size: 9px; white-space: nowrap;
+      }
       .drc-order-row { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 8px; background: var(--dsw-alias-bg-layer-2); font-size: 11.5px; cursor: grab; transition: opacity .15s ease, border-color .15s ease; touch-action: none; }
       .drc-order-row.is-dragging { position: absolute; width: 0; height: 0; min-height: 0; margin: 0; padding: 0; border: 0; opacity: 0; visibility: hidden; overflow: hidden; pointer-events: none; transition: none; }
       .drc-order-row b { width: 18px; color: var(--dsw-alias-label-secondary); font-family: ui-monospace, monospace; font-size: 10px; font-weight: 500; }
@@ -599,6 +624,23 @@ const extraZh: Record<string, string> = {
   pomodoroLoopHint: '开启后，时间到的提示音会循环播放，直到在手机端点击「停止响铃」才停止；关闭时只播放一次。',
   peakValley: '显示梁文峰 / 梁文谷',
   peakValleyHint: '在余额卡片右下角按当前计费时段显示淡色图标：工作日 9:00–12:00、14:00–18:00 为梁文峰（高峰），其余时间及节假日全天为梁文谷（空闲，价格为高峰的一半）。判断在手机浏览器中完成，节假日数据从 timor.tech 获取。',
+  menuAppMapping: '软件映射',
+  appMapping: '软件映射',
+  appMappingHint: '通知与音乐播放里显示的应用名称。这里是所有在系统里出现过的应用，修改后立即保存，并同时用于手机端通知和音乐来源。',
+  sourceNotification: '通知',
+  sourceMusic: '音乐',
+  resetName: '恢复默认',
+  locationPermission: '定位权限',
+  locationPermissionHint: 'Windows 定位需要系统隐私授权。点击下面的按钮申请定位权限；如果被拒绝，会自动打开系统「位置」设置页。开启「位置服务」和「允许桌面应用访问你的位置」后重试即可。',
+  locationRequest: '请求定位权限',
+  locationRequesting: '正在请求…',
+  locationAllowed: '定位权限已授予，天气会自动使用本机位置。',
+  locationPrivacyDenied: '系统拒绝了定位权限，已打开「位置」设置页；请开启「位置服务」和「允许桌面应用访问你的位置」后重试。',
+  locationLowIntegrity: '探针正以低完整性级别运行，Windows 会拒绝定位。请用普通终端重新执行 pnpm build:rust（或参考 README 的修复指南）。',
+  locationUnspecified: '系统还没有授予定位权限，已打开设置页，请手动开启后重试。',
+  locationFailed: '定位权限请求失败，请稍后重试。',
+  locationStatus: '当前状态',
+  accessAllowed: '已授权', accessDenied: '已拒绝', accessUnspecified: '未授权', accessUnknown: '未知',
 };
 const extraEn: Record<string, string> = {
   menuPlugin: 'Preferences',
@@ -622,6 +664,23 @@ const extraEn: Record<string, string> = {
   pomodoroLoopHint: 'When enabled, the end-of-timer sound repeats until you click Stop ringing on the phone. When disabled, it plays once.',
   peakValley: 'Show peak / valley',
   peakValleyHint: 'Show a faint tariff icon in the balance card corner: weekdays 9:00–12:00 and 14:00–18:00 are Liang Wenfeng (peak); all other times and holidays are Liang Wengu (off-peak at half price). The browser judges this and loads holiday data from timor.tech.',
+  menuAppMapping: 'App names',
+  appMapping: 'App names',
+  appMappingHint: 'Display names used by notifications and media. Every app seen on this system is listed; a rename saves immediately and applies to both phone notifications and the music source label.',
+  sourceNotification: 'Notification',
+  sourceMusic: 'Music',
+  resetName: 'Reset',
+  locationPermission: 'Location permission',
+  locationPermissionHint: 'Windows location access needs a privacy grant. The button asks for permission; when it is denied, the system Location settings page opens. Enable "Location services" and "Let desktop apps access your location", then retry.',
+  locationRequest: 'Request location access',
+  locationRequesting: 'Requesting…',
+  locationAllowed: 'Location access granted; weather will use this computer position.',
+  locationPrivacyDenied: 'Windows denied location access and the Settings page was opened; enable "Location services" and "Let desktop apps access your location", then retry.',
+  locationLowIntegrity: 'The probe is running at low integrity, which Windows rejects for location. Rebuild it from a normal terminal (pnpm build:rust) or follow the README repair guide.',
+  locationUnspecified: 'Location access has not been granted yet; the Settings page was opened.',
+  locationFailed: 'The location permission request failed; try again later.',
+  locationStatus: 'Current status',
+  accessAllowed: 'Allowed', accessDenied: 'Denied', accessUnspecified: 'Not granted', accessUnknown: 'Unknown',
 };
 Object.assign(zh, extraZh);
 Object.assign(en, extraEn);
@@ -653,6 +712,7 @@ const MENU_ICONS: Record<string, string> = {
   cloud: '<path d="M6.5 18h10.2a4.3 4.3 0 0 0 .7-8.5A5.5 5.5 0 0 0 7 8.6 4.7 4.7 0 0 0 6.5 18Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>',
   wallet: '<rect x="3.5" y="6" width="17" height="13" rx="3" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 10h17M16 14.5h2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
   bell: '<path d="M6 10a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6ZM10 20h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
+  apps: '<rect x="3.5" y="3.5" width="7.2" height="7.2" rx="1.8" stroke="currentColor" stroke-width="1.7"/><rect x="13.3" y="3.5" width="7.2" height="7.2" rx="1.8" stroke="currentColor" stroke-width="1.7"/><rect x="3.5" y="13.3" width="7.2" height="7.2" rx="1.8" stroke="currentColor" stroke-width="1.7"/><rect x="13.3" y="13.3" width="7.2" height="7.2" rx="1.8" stroke="currentColor" stroke-width="1.7"/>',
   timer: '<circle cx="12" cy="13.5" r="7" stroke="currentColor" stroke-width="1.7"/><path d="M12 9.5v4l2.8 1.7M9 2.8h6M12 2.8v2.2M18.8 6.2l1.5-1.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
   info: '<circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><path d="M12 11v6M12 7.2v.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
 };
@@ -708,6 +768,10 @@ function RemotePanel(): React.ReactElement {
   const [draft, setDraft] = useState<DraftState>({ certPath: '', keyPath: '', locationName: '', latitude: '', longitude: '', threshold: '', notificationLimit: '5', pomodoroFocus: '25', pomodoroBreak: '5', pomodoroSound: '' });
   const [selectedInterfaces, setSelectedInterfaces] = useState<string[]>([]);
   const [selectedApps, setSelectedApps] = useState<string[]>([]);
+  const [appNames, setAppNames] = useState<Record<string, string>>({});
+  const [appBusyKey, setAppBusyKey] = useState('');
+  const [locationBusy, setLocationBusy] = useState(false);
+  const [locationResult, setLocationResult] = useState<{ allowed: boolean; access: string; reason: string | null; lowIntegrity: boolean; openedSettings: boolean } | null>(null);
   const [staged, setStaged] = useState<StagedSettings>({});
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -728,6 +792,7 @@ function RemotePanel(): React.ReactElement {
     const appKeys = (payload.apps ?? []).map((app) => app.key);
     const enabled = payload.settings.notifications?.enabledApps ?? [];
     setSelectedApps(enabled.length ? enabled.filter((key) => appKeys.includes(key)) : appKeys);
+    setAppNames(Object.fromEntries((payload.apps ?? []).map((app) => [app.key, app.name])));
     setDraft({
       certPath: payload.settings.tls?.certPath ?? '',
       keyPath: payload.settings.tls?.keyPath ?? '',
@@ -816,6 +881,59 @@ function RemotePanel(): React.ReactElement {
       setError(describeError(err));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const saveAppName = async (key: string, name: string): Promise<void> => {
+    setAppBusyKey(key);
+    setError('');
+    try {
+      const response = await fetch(APP_NAMES_URL, {
+        method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key, name }),
+      });
+      const payload: unknown = await response.json();
+      if (!response.ok) throw new Error(errorText(payload) || `HTTP ${response.status}`);
+      hydrate(payload);
+      setNotice(t('saved'));
+      setTimeout(() => setNotice(''), 1600);
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setAppBusyKey('');
+    }
+  };
+
+  const locationHint = (result: { allowed: boolean; access: string; reason: string | null }): string => {
+    if (result.allowed) return t('locationAllowed');
+    if (result.reason === 'low-integrity') return t('locationLowIntegrity');
+    if (result.reason === 'privacy-denied') return t('locationPrivacyDenied');
+    if (result.reason === 'unspecified') return t('locationUnspecified');
+    return t('locationFailed');
+  };
+
+  const requestLocation = async (): Promise<void> => {
+    setLocationBusy(true);
+    setError('');
+    try {
+      const response = await fetch(LOCATION_URL, {
+        method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ openSettings: true }),
+      });
+      const payload: unknown = await response.json();
+      if (!response.ok) throw new Error(errorText(payload) || `HTTP ${response.status}`);
+      const record = isRecord(payload) ? payload : {};
+      const result = {
+        allowed: record.allowed === true,
+        access: String(record.access || 'unknown'),
+        reason: typeof record.reason === 'string' ? record.reason : null,
+        lowIntegrity: record.lowIntegrity === true,
+        openedSettings: record.openedSettings === true,
+      };
+      setLocationResult(result);
+      setNotice(locationHint(result));
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setLocationBusy(false);
     }
   };
 
@@ -973,7 +1091,7 @@ function RemotePanel(): React.ReactElement {
       weather: nextWeather,
       balance: { spendWindow: settings.balance?.spendWindow ?? 'calendar', lowThreshold: draft.threshold === '' ? null : Number(draft.threshold), showPeakValley: settings.balance?.showPeakValley !== false },
       notifications: {
-        enabledApps: selectedApps.length === (data.apps ?? []).length ? [] : selectedApps,
+        enabledApps: notificationApps.length > 0 && selectedApps.length === notificationApps.length ? [] : selectedApps,
         limit: Number(draft.notificationLimit),
       },
     };
@@ -1120,8 +1238,25 @@ function RemotePanel(): React.ReactElement {
     ),
   );
 
+  const accessLabel = (access: string): string => {
+    if (access === 'allowed') return t('accessAllowed');
+    if (access === 'denied') return t('accessDenied');
+    if (access === 'unspecified') return t('accessUnspecified');
+    return t('accessUnknown');
+  };
+
+  const locationBlock = (): React.ReactElement => h('div', { className: 'drc-card' },
+    h('h3', null, t('locationPermission')),
+    h('p', { className: 'drc-desc' }, t('locationPermissionHint')),
+    h('div', { className: 'drc-actions', style: { marginTop: 0 } },
+      h(Btn, { primary: true, onClick: () => void requestLocation(), disabled: locationBusy || busy }, locationBusy ? t('locationRequesting') : t('locationRequest')),
+      locationResult ? h('span', { className: 'drc-muted' }, `${t('locationStatus')} · ${accessLabel(locationResult.access)}`) : null,
+    ),
+  );
+
   const renderWeather = (): React.ReactElement => h('div', { className: 'drc-section' },
     sectionHead(t('weather'), ''),
+    locationBlock(),
     h('div', { className: 'drc-card' },
       h('p', { className: 'drc-desc' }, t('weatherHint')),
       h(Seg, { options: [{ value: 'auto', label: t('auto') }, { value: 'manual', label: t('manual') }], value: settings.weather?.mode ?? 'auto', onChange: (value) => stage({ weather: { mode: value } }) }),
@@ -1152,17 +1287,47 @@ function RemotePanel(): React.ReactElement {
     ),
   );
 
+  const notificationApps = apps.filter((app) => !app.sources || app.sources.includes('notification'));
+
   const renderNotifications = (): React.ReactElement => h('div', { className: 'drc-section' },
     sectionHead(t('notifications'), ''),
     h('div', { className: 'drc-card' },
       h('p', { className: 'drc-desc' }, t('notificationsHint')),
-      apps.length === 0 ? h('p', { className: 'drc-muted' }, t('noApps')) : h('div', { className: 'drc-apps' }, apps.map((app) => h('button', { key: app.key, type: 'button', className: `drc-app${selectedApps.includes(app.key) ? ' is-on' : ''}`, onClick: () => toggleApp(app.key) }, h('i'), app.name))),
+      notificationApps.length === 0 ? h('p', { className: 'drc-muted' }, t('noApps')) : h('div', { className: 'drc-apps' }, notificationApps.map((app) => h('button', { key: app.key, type: 'button', className: `drc-app${selectedApps.includes(app.key) ? ' is-on' : ''}`, onClick: () => toggleApp(app.key) }, h('i'), app.name))),
       h('div', { className: 'drc-actions' },
-        h(Btn, { onClick: () => setSelectedApps(apps.map((app) => app.key)) }, t('allApps')),
+        h(Btn, { onClick: () => setSelectedApps(notificationApps.map((app) => app.key)) }, t('allApps')),
       ),
       h('div', { className: 'drc-fields' },
         h(Field, { label: t('limit'), value: draft.notificationLimit, onChange: (value) => setDraft((current) => ({ ...current, notificationLimit: value })), placeholder: '5', inputMode: 'numeric' }),
       ),
+    ),
+  );
+
+  const renderAppMapping = (): React.ReactElement => h('div', { className: 'drc-section' },
+    sectionHead(t('appMapping'), t('appMappingHint')),
+    h('div', { className: 'drc-card' },
+      apps.length === 0 ? h('p', { className: 'drc-muted' }, t('noApps')) : h('div', null, apps.map((app) => h('div', { className: 'drc-map-row', key: app.key },
+        h('div', { className: 'drc-map-main' },
+          h('input', {
+            className: 'drc-map-input',
+            value: appNames[app.key] ?? app.name,
+            placeholder: app.defaultName || app.key,
+            onChange: (event) => {
+              const value = event.target.value;
+              setAppNames((current) => ({ ...current, [app.key]: value }));
+            },
+            onKeyDown: (event) => {
+              if (event.key === 'Enter') void saveAppName(app.key, event.currentTarget.value);
+            },
+          }),
+          h('small', { className: 'drc-code drc-map-key', title: app.key }, app.key),
+        ),
+        h('div', { className: 'drc-map-meta' },
+          (app.sources ?? []).map((source) => h('span', { className: 'drc-tag', key: source }, source === 'music' ? t('sourceMusic') : t('sourceNotification'))),
+          h(Btn, { onClick: () => void saveAppName(app.key, appNames[app.key] ?? app.name), disabled: appBusyKey === app.key }, t('save')),
+          h(Btn, { onClick: () => void saveAppName(app.key, ''), disabled: appBusyKey === app.key || !app.customName }, t('resetName')),
+        ),
+      ))),
     ),
   );
 
@@ -1241,7 +1406,8 @@ function RemotePanel(): React.ReactElement {
         : section === 'weather' ? renderWeather()
           : section === 'balance' ? renderBalance()
             : section === 'notifications' ? renderNotifications()
-              : renderSystem();
+              : section === 'apps' ? renderAppMapping()
+                : renderSystem();
 
   const menu: Array<{ key: string; label: string; icon: string }> = [
     { key: 'connection', label: t('connection'), icon: 'link' },
@@ -1250,6 +1416,7 @@ function RemotePanel(): React.ReactElement {
     { key: 'weather', label: t('menuWeather'), icon: 'cloud' },
     { key: 'balance', label: t('menuBalance'), icon: 'wallet' },
     { key: 'notifications', label: t('menuNotifications'), icon: 'bell' },
+    { key: 'apps', label: t('menuAppMapping'), icon: 'apps' },
     { key: 'system', label: t('menuSystem'), icon: 'info' },
   ];
 

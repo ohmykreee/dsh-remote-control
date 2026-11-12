@@ -10,14 +10,18 @@ import { networkInterfaces } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createAccountService } from './account.js';
-import { createNotificationCache, } from './notification-cache.js';
+import { createAppMapping } from './app-mapping.js';
+import type { MappedApp } from './app-mapping.js';
 import { createPerformanceService } from './performance.js';
 import { createPlatformAdapters } from './platform/index.js';
+import { probeInfo, runProbe } from './probe.js';
 import { qrSvg } from './qr.js';
 import { collectSessions, createPendingTracker } from './sessions.js';
 import { createSettingsStore } from './settings.js';
 import {
+  APP_NAMES_PATH,
   INFO_PATH,
+  LOCATION_PATH,
   QR_PATH,
   ROUTE_PREFIX,
   SETTINGS_PATH,
@@ -82,7 +86,7 @@ type AccountService = ReturnType<typeof createAccountService>;
 type WeatherService = ReturnType<typeof createWeatherService>;
 type PerformanceService = ReturnType<typeof createPerformanceService>;
 type PlatformAdapters = ReturnType<typeof createPlatformAdapters>;
-type NotificationCache = ReturnType<typeof createNotificationCache>;
+type AppMapping = ReturnType<typeof createAppMapping>;
 type PendingTracker = ReturnType<typeof createPendingTracker>;
 type SessionList = ReturnType<typeof collectSessions>;
 type WeatherSnapshot = Awaited<ReturnType<WeatherService['getWeather']>>;
@@ -153,7 +157,7 @@ interface NotificationViewPayload {
   reason: string | null;
   liveOnly: boolean;
   notifications: NotificationItem[];
-  apps: ReturnType<NotificationCache['list']>;
+  apps: MappedApp[];
   enabledApps: string[];
   updatedAt: number;
 }
@@ -198,7 +202,7 @@ interface NotificationFallbackPayload {
   available: false;
   reason: string;
   notifications: NotificationItem[];
-  apps: ReturnType<NotificationCache['list']>;
+  apps: MappedApp[];
 }
 
 /** Everything the sidebar/phone needs about the running console. */
@@ -238,7 +242,7 @@ export interface SettingsPayload {
   ok: boolean;
   settings: ReturnType<SettingsStore['public']>;
   interfaces: InterfaceEntry[];
-  apps: ReturnType<NotificationCache['list']>;
+  apps: MappedApp[];
   clients: WebSocketClientInfo[];
   info: InfoPayload;
   capabilities: {
@@ -274,6 +278,8 @@ export interface RemoteControlService {
   handleQr(req: IncomingMessage, res: ServerResponse): Promise<void>;
   handleSettingsGet(req: IncomingMessage, res: ServerResponse): Promise<void>;
   handleSettingsPost(req: IncomingMessage, res: ServerResponse): Promise<void>;
+  handleAppNames(req: IncomingMessage, res: ServerResponse): Promise<void>;
+  handleLocation(req: IncomingMessage, res: ServerResponse): Promise<void>;
   handleTheme(req: IncomingMessage, res: ServerResponse): Promise<void>;
   handleTokenRotate(req: IncomingMessage, res: ServerResponse): Promise<void>;
   handleDisconnect(req: IncomingMessage, res: ServerResponse): Promise<void>;
@@ -414,7 +420,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
   const log: (message: string) => void = options.log || (() => {});
   const locale = options.locale || 'zh';
   const settingsStore: SettingsStore = createSettingsStore();
-  const notificationCache: NotificationCache = createNotificationCache(settingsStore.dir);
+  const appMapping: AppMapping = createAppMapping(settingsStore.dir);
   const pending: PendingTracker = createPendingTracker(ctx);
   const weather: WeatherService = createWeatherService();
   const performance: PerformanceService = createPerformanceService();
@@ -760,10 +766,16 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
   function notificationView(raw: NotificationPayload): NotificationViewPayload {
     const value = settings();
     const enabled = new Set<string>(value.notifications.enabledApps);
-    const apps = notificationCache.list();
+    const apps = appMapping.list();
     const list = (Array.isArray(raw?.notifications) ? raw.notifications : [])
       .filter((item) => enabled.size === 0 || enabled.has(item.appKey ?? ''))
-      .slice(0, value.notifications.limit);
+      .slice(0, value.notifications.limit)
+      .map((item) => {
+        const appName = appMapping.displayName(item.appKey ?? '');
+        // The probe falls back to the raw app id when a toast has no text.
+        const title = item.title && item.title !== item.appKey ? item.title : appName;
+        return { ...item, appName, title };
+      });
     return {
       available: raw?.available !== false,
       reason: raw?.reason || null,
@@ -782,7 +794,12 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     } catch (errorValue) {
       raw = { available: false, reason: serializeError(errorValue), notifications: [], apps: [] };
     }
-    if (Array.isArray(raw.apps)) notificationCache.merge(raw.apps);
+    if (Array.isArray(raw.apps)) {
+      appMapping.record(
+        raw.apps.map((app) => ({ key: app.key, count: app.count })),
+        'notification',
+      );
+    }
     return notificationView(raw);
   }
 
@@ -910,6 +927,11 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
   async function buildMedia(): Promise<MediaSnapshot | MediaFallback> {
     try {
       const value = await adapters.media.getState();
+      const media = value.media?.media ?? null;
+      if (media?.appId) {
+        appMapping.record([{ key: media.appId }], 'music');
+        media.appName = appMapping.displayName(media.appId);
+      }
       return value;
     } catch (errorValue) {
       return {
@@ -1258,7 +1280,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
       ok: true,
       settings: settingsStore.public(),
       interfaces: interfaceEntries(false),
-      apps: notificationCache.list(),
+      apps: appMapping.list(),
       clients: hub?.info?.() ?? [],
       info: getInfo(),
       capabilities: {
@@ -1337,6 +1359,76 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     }
   }
 
+  /**
+   * Rename one observed application (the "app mapping" settings tab). An empty
+   * name clears the override and returns to the built-in/default name.
+   */
+  async function handleAppNames(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (!sameOrigin(req)) {
+      jsonResponse(res, 403, { ok: false, error: 'origin rejected' });
+      return;
+    }
+    try {
+      const body = await readBody(req);
+      const key = safeString(body?.key, 240).trim();
+      const name = typeof body?.name === 'string' ? body.name : null;
+      if (!key) {
+        jsonResponse(res, 400, { ok: false, error: 'application key is required' });
+        return;
+      }
+      const updated = appMapping.rename(key, name);
+      if (!updated) {
+        jsonResponse(res, 404, { ok: false, error: 'application has not been recorded yet' });
+        return;
+      }
+      void pushNotifications(true);
+      void pushMedia(true);
+      jsonResponse(res, 200, await getSettingsPayload());
+    } catch (errorValue) {
+      jsonResponse(res, 400, { ok: false, error: serializeError(errorValue) });
+    }
+  }
+
+  /**
+   * Ask the OS for location permission. On Windows this opens the privacy
+   * settings page when access is denied; a successful grant drops the cached
+   * weather coordinates so the next snapshot uses the real position.
+   */
+  async function handleLocation(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (!sameOrigin(req)) {
+      jsonResponse(res, 403, { ok: false, error: 'origin rejected' });
+      return;
+    }
+    try {
+      const body = await readBody(req);
+      const probe = probeInfo();
+      if (!probe.available) {
+        jsonResponse(res, 503, { ok: false, error: probe.error || 'native probe unavailable' });
+        return;
+      }
+      const args = ['location', 'request'];
+      if (body?.openSettings !== false) args.push('--open-settings');
+      const raw = await runProbe(args, { timeout: 20_000 });
+      const result = isRecord(raw) ? raw : {};
+      const allowed = result.allowed === true || result.access === 'allowed';
+      if (allowed) {
+        weather.resetLocation();
+        void pushWeather(true);
+      }
+      jsonResponse(res, 200, {
+        ok: true,
+        allowed,
+        access: safeString(result.access, 40) || 'unknown',
+        lowIntegrity: result.lowIntegrity === true,
+        openedSettings: result.openedSettings === true,
+        reason: safeString(result.reason, 60) || null,
+        sampledAt: Date.now(),
+      });
+    } catch (errorValue) {
+      jsonResponse(res, 502, { ok: false, error: serializeError(errorValue) });
+    }
+  }
+
   async function handleTheme(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!sameOrigin(req)) {
       jsonResponse(res, 403, { ok: false, error: 'origin rejected' });
@@ -1411,6 +1503,8 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     handleQr,
     handleSettingsGet,
     handleSettingsPost,
+    handleAppNames,
+    handleLocation,
     handleTheme,
     handleTokenRotate,
     handleDisconnect: handleDisconnectRequest,
@@ -1420,7 +1514,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
       disposed = true;
       pending.dispose();
       adapters.dispose();
-      notificationCache.dispose();
+      appMapping.dispose();
       void stopServer();
     },
   };

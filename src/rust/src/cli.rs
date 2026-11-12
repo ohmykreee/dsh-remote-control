@@ -51,6 +51,7 @@ Commands:
   notifications [--limit 1..20]
   notifications watch [--limit 1..20]
   location
+  location request [--open-settings]
 
 Every command prints one line of JSON on stdout. Probe errors are reported as
 {\"ok\":false,...\"} with exit code 0; malformed invocations exit with code 2.
@@ -140,7 +141,7 @@ pub fn platform_volume_backend() -> &'static str {
 pub fn platform_perf_backend() -> &'static str {
     #[cfg(windows)]
     {
-        "windows-dxgi-pdh+sysinfo"
+        "windows-dxgi-pdh-d3dkmt"
     }
     #[cfg(target_os = "linux")]
     {

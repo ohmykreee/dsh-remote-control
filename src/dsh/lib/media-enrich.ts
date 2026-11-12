@@ -43,6 +43,7 @@ export function publicMedia(result: ProbeMediaResult | null | undefined): Public
   if (!result || !media) return null;
   return {
     appId: media.appId || '',
+    appName: '',
     title: media.title || '未命名媒体',
     artist: media.artist || '',
     album: media.album || '',

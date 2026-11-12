@@ -57,6 +57,17 @@ pub struct Gpu {
     pub memory_used: Option<u64>,
     pub memory_total: Option<u64>,
     pub memory_percent: Option<f64>,
+    /// Graphics (3D node) clock in MHz, from the WDDM performance data.
+    pub core_clock_mhz: Option<f64>,
+    /// Maximum nominal graphics clock in MHz.
+    pub core_clock_max_mhz: Option<f64>,
+    /// Video-memory clock in MHz.
+    pub memory_clock_mhz: Option<f64>,
+    /// The GPU die temperature the Windows performance counters report.
+    pub temperature_celsius: Option<f64>,
+    /// Adapter power draw as a percentage of its maximum (WDDM reports tenths).
+    pub power_percent: Option<f64>,
+    pub fan_rpm: Option<u32>,
     pub ok: bool,
     pub source: String,
     pub error: Option<String>,

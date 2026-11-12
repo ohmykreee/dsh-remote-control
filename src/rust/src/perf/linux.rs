@@ -120,6 +120,7 @@ fn nvidia_gpu() -> Option<Gpu> {
         ok: true,
         source: "nvidia-smi".to_string(),
         error: None,
+        ..Default::default()
     })
 }
 
@@ -166,6 +167,7 @@ fn amd_gpu() -> Option<Gpu> {
             ok: true,
             source: "sysfs-amdgpu".to_string(),
             error: None,
+            ..Default::default()
         });
     }
     None

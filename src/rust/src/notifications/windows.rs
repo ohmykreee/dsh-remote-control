@@ -18,47 +18,6 @@ const MAX_AVATAR_BYTES: u64 = 768 * 1024;
 const MAX_BODY_CHARS: usize = 260;
 const MAX_TITLE_CHARS: usize = 160;
 
-const APP_LABELS: &[(&str, &str)] = &[
-    ("QQ", "QQ"),
-    ("com.bilibili.bilibiliPC", "哔哩哔哩"),
-    ("BiliBiliPC", "哔哩哔哩"),
-    ("com.squirrel.Discord.Discord", "Discord"),
-    ("com.oplus.devicespace", "OPPO 互传"),
-    ("dev.zcode.app", "ZCode"),
-    ("electron.app.ZCode", "ZCode"),
-    ("FirefoxToast-308046B0AF4A39CB", "Firefox"),
-    ("Microsoft.ScreenSketch_8wekyb3d8bbwe!App", "截图工具"),
-    ("Microsoft.WindowsTerminal_8wekyb3d8bbwe!App", "终端"),
-    (
-        "Microsoft.VisualStudioCode_8wekyb3d8bbwe!VSCode",
-        "Visual Studio Code",
-    ),
-    (
-        "Microsoft.MicrosoftEdge.Stable_8wekyb3d8bbwe!App",
-        "Microsoft Edge",
-    ),
-    (
-        "Microsoft.OutlookForWindows_8wekyb3d8bbwe!Microsoft.OutlookforWindows",
-        "Outlook",
-    ),
-    ("Microsoft.Office.OUTLOOK.EXE.15", "Outlook"),
-    ("Microsoft.YourPhone_8wekyb3d8bbwe!App", "手机连接"),
-    (
-        "Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic",
-        "媒体播放器",
-    ),
-    (
-        "Microsoft.WindowsStore_8wekyb3d8bbwe!App",
-        "Microsoft Store",
-    ),
-    ("Microsoft.Todos_8wekyb3d8bbwe!App", "Microsoft To Do"),
-    ("Microsoft.Paint_8wekyb3d8bbwe!App", "画图"),
-    ("Microsoft.WindowsNotepad_8wekyb3d8bbwe!App", "记事本"),
-    ("Microsoft.WindowsCalculator_8wekyb3d8bbwe!App", "计算器"),
-    ("Microsoft.Windows.Photos_8wekyb3d8bbwe!App", "照片"),
-    ("Windows.Defender.SecurityCenter", "Windows 安全中心"),
-];
-
 fn database_path() -> PathBuf {
     let local = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
@@ -176,7 +135,10 @@ pub fn read(limit: usize) -> SnapshotResult {
                 .unwrap_or(&format!("handler-{}", row.handler_id.unwrap_or_default())),
             240,
         );
-        let app_name = app_name_from_id(&app_key);
+        // The probe only forwards the raw application identity from the OS; the
+        // plugin keeps the display-name mapping (and user renames) on the Node
+        // side so Windows app ids never need a hard-coded table here.
+        let app_name = raw_app_name(&app_key);
         let title = parsed
             .texts
             .first()
@@ -228,67 +190,14 @@ fn is_group_title(title: &str) -> bool {
         || lower.contains("channel")
 }
 
-fn app_name_from_id(primary_id: &str) -> String {
-    let id = primary_id.trim();
-    if id.is_empty() {
-        return "Windows".to_string();
+/// The probe deliberately reports the raw OS application id; the plugin maps it
+/// to a display name (with user overrides) on the Node side.
+fn raw_app_name(primary_id: &str) -> String {
+    if primary_id.trim().is_empty() {
+        "Windows".to_string()
+    } else {
+        clip_chars(primary_id.trim(), 120)
     }
-    if let Some((_, label)) = APP_LABELS.iter().find(|(key, _)| *key == id) {
-        return (*label).to_string();
-    }
-    if id.starts_with("NotifyIconGeneratedAumid_") {
-        return "桌面应用".to_string();
-    }
-    if (id.contains('\\') || id.contains('/')) && id.to_ascii_lowercase().ends_with(".exe") {
-        let base = id
-            .rsplit(|character| character == '\\' || character == '/')
-            .next()
-            .unwrap_or(id);
-        return base
-            .strip_suffix(".exe")
-            .or_else(|| base.strip_suffix(".EXE"))
-            .unwrap_or(base)
-            .to_string();
-    }
-    if id.starts_with("Microsoft.MicrosoftEdge") {
-        return "Microsoft Edge".to_string();
-    }
-    if id.starts_with("Microsoft.ScreenSketch") {
-        return "截图工具".to_string();
-    }
-    let mut base = id.split('!').next().unwrap_or(id);
-    if let Some(index) = base.rfind('_') {
-        let suffix = &base[index + 1..];
-        if suffix.len() >= 8
-            && suffix
-                .chars()
-                .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit())
-        {
-            base = &base[..index];
-        }
-    }
-    let tail = base
-        .split('.')
-        .filter(|part| !part.is_empty())
-        .next_back()
-        .unwrap_or(id);
-    if tail.is_empty() {
-        return clip_chars(id, 48);
-    }
-    let mut spaced = String::with_capacity(tail.len() + 4);
-    let mut previous_lower = false;
-    for character in tail.chars() {
-        if character.is_uppercase() && previous_lower {
-            spaced.push(' ');
-        }
-        if character == '-' || character == '_' {
-            spaced.push(' ');
-        } else {
-            spaced.push(character);
-        }
-        previous_lower = character.is_lowercase();
-    }
-    clip_chars(spaced.trim(), 48)
 }
 
 fn filetime_to_unix_ms(filetime: i64) -> Option<i64> {
@@ -502,15 +411,17 @@ mod tests {
     }
 
     #[test]
-    fn maps_known_and_derived_app_names() {
-        assert_eq!(app_name_from_id("QQ"), "QQ");
+    fn forwards_raw_application_ids() {
+        assert_eq!(raw_app_name("QQ"), "QQ");
         assert_eq!(
-            app_name_from_id("Microsoft.WindowsTerminal_8wekyb3d8bbwe!App"),
-            "终端"
+            raw_app_name("Microsoft.WindowsTerminal_8wekyb3d8bbwe!App"),
+            "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App"
         );
-        assert_eq!(app_name_from_id("C:\\Tools\\player.exe"), "player");
-        assert_eq!(app_name_from_id("com.example.SomeApp"), "Some App");
-        assert_eq!(app_name_from_id("NotifyIconGeneratedAumid_123"), "桌面应用");
+        assert_eq!(
+            raw_app_name("C:\\Tools\\player.exe"),
+            "C:\\Tools\\player.exe"
+        );
+        assert_eq!(raw_app_name("  "), "Windows");
     }
 
     #[test]

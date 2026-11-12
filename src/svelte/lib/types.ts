@@ -133,7 +133,9 @@ export interface PerformanceData {
     usage?: number;
     model?: string;
     cores?: number;
+    physicalCores?: number;
     speed?: number;
+    baseSpeed?: number;
     uptime?: number;
   };
   memory?: {
@@ -149,6 +151,11 @@ export interface PerformanceData {
     memoryUsed?: number;
     memoryTotal?: number;
     memoryPercent?: number;
+    coreClockMhz?: number;
+    coreClockMaxMhz?: number;
+    memoryClockMhz?: number;
+    powerPercent?: number;
+    fanRpm?: number;
     driver?: string;
     error?: string;
   };
@@ -157,6 +164,7 @@ export interface PerformanceData {
 
 export interface MediaInfo {
   appId?: string;
+  appName?: string;
   title?: string;
   artist?: string;
   albumArtist?: string;

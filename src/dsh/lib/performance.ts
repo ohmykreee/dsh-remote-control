@@ -18,6 +18,7 @@ export interface PerformanceCpu {
   usage: number;
   model: string;
   cores: number;
+  physicalCores: number | null;
   speed: number | null;
   baseSpeed: number | null;
   uptime: number;
@@ -49,6 +50,11 @@ export interface PerformanceGpu {
   memoryUsed?: number | null;
   memoryTotal?: number | null;
   memoryPercent?: number | null;
+  coreClockMhz?: number | null;
+  coreClockMaxMhz?: number | null;
+  memoryClockMhz?: number | null;
+  powerPercent?: number | null;
+  fanRpm?: number | null;
 }
 
 /** One temperature sensor reading in degrees Celsius. */
@@ -111,6 +117,11 @@ function mapProbeGpu(gpu: JsonRecord): PerformanceGpu {
     memoryUsed: used,
     memoryTotal: total,
     memoryPercent: finiteNumber(gpu.memoryPercent, null),
+    coreClockMhz: finiteNumber(gpu.coreClockMhz, null),
+    coreClockMaxMhz: finiteNumber(gpu.coreClockMaxMhz, null),
+    memoryClockMhz: finiteNumber(gpu.memoryClockMhz, null),
+    powerPercent: finiteNumber(gpu.powerPercent, null),
+    fanRpm: finiteNumber(gpu.fanRpm, null),
     ok: gpu.ok !== false,
     error: typeof gpu.error === 'string' && gpu.error ? gpu.error : null,
     source: typeof gpu.source === 'string' && gpu.source ? gpu.source : 'rust',
@@ -138,6 +149,7 @@ export function createPerformanceService(): PerformanceService {
       usage: round(cpuUsage),
       model: cpus[0]?.model || 'CPU',
       cores: cpus.length,
+      physicalCores: null,
       speed: baseSpeed,
       baseSpeed,
       uptime: os.uptime(),
@@ -194,6 +206,7 @@ export function createPerformanceService(): PerformanceService {
           usage: finiteNumber(probeCpu.usage, 0) ?? 0,
           model: typeof probeCpu.model === 'string' && probeCpu.model ? probeCpu.model : 'CPU',
           cores: finiteNumber(probeCpu.cores, null) || os.cpus().length,
+          physicalCores: finiteNumber(probeCpu.physicalCores, null),
           speed: finiteNumber(probeCpu.speedMhz, null),
           baseSpeed: finiteNumber(probeCpu.baseMhz, null),
           uptime: finiteNumber(probeCpu.uptime, os.uptime()) ?? os.uptime(),

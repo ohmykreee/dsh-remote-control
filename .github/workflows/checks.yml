@@ -1,0 +1,87 @@
+# TypeScript + Rust gate. Runs on every push, Ubuntu only.
+#
+# One job keeps the whole gate on one runner: the same Node/pnpm/Rust versions
+# are installed once, then the Host/Svelte checks and the native probe tests run
+# against them. Action versions follow the newest releases used by
+# https://github.com/ohmykreee/RTMP-File-Streamer/blob/feat-tauri/.github/workflows/checks.yml
+name: Checks
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: typecheck + tests (ts + rust)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          # Exact version, matching local development.
+          node-version: 26.7.0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 12.8.1
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
+        with:
+          # Exact version, matching local development.
+          toolchain: 1.99.1
+          components: rustfmt
+          # The explicit cargo-registry cache steps below stay the only cache
+          # layer; the action's built-in rust-cache would double them up.
+          cache: false
+
+      - name: Cache cargo registry
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src/rust/Cargo.lock') }}
+
+      # The project's postinstall compiles the Rust probe into native/bin, but
+      # that artifact is gitignored and rebuilt explicitly below; skipping it
+      # here keeps the install step focused on dependencies.
+      - name: Prepare workspace
+        run: pnpm ci
+        env:
+          DSH_RC_SKIP_RUST_BUILD: 1
+
+      - name: Typecheck
+        run: pnpm check
+
+      - name: Build plugin and phone console
+        run: pnpm build
+
+      - name: Node tests
+        run: pnpm test
+
+      - name: Build the native probe
+        run: node scripts/build-rust.mjs
+
+      - name: Rust format check
+        working-directory: src/rust
+        run: cargo fmt --all -- --check
+
+      - name: Rust check
+        working-directory: src/rust
+        run: cargo check --all-targets
+
+      - name: Rust tests
+        working-directory: src/rust
+        run: cargo test --all-targets

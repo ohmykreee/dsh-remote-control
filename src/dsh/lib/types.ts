@@ -117,6 +117,8 @@ export interface ProbeMedia extends JsonRecord {
 /** Normalised media metadata handed to the browser. */
 export interface PublicMedia {
   appId: string;
+  /** Display name resolved from the plugin's application mapping. */
+  appName: string;
   title: string;
   artist: string;
   album: string;
