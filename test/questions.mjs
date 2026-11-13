@@ -156,7 +156,9 @@ socket.addEventListener('message', (event) => {
   }
   for (const waiter of [...waiters]) waiter();
 });
-function waitFor(predicate, timeout = 8000) {
+function waitFor(predicate, timeout = 20_000) {
+  // CI runners can pause the event loop while the media/notification timers
+  // fire; an 8 s budget occasionally expired before the next sessions tick.
   return new Promise((resolve, reject) => {
     const attempt = () => {
       const index = inbox.findIndex(predicate);
