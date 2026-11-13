@@ -74,6 +74,17 @@ export interface WeatherSettings {
   forecastMode?: string;
 }
 
+/** One city from `GET /api/geocode` (Open-Meteo geocoding). */
+export interface GeocodePlace {
+  id?: number;
+  name: string;
+  latitude: number;
+  longitude: number;
+  country?: string;
+  admin1?: string;
+  timezone?: string;
+}
+
 export interface BalanceSettings {
   spendWindow?: string;
   lowThreshold?: number | null;

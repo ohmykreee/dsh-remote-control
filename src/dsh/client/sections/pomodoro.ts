@@ -35,9 +35,6 @@ export function renderPomodoro(api: PanelApi): React.ReactElement {
       h('div', { className: 'drc-fields' },
         h(Field, { label: t('pomodoroSound'), value: draft.pomodoroSound, placeholder: t('pomodoroSoundPlaceholder'), onChange: (value) => setDraft((current) => ({ ...current, pomodoroSound: value })) }),
       ),
-      h('div', { className: 'drc-actions' },
-        h('span', { className: 'drc-row-desc' }, draft.pomodoroSound.trim() ? draft.pomodoroSound : t('pomodoroBuiltin')),
-      ),
     ),
   );
 }

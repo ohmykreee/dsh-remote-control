@@ -13,6 +13,7 @@ import type { DshContext, DshLogger } from './lib/types.js';
 import {
   APP_NAMES_PATH,
   DISCONNECT_PATH,
+  GEOCODE_PATH,
   INFO_PATH,
   LOCATION_PATH,
   PANEL_ID,
@@ -83,6 +84,7 @@ export async function apply(ctx: DshContext): Promise<void> {
       ],
       [APP_NAMES_PATH, (req, res) => service.handleAppNames(req, res), 'app name mapping'],
       [LOCATION_PATH, (req, res) => service.handleLocation(req, res), 'location permission'],
+      [GEOCODE_PATH, (req, res) => service.handleGeocode(req, res), 'city geocoding'],
       [THEME_PATH, (req, res) => service.handleTheme(req, res), 'theme sync'],
       [TOKEN_ROTATE_PATH, (req, res) => service.handleTokenRotate(req, res), 'token rotation'],
       [DISCONNECT_PATH, (req, res) => service.handleDisconnect(req, res), 'device disconnect'],

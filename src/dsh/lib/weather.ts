@@ -8,6 +8,11 @@ const WEATHER_TTL_MS = 10 * 60 * 1000;
 const WEATHER_ERROR_TTL_MS = 45 * 1000;
 const LOCATION_TTL_MS = 6 * 60 * 60 * 1000;
 const LOCATION_ERROR_TTL_MS = 5 * 60 * 1000;
+const GEOCODE_TTL_MS = 10 * 60 * 1000;
+const GEOCODE_CACHE_LIMIT = 64;
+
+/** Open-Meteo needs the administrative suffix for some bare Chinese names. */
+const HAN_CITY_NAME = /^[\u4e00-\u9fff]{2,}$/;
 
 interface TimezoneFallback {
   name: string;
@@ -51,6 +56,17 @@ export interface WeatherQuery {
   latitude?: number | null;
   longitude?: number | null;
   name?: string;
+}
+
+/** One city returned by Open-Meteo's geocoding API. */
+export interface GeocodePlace {
+  id: number;
+  name: string;
+  latitude: number;
+  longitude: number;
+  country: string;
+  admin1: string;
+  timezone: string;
 }
 
 /** The `current` block of the open-meteo response after normalisation. */
@@ -116,6 +132,8 @@ export interface WeatherPayload {
 export interface WeatherService {
   getWeather(input?: WeatherQuery): Promise<WeatherPayload>;
   resolveLocation(): Promise<ResolvedLocation>;
+  /** Forward geocoding for the settings page's city search. */
+  searchCities(query: string, limit?: number): Promise<GeocodePlace[]>;
   /** Drop cached coordinates so a permission change is picked up immediately. */
   resetLocation(): void;
 }
@@ -166,6 +184,41 @@ async function fetchJson(url: string, timeoutMs = 9000): Promise<unknown> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** One Open-Meteo geocoding request, normalised to lowercase-safe places. */
+async function geocodePlaces(name: string, count: number): Promise<GeocodePlace[]> {
+  const url = new URL('https://geocoding-api.open-meteo.com/v1/search');
+  url.searchParams.set('name', name);
+  url.searchParams.set('count', String(count));
+  url.searchParams.set('language', 'zh');
+  url.searchParams.set('format', 'json');
+  const raw = await fetchJson(url.toString(), 8000);
+  const payload = isRecord(raw) ? raw : null;
+  const results: unknown[] = payload && Array.isArray(payload.results) ? payload.results : [];
+  const places: GeocodePlace[] = [];
+  const seen = new Set<string>();
+  for (const item of results) {
+    if (!isRecord(item)) continue;
+    const label = safeString(item.name, 120).trim();
+    const latitude = finiteNumber(item.latitude);
+    const longitude = finiteNumber(item.longitude);
+    if (!label || latitude === null || longitude === null) continue;
+    const id = finiteNumber(item.id, 0);
+    const dedupe = `${id || label}|${latitude.toFixed(4)}|${longitude.toFixed(4)}`;
+    if (seen.has(dedupe)) continue;
+    seen.add(dedupe);
+    places.push({
+      id,
+      name: label,
+      latitude,
+      longitude,
+      country: safeString(item.country, 80).trim(),
+      admin1: safeString(item.admin1, 80).trim(),
+      timezone: safeString(item.timezone, 80).trim(),
+    });
+  }
+  return places;
 }
 
 let probeLocationCache: ProbeLocationCache | null = null;
@@ -235,11 +288,42 @@ export function createWeatherService(): WeatherService {
   let locationCache: ResolvedLocation | null = null;
   let locationCacheAt = 0;
   const weatherCache = new Map<string, WeatherCacheEntry>();
+  const geocodeCache = new Map<string, { at: number; value: GeocodePlace[] }>();
 
   function resetLocation(): void {
     resetProbeLocationCache();
     locationCache = null;
     locationCacheAt = 0;
+  }
+
+  /**
+   * Look up cities through Open-Meteo's geocoding API (the same provider as the
+   * forecast). Results are cached briefly because the settings page searches on
+   * every debounced keystroke. An empty query never reaches the network.
+   */
+  async function searchCities(query: string, limit: number = 8): Promise<GeocodePlace[]> {
+    const name = safeString(query, 80).trim();
+    if (!name) return [];
+    const count = Math.max(1, Math.min(20, Math.trunc(limit) || 8));
+    const key = `${name.toLowerCase()}|${count}`;
+    const now = Date.now();
+    const cached = geocodeCache.get(key);
+    if (cached && now - cached.at < GEOCODE_TTL_MS) return cached.value;
+
+    let places = await geocodePlaces(name, count);
+    // The Chinese index is incomplete for bare prefecture names: "厦门" returns
+    // nothing while "厦门市" resolves. Retry once with the suffix before
+    // reporting no match.
+    if (places.length === 0 && HAN_CITY_NAME.test(name)) {
+      places = await geocodePlaces(`${name}市`, count);
+    }
+
+    geocodeCache.set(key, { at: now, value: places });
+    if (geocodeCache.size > GEOCODE_CACHE_LIMIT) {
+      const oldest = geocodeCache.keys().next().value;
+      if (oldest !== undefined) geocodeCache.delete(oldest);
+    }
+    return places;
   }
 
   async function resolveLocation(): Promise<ResolvedLocation> {
@@ -444,5 +528,5 @@ export function createWeatherService(): WeatherService {
     }
   }
 
-  return { getWeather, resolveLocation, resetLocation };
+  return { getWeather, resolveLocation, searchCities, resetLocation };
 }

@@ -10,6 +10,7 @@ import type { RemoteClient, SettingsPayload } from './types.js';
 export const SETTINGS_URL = '/dsh-remote-control/api/settings';
 export const APP_NAMES_URL = '/dsh-remote-control/api/apps';
 export const LOCATION_URL = '/dsh-remote-control/api/location';
+export const GEOCODE_URL = '/dsh-remote-control/api/geocode';
 export const THEME_URL = '/dsh-remote-control/api/theme';
 export const TOKEN_URL = '/dsh-remote-control/api/token/rotate';
 export const DISCONNECT_URL = '/dsh-remote-control/api/disconnect';

@@ -287,6 +287,7 @@ export interface RemoteControlService {
   handleSettingsPost(req: IncomingMessage, res: ServerResponse): Promise<void>;
   handleAppNames(req: IncomingMessage, res: ServerResponse): Promise<void>;
   handleLocation(req: IncomingMessage, res: ServerResponse): Promise<void>;
+  handleGeocode(req: IncomingMessage, res: ServerResponse): Promise<void>;
   handleTheme(req: IncomingMessage, res: ServerResponse): Promise<void>;
   handleTokenRotate(req: IncomingMessage, res: ServerResponse): Promise<void>;
   handleDisconnect(req: IncomingMessage, res: ServerResponse): Promise<void>;
@@ -1473,6 +1474,32 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     }
   }
 
+  /**
+   * Forward geocoding for the weather settings city picker. The Host proxies
+   * Open-Meteo (the same provider as the forecast API) so the sidebar page does
+   * not depend on the remote service's CORS headers and can share its timeout
+   * and result cache.
+   */
+  async function handleGeocode(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (req.method !== 'GET') {
+      jsonResponse(res, 405, { ok: false, error: 'method not allowed' });
+      return;
+    }
+    const url = new URL(req.url || '/', 'http://127.0.0.1');
+    const query = safeString(url.searchParams.get('q') || '', 120).trim();
+    if (!query) {
+      jsonResponse(res, 400, { ok: false, error: 'query is required' });
+      return;
+    }
+    try {
+      const results = await weather.searchCities(query);
+      jsonResponse(res, 200, { ok: true, query, results, updatedAt: Date.now() });
+    } catch (errorValue) {
+      log(`geocode "${query}" failed: ${serializeError(errorValue)}`);
+      jsonResponse(res, 502, { ok: false, error: serializeError(errorValue) });
+    }
+  }
+
   async function handleTheme(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!sameOrigin(req)) {
       jsonResponse(res, 403, { ok: false, error: 'origin rejected' });
@@ -1549,6 +1576,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     handleSettingsPost,
     handleAppNames,
     handleLocation,
+    handleGeocode,
     handleTheme,
     handleTokenRotate,
     handleDisconnect: handleDisconnectRequest,

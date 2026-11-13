@@ -392,6 +392,7 @@ export const CSS = `
 .drc-nav-item:focus-visible,
 .drc-toggle:focus-visible,
 .drc-seg button:focus-visible,
+.drc-city-option:focus-visible,
 .drc-app:focus-visible {
   outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary, var(--drc-accent)));
   outline-offset: 1px;
@@ -503,7 +504,78 @@ export const CSS = `
 
 .drc-field input::placeholder { color: var(--dsw-alias-label-dimmed, var(--drc-tertiary)); }
 .drc-field input:focus { border-color: var(--dsw-alias-state-business-primary, var(--drc-accent)); }
-.drc-field input:disabled { opacity: 0.5; }
+.drc-field input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* City combobox: the field keeps the normal label/input layout and hosts the
+ * suggestion list in an absolutely positioned popover so the card never
+ * reflows while typing. */
+.drc-city { position: relative; }
+
+.drc-city-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  z-index: 30;
+  max-height: 236px;
+  padding: 4px;
+  overflow-y: auto;
+  border: 0.5px solid var(--drc-card-border);
+  border-radius: var(--drc-radius);
+  background: var(--dsw-alias-bg-layer-1, var(--drc-surface));
+  box-shadow: var(--dsw-elevation-soft, 0 12px 32px rgb(0 0 0 / 18%));
+  box-sizing: border-box;
+  scrollbar-width: thin;
+}
+
+.drc-city-option {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--drc-radius-sm);
+  background: transparent;
+  color: var(--drc-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.drc-city-option.is-active { background: var(--drc-hover); }
+
+.drc-city-name {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.drc-city-meta {
+  color: var(--drc-tertiary);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.drc-city-empty {
+  padding: 8px 10px;
+  color: var(--drc-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.drc-city-empty.is-error { color: var(--drc-error); }
+
+.drc-city-error-title,
+.drc-city-error-detail { display: block; }
+
+.drc-city-error-detail {
+  margin-top: 2px;
+  color: var(--drc-tertiary);
+  font-size: 10px;
+  line-height: 15px;
+  overflow-wrap: anywhere;
+}
 
 .drc-list {
   display: flex;

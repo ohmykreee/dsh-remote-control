@@ -103,6 +103,7 @@ Host 与浏览器端（侧边栏）通过 DSH 自带 `webServer` 的环回路由
 | POST | `/dsh-remote-control/api/settings` | 批量应用设置 |
 | POST | `/dsh-remote-control/api/apps` | 应用改名/恢复默认 |
 | POST | `/dsh-remote-control/api/location` | 调探针 `location request`，成功则清定位缓存 |
+| GET | `/dsh-remote-control/api/geocode?q=` | Open-Meteo 城市检索（天气设置的城市下拉） |
 | POST | `/dsh-remote-control/api/theme` | 同步 DSH 明暗主题 |
 | POST | `/dsh-remote-control/api/token/rotate` | 轮换令牌并断开所有设备 |
 | POST | `/dsh-remote-control/api/disconnect` | 按客户端 id 断开设备 |
@@ -166,7 +167,7 @@ src/dsh/lib/ws.ts         最小 RFC6455 WebSocket 服务
 src/dsh/lib/settings.ts   设置持久化、校验、令牌轮换
 src/dsh/lib/sessions.ts   DSH 会话、子代理关系、待回答/待审批追踪与远程回答
 src/dsh/lib/account.ts    余额、今日/7 日用量
-src/dsh/lib/weather.ts    系统/IP 定位、Open-Meteo、小时/7 天预报
+src/dsh/lib/weather.ts    系统/IP 定位、Open-Meteo 预报与城市检索、小时/7 天预报
 src/dsh/lib/performance.ts Rust performance 载荷（仅 CPU/内存 JS 兜底）
 src/dsh/lib/media-enrich.ts 媒体归一化、进度平滑、seek 规则
 src/dsh/lib/probe.ts      探针定位、执行、JSON 解析、临时目录
@@ -291,7 +292,7 @@ docs/screenshots/         手机端截图（仅图片）
 ### 其他 Host 服务
 
 - `account.ts`：DSH 账户余额与用量，支持“本周/最近 7 天”窗口和低余额标记。
-- `weather.ts`：系统定位（Windows WinRT / Linux GeoClue2，经探针）→ IP 定位（ipwho.is）→ 时区兜底；Open-Meteo 预报；缓存与清空。
+- `weather.ts`：系统定位（Windows WinRT / Linux GeoClue2，经探针）→ IP 定位（ipwho.is）→ 时区兜底；Open-Meteo 预报与城市检索（`/api/geocode` 代理，裸中文市名会补「市」重查）；缓存与清空。
 - `performance.ts`：只采用 Rust `performance` 载荷；探针缺失时仅用 `os.cpus()` / `os.totalmem()`。
 - `media-enrich.ts`：统一媒体字段、`provider` / `providerDetail`、进度平滑和 seek 判定；手机端与 Host 共用规则。
 - `notifications.ts`：Windows/macOS 一次性读取；Linux 启动 `notifications watch` 长进程并按行更新；字段归一化、应用筛选、数量限制在 Node 侧。
