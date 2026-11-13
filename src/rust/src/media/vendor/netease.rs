@@ -448,18 +448,20 @@ const CDP_DEFAULT_PORT: u16 = 2015;
 const CDP_CONNECT_TIMEOUT: Duration = Duration::from_millis(250);
 const CDP_IO_TIMEOUT: Duration = Duration::from_millis(1500);
 
-/// Progress from the internal audio progress stream; liked state from the
-/// single control the client store does not expose. The like picker is shared
-/// with the media snapshot and accepts every visible duplicate (mini, expanded
-/// and comment-area layouts).
+/// Store/audio progress are preferred when the client's webpack runtime is
+/// reachable; the visible player bar is a layout-independent fallback. The
+/// like action uses the client's Ctrl+L shortcut, with a visible-button click
+/// only if CDP key dispatch itself fails.
 const CDP_STATE_TEMPLATE: &str = r#"
 (async () => {
 __STORE_HELPER__
-  const position = await readProgress();
+  const dom = domMedia();
+  const position = (await readProgress()) ?? dom.position ?? null;
+  const effectiveDuration = duration || dom.duration || null;
   const button = pickLikeButton(false);
   return {
     position,
-    duration: duration || null,
+    duration: effectiveDuration,
     liked: readLiked(button),
     canLike: !!button,
     canSetLiked: !!button && button.getAttribute('aria-disabled') !== 'true'
@@ -489,10 +491,11 @@ const CDP_CLICK_LIKE_EXPRESSION: &str = r#"
 })()
 "#;
 
-/// Resolve the live store through the NetEase webpack runtime. The module id
-/// changes between client builds, so inspect the loaded module cache instead of
-/// hard-coding one id; the resulting store is stable across the list and player
-/// views. `__STORE_HELPER__` is replaced before evaluating the expression.
+/// Attempt to resolve the live store through the NetEase webpack runtime. The
+/// module id changes between client builds, so inspect the loaded module cache
+/// instead of hard-coding one id. This is opportunistic: after a page reload
+/// the require hook may not be installable, so every template also has a DOM
+/// player-bar fallback.
 const CDP_STORE_HELPER: &str = r#"
   const req = (() => {
     if (window.__dsh_cm_require__) return window.__dsh_cm_require__;
@@ -660,35 +663,117 @@ const CDP_STORE_HELPER: &str = r#"
     ? (button.querySelector('[aria-label="likenumber_red"]') ? true
       : (button.querySelector('[aria-label="like_number"]') ? false : null))
     : null;
+
+  // The webpack store is not always reachable (the runtime changed between
+  // NetEase builds). The visible player bar still carries the same metadata,
+  // progress and cover, so use it as a fallback instead of returning null.
+  const domMedia = () => {
+    const footer = document.querySelector('footer');
+    const root = footer
+      || document.querySelector('[data-testid="tid_playbar_controls"]')?.closest('footer')
+      || document;
+    const visibleRange = Array.from(root.querySelectorAll('input[type="range"]'))
+      .find((candidate) => Number(candidate.max) > 5)
+      || Array.from(document.querySelectorAll('input[type="range"]'))
+        .find((candidate) => Number(candidate.max) > 5);
+    const range = root.querySelector('.slider-default input[type="range"]')
+      || visibleRange;
+    const textOf = (node) => node ? (node.innerText || '').replace(/\s+/g, ' ').trim() : '';
+    const firstText = (nodes) => {
+      for (const node of nodes) {
+        const text = textOf(node);
+        if (text) return text;
+      }
+      return '';
+    };
+    // In the vinyl / comment layouts the footer collapses to 0px and its
+    // minibar title is empty; the same track is rendered outside the footer.
+    const title = firstText([
+      root.querySelector('[data-testid="tid_minibar_title"] .main-title'),
+      document.querySelector('[data-testid="tid_minibar_title"] .main-title'),
+      ...document.querySelectorAll('.main-title'),
+      ...document.querySelectorAll('[class*="TrackInfo"] .title')
+    ]).replace(/\s+VIP\s*$/i, '').trim();
+    const artist = firstText([
+      root.querySelector('[data-testid="tid_minibar_title"] .author'),
+      document.querySelector('[data-testid="tid_minibar_title"] .author'),
+      ...document.querySelectorAll('.author'),
+      ...document.querySelectorAll('[class*="TrackInfo"] .artist')
+    ]);
+    const playButton = root.querySelector('button[data-testid="tid_playbar_play_btn"]')
+      || document.querySelector('button[data-testid="tid_playbar_play_btn"]');
+    const playIcon = playButton && playButton.querySelector('[role="img"]');
+    const playLabel = playIcon ? playIcon.getAttribute('aria-label') : null;
+    const knownCovers = [
+      root.querySelector('[data-testid="tid_btn_pc_minibar_vinyl"] img'),
+      document.querySelector('[data-testid="tid_btn_pc_minibar_vinyl"] img'),
+      document.querySelector('[data-testid="tid_vinylcover_cover"] img'),
+      document.querySelector('[data-testid="tid_vinylcover_container"] img'),
+      document.querySelector('[class*="TrackInfo"] img')
+    ];
+    const fallbackCovers = Array.from(document.images).filter((image) => {
+      const rect = image.getBoundingClientRect();
+      const source = image.currentSrc || image.src || '';
+      return rect.width >= 40 && rect.height >= 40 && /music\.126\.net/.test(source);
+    });
+    const image = knownCovers.find((candidate) => {
+      if (!candidate) return false;
+      const rect = candidate.getBoundingClientRect();
+      return rect.width >= 1 && rect.height >= 1;
+    }) || fallbackCovers.find((candidate) => {
+      const source = candidate.currentSrc || candidate.src || '';
+      const parent = candidate.closest('[data-testid="tid_useravatar_click"], [data-testid="tid_comment_card"]');
+      return !parent && /music\.126\.net/.test(source);
+    }) || null;
+    let cover = '';
+    if (image) {
+      cover = String(image.currentSrc || image.src || '')
+        .replace(/^orpheus:\/\/cache\/\?/, '')
+        .replace(/^http:\/\//, 'https://')
+        .replace(/thumbnail=\d+y\d+/, 'thumbnail=300y300');
+      if (!/^https?:\/\//.test(cover)) cover = '';
+    }
+    return {
+      title,
+      artist,
+      cover,
+      position: range ? Number(range.value) : null,
+      duration: range ? Number(range.max) : null,
+      playing: playLabel === 'pause' ? true : (playLabel === 'play' ? false : null)
+    };
+  };
 "#;
 
-/// Full CDP snapshot for the no-SMTC case. Everything except the like control
-/// comes from the client store / internal audio progress stream, so it is
-/// independent of the current page, mini/expanded layout and comment drawer.
+/// Full CDP snapshot for the no-SMTC case. Store values win when available;
+/// the player-bar DOM supplies the same fields after a page reload where the
+/// webpack require cache is no longer reachable.
 #[allow(dead_code)] // called by `cdp_media` on every platform.
 const CDP_MEDIA_TEMPLATE: &str = r#"
 (async () => {
 __STORE_HELPER__
-  const position = await readProgress();
+  const dom = domMedia();
+  const position = (await readProgress()) ?? dom.position ?? null;
+  const effectiveTitle = storeTitle || dom.title || '';
+  const effectiveArtist = storeArtist || dom.artist || '';
+  const effectiveDuration = duration || dom.duration || null;
+  const effectiveCover = coverUrl || dom.cover || null;
+  const effectivePlaying = storePlaying === 2 ? true
+    : storePlaying === 1 ? false : (dom.playing ?? null);
   const likeButton = pickLikeButton(false);
-  const playbackStatus = storePlaying === 2 ? 'Playing'
-    : storePlaying === 1 ? 'Paused'
-      : null;
   return {
-    title: storeTitle,
-    artist: storeArtist,
+    title: effectiveTitle,
+    artist: effectiveArtist,
     album: storeAlbum,
-    coverUrl: coverUrl || null,
+    coverUrl: effectiveCover,
     position,
-    duration: duration || null,
-    playing: playbackStatus === 'Playing' ? true
-      : (playbackStatus === 'Paused' ? false : null),
+    duration: effectiveDuration,
+    playing: effectivePlaying,
     liked: readLiked(likeButton),
     canLike: !!likeButton,
     canSetLiked: !!likeButton && likeButton.getAttribute('aria-disabled') !== 'true',
-    canPlayPause: !!storeTitle,
-    canNext: !!storeTitle,
-    canPrevious: !!storeTitle
+    canPlayPause: !!effectiveTitle,
+    canNext: !!effectiveTitle,
+    canPrevious: !!effectiveTitle
   };
 })()
 "#;
@@ -809,15 +894,11 @@ impl CdpConnection {
         Ok(Self { stream })
     }
 
-    fn evaluate(&mut self, expression: &str) -> Result<Value, String> {
+    fn command(&mut self, method: &str, params: Value) -> Result<Value, String> {
         let payload = json!({
             "id": 1,
-            "method": "Runtime.evaluate",
-            "params": {
-                "expression": expression,
-                "returnByValue": true,
-                "awaitPromise": true,
-            }
+            "method": method,
+            "params": params,
         });
         write_ws_text(&mut self.stream, payload.to_string().as_bytes())?;
         for _ in 0..24 {
@@ -842,14 +923,54 @@ impl CdpConnection {
             if let Some(exception) = message.get("exceptionDetails") {
                 return Err(format!("CDP evaluate failed: {exception}"));
             }
-            return Ok(message
-                .get("result")
-                .and_then(|result| result.get("result"))
-                .and_then(|result| result.get("value"))
-                .cloned()
-                .unwrap_or(Value::Null));
+            return Ok(message.get("result").cloned().unwrap_or(Value::Null));
         }
         Err("CDP evaluate timed out".to_string())
+    }
+
+    fn evaluate(&mut self, expression: &str) -> Result<Value, String> {
+        let result = self.command(
+            "Runtime.evaluate",
+            json!({
+                "expression": expression,
+                "returnByValue": true,
+                "awaitPromise": true,
+            }),
+        )?;
+        Ok(result
+            .get("result")
+            .and_then(|result| result.get("value"))
+            .cloned()
+            .unwrap_or(Value::Null))
+    }
+
+    /// Send Ctrl+L (NetEase's built-in like shortcut) to the renderer.
+    fn press_like_shortcut(&mut self) -> Result<(), String> {
+        self.command(
+            "Input.dispatchKeyEvent",
+            json!({
+                "type": "rawKeyDown",
+                "modifiers": 2,
+                "key": "l",
+                "code": "KeyL",
+                "windowsVirtualKeyCode": 76,
+                "nativeVirtualKeyCode": 76,
+                "text": "\u{000c}",
+                "unmodifiedText": "l",
+            }),
+        )?;
+        self.command(
+            "Input.dispatchKeyEvent",
+            json!({
+                "type": "keyUp",
+                "modifiers": 2,
+                "key": "l",
+                "code": "KeyL",
+                "windowsVirtualKeyCode": 76,
+                "nativeVirtualKeyCode": 76,
+            }),
+        )?;
+        Ok(())
     }
 }
 
@@ -971,7 +1092,11 @@ fn read_ws_frame(stream: &mut TcpStream) -> Result<(u8, bool, Vec<u8>), String> 
 const CDP_IDENTITY_TEMPLATE: &str = r#"
 (() => {
 __STORE_HELPER__
-  return { title: storeTitle, artist: storeArtist };
+  const dom = domMedia();
+  return {
+    title: storeTitle || dom.title || '',
+    artist: storeArtist || dom.artist || ''
+  };
 })()
 "#;
 
@@ -1353,8 +1478,9 @@ fn apply_cdp(media: &mut Media, seekable_system: bool) -> bool {
     true
 }
 
-/// Toggle/set the red-heart state through CDP. `None` toggles the current
-/// state. Returns the state after the click settles.
+/// Toggle/set the red-heart state through CDP. The client's Ctrl+L shortcut is
+/// sent first (layout-independent); a visible button click is only a fallback
+/// when key dispatch itself fails. Returns the settled state.
 #[allow(dead_code)] // called by every platform media control path.
 pub fn cdp_set_liked(liked: Option<bool>) -> Result<CdpState, String> {
     let (_port, websocket_url) = cdp_target()?;
@@ -1380,9 +1506,15 @@ pub fn cdp_set_liked(liked: Option<bool>) -> Result<CdpState, String> {
     if !current.can_set_liked {
         return Err("NetEase like button is disabled".to_string());
     }
-    let click_result = connection.evaluate(CDP_CLICK_LIKE_EXPRESSION)?;
-    if click_result.get("ok").and_then(Value::as_bool) != Some(true) {
-        return Err("NetEase CDP could not find the current like button".to_string());
+    // Prefer the client's own Ctrl+L shortcut. It targets the app's like
+    // handler instead of relying on a particular DOM button/layout.
+    if let Err(shortcut_error) = connection.press_like_shortcut() {
+        let click_result = connection.evaluate(CDP_CLICK_LIKE_EXPRESSION)?;
+        if click_result.get("ok").and_then(Value::as_bool) != Some(true) {
+            return Err(format!(
+                "NetEase CDP could not send Ctrl+L ({shortcut_error}) or find the like button"
+            ));
+        }
     }
     let mut last = current;
     for _ in 0..20 {
