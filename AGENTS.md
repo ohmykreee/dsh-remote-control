@@ -29,7 +29,7 @@
 - 运行形态：DSH Desktop / `dsh web` 的 Host 进程内加载的 bundle 插件。
 - 一个进程里同时存在四层：
   1. **Host**：`src/dsh`（TypeScript，ESM），编译为 `index.js` + `lib/`；
-  2. **DSH 侧边栏**：`src/dsh/client.ts`（React，无 JSX），编译并包装为 `client.js`；
+  2. **DSH 侧边栏**：`src/dsh/client`（React，无 JSX；types/i18n/api/logic/ui/sections/panel 分模块），编译后合并为单个 `client.js`；
   3. **手机端**：`src/svelte`（Svelte 5 + Vite），编译为 `web/`；
   4. **原生探针**：`src/rust`（Cargo），编译为 `native/bin/<platform>-<arch>/dsh-probe[.exe]`。
 - 目标平台：Windows（完整）、Linux（完整）、macOS（源码级，未实测）；手机端为现代浏览器。
@@ -99,7 +99,7 @@ Host 与浏览器端（侧边栏）通过 DSH 自带 `webServer` 的环回路由
 |---|---|---|
 | GET | `/dsh-remote-control/api/info` | 服务状态、地址、二维码路径、能力 |
 | GET/HEAD | `/dsh-remote-control/qr.svg` | 配对二维码（SVG） |
-| GET | `/dsh-remote-control/api/settings` | 设置 + 网卡 + 应用映射 + 诊断 |
+| GET | `/dsh-remote-control/api/settings` | 设置 + 网卡 + 应用映射 + 诊断 + dsh-probe/Node.js 能力 |
 | POST | `/dsh-remote-control/api/settings` | 批量应用设置 |
 | POST | `/dsh-remote-control/api/apps` | 应用改名/恢复默认 |
 | POST | `/dsh-remote-control/api/location` | 调探针 `location request`，成功则清定位缓存 |
@@ -111,20 +111,22 @@ Host 与浏览器端（侧边栏）通过 DSH 自带 `webServer` 的环回路由
 
 ### 浏览器模块工厂
 
-`scripts/build-dsh.mjs` 把 `src/dsh/client.ts` 编译成 CommonJS 后，包装为：
+`scripts/build-dsh.mjs` 先编译 `src/dsh/client/index.ts` 及其引用的所有模块为 CommonJS，再把它们编成一个小型模块表，包装为：
 
 ```js
 window.__ModuleLoader__.load({
   id: 'dsh-remote-control',
-  factory(require) { /* client bundle */ return module.exports; },
+  factory(require) {
+    /* 内部模块表 + 相对 require 解析，最后返回 client/index.js 的 exports */
+  },
 });
 ```
 
-`require('react')` 由 DSH 的模块加载器提供；不要改成 ESM `import`，也不要手改 `client.js`。
+拆分后的客户端源码仍然只产出一个 `client.js`；不要手改生成物。`require('react')` 由 DSH 的模块加载器提供（裸模块名直接交给外层 `require`，相对路径由内部模块表解析）；不要改成 ESM `import`。
 
 ### 本地化
 
-`locale/en.json`、`locale/zh.json` 提供插件元信息（标题、描述），由 `@deepseek-ai/dsh-client-locale` 注入。侧边栏内部的中英文案在 `src/dsh/client.ts` 的 `zh` / `en` 对象里，修改后需要重新构建 `client.js`。
+`locale/en.json`、`locale/zh.json` 提供插件元信息（标题、描述），由 `@deepseek-ai/dsh-client-locale` 注入。侧边栏内部的中英文案在 `src/dsh/client/i18n.ts` 的 `zh` / `en` 字典里；面板通过 `useTranslator()` 跟随 DSH 当前语言，修改后需要重新构建 `client.js`。
 
 ## 目录
 
@@ -142,12 +144,21 @@ vite.config.js            Vite + Svelte 构建配置
 svelte.config.js          Svelte 预处理器配置
 tsconfig.json             Svelte 端 TypeScript / svelte-check
 tsconfig.dsh.json         Host 编译配置（src/dsh → index.js + lib/）
-tsconfig.dsh-client.json  浏览器端编译配置（src/dsh/client.ts → client.js）
-scripts/build-dsh.mjs     编译 src/dsh，写 index.js / client.js / lib/ 并生成模块工厂
+tsconfig.dsh-client.json  浏览器端编译配置（src/dsh/client/index.ts + 模块 → client.js）
+scripts/build-dsh.mjs     编译 src/dsh，写 index.js / client.js / lib/，并把客户端模块合并成单一工厂
 scripts/build-web.mjs     以编程方式调用 Vite，输出 web/
 scripts/build-rust.mjs    编译 src/rust，产物写 native/bin/
 src/dsh/index.ts          Host 入口（inject / apply）
-src/dsh/client.ts         DSH 侧边栏（React，无 JSX）
+src/dsh/client/index.ts   DSH 侧边栏入口（inject / apply / slot 注册）
+src/dsh/client/types.ts   Host/Client 线格式与 PanelApi 契约
+src/dsh/client/i18n.ts    zh/en 字典、宿主语言跟随
+src/dsh/client/api.ts     环回 API、JSON 请求与错误解析
+src/dsh/client/logic.ts   草稿/合并/保存载荷/格式化等纯函数
+src/dsh/client/ui.ts      React 原语（Toggle/Seg/Btn/Field/Row/StatusRow）
+src/dsh/client/styles.ts  DSH 设置页风格 CSS（仅使用 --dsw-* 令牌）
+src/dsh/client/icons.ts   侧边栏与菜单图标
+src/dsh/client/panel.ts   面板状态机、动作、拖拽与外壳
+src/dsh/client/sections/  连接/偏好/番茄钟/天气/余额/通知/映射/系统各节
 src/dsh/lib/service.ts    HTTP/WebSocket、配对、设置、推送、静态资源
 src/dsh/lib/ws.ts         最小 RFC6455 WebSocket 服务
 src/dsh/lib/settings.ts   设置持久化、校验、令牌轮换
@@ -157,6 +168,7 @@ src/dsh/lib/weather.ts    系统/IP 定位、Open-Meteo、小时/7 天预报
 src/dsh/lib/performance.ts Rust performance 载荷（仅 CPU/内存 JS 兜底）
 src/dsh/lib/media-enrich.ts 媒体归一化、进度平滑、seek 规则
 src/dsh/lib/probe.ts      探针定位、执行、JSON 解析、临时目录
+src/dsh/lib/runtime.ts    dsh-probe/Node.js 系统能力载荷
 src/dsh/lib/probe-daemon.ts 常驻探针的 stdio 请求/响应客户端与回退
 src/dsh/lib/probe-adapter.ts Rust 媒体/音量适配器（无回退）
 src/dsh/lib/notifications.ts Rust 通知服务（Linux watch / 其他一次性）
@@ -299,11 +311,13 @@ docs/screenshots/         手机端截图（仅图片）
 
 ## DSH 侧边栏（React）
 
-- `src/dsh/client.ts` 用 `React.createElement`（`h`）而不是 JSX；模块由 DSH loader 提供 React。
-- 入口向 DSH 注册设置页（slot），菜单包含：连接、偏好设置、番茄钟设置、天气设置、余额显示、通知设置、软件映射、系统信息。
+- `src/dsh/client` 用 `React.createElement`（`h`）而不是 JSX；模块由 DSH loader 提供 React。
+- 入口 `src/dsh/client/index.ts` 向 DSH 注册设置页（slot），菜单包含：连接、偏好设置、番茄钟设置、天气设置、余额显示、通知设置、软件映射、系统信息。
 - 所有设置先进入 `DraftState`，点“保存设置”才 `POST /api/settings` 一次性提交；应用改名、主题同步、令牌轮换、断开设备是即时请求。
 - 主题：`theme = dsh` 时跟随 DSH 的 `dshTheme`，由 `/api/theme` 同步；也可固定 light/dark。
-- 样式以 CSS 字符串注入，使用 DSH 设置页的设计变量；不引入额外 UI 框架。
+- 样式集中在 `src/dsh/client/styles.ts`：按 DSH 设置页的 188px 导航、54px 顶栏、卡片分组与 14px 行文字实现，只读取 `--dsw-*` 令牌，不复制宿主颜色值；`--drc-*` 仅为旧版 DSH 缺失令牌提供回退。
+- 窗口窄于 767px 时（与样式断点一致）导航由 `matchMedia` 切换为原生 `<select>` 下拉选择器，避免八个横向 tab 无法操作。
+- 系统信息页读取 `/api/settings` 的 `capabilities.probe` / `capabilities.node` 与 `diagnostics.profile`：服务状态使用探针后端补充性能/定位能力，并把 Node.js 作为天气链路的详情；`dsh-probe` 版本、探针路径与 Node.js 版本、V8、平台、内存合并到最下面的“诊断信息”卡片，和插件/探针版本、协议、Profile 一起用双列 key-value 排列。
 
 ## Rust 原生探针（dsh-probe）
 
@@ -426,7 +440,7 @@ Windows 平台层只负责识别应用、收集 SMTC/窗口/音频会话并调�
 
 - Spotify、Apple Music、YouTube Music、浏览器通常提供完整 SMTC/MPRIS，播放状态、时间轴、封面和 seek 都可用。
 - 网易云、QQ 音乐、酷狗、酷我、汽水、全民 K 歌经常只提供部分信息，或者 SMTC 会话存在但播放状态/位置不刷新（只有打开 Windows 媒体浮层才更新）。
-- 网易云的 SMTC 提供元数据/播放状态，但不汇报播放进度；部分旧客户端还会「声明可 seek」却不回报真实 `Position`。客户端带 `/remote-debugging-port=2015` 启动时，CDP 从客户端 store 和内部播放进度流提供精确进度、歌曲信息与红心状态/切换；未开启 CDP 时保留旧的 now-playing-service 进度兜底，红心不读取本地数据库。
+- 网易云的 SMTC 提供元数据/播放状态，但不汇报播放进度；部分旧客户端还会「声明可 seek」却不回报真实 `Position`。客户端带 `/remote-debugging-port=2015` 启动时，CDP 从客户端 store 和内部播放进度流提供精确进度、歌曲信息与红心状态/切换；未开启 CDP 时进度回退到窗口标题 / UI Automation 文本，红心不读取本地数据库。
 
 因此适配层先识别播放软件并进入 vendor 策略；vendor 内部决定完整系统会话、私有接口或 CDP 的组合；只有未命中 vendor（浏览器/未知播放器）时才直接使用系统 API。无障碍树只作为 vendor 内部的最后兜底，且永远只读。
 
@@ -497,7 +511,8 @@ Node 侧 `media-enrich.ts` 会再次校验 `provider === 'system'`、时间轴�
 
 - 用 TypeScript 编译器程序化读取 `tsconfig.dsh.json` 和 `tsconfig.dsh-client.json`；
 - 输出先写到 `.build/host` 与 `.build/client`，再复制到根目录；
-- `index.js` 前置生成标记；`client.js` 包装为 `window.__ModuleLoader__` 工厂；
+- `index.js` 前置生成标记；`client.js` 把 `.build/client/client/**/*.js` 合并为内部模块表，再包装为 `window.__ModuleLoader__` 工厂（相对 `require` 由模块表解析，裸模块交给 loader）；
+- 最后用 `terser` 压缩 `index.js`、`client.js` 和 `lib/**/*.js`；Host/lib 按 ESM 处理，`client.js` 按 classic script 处理，压缩后再补生成标记；
 - 任何编译诊断都会以非零退出，不会写入半成品（先 clean 再写）。
 
 ### build-web
@@ -521,7 +536,7 @@ Node 侧 `media-enrich.ts` 会再次校验 `provider === 'system'`、时间轴�
 |---|---|---|
 | `index.js` | `src/dsh/index.ts` | Host 入口 |
 | `lib/**/*.js` | `src/dsh/lib` | Host 逻辑 |
-| `client.js` | `src/dsh/client.ts` | DSH 侧边栏模块 |
+| `client.js` | `src/dsh/client`（合并） | DSH 侧边栏模块 |
 | `web/` | `src/svelte` + `static/` | 手机端页面与资源 |
 | `native/bin/<platform>-<arch>/dsh-probe` | `src/rust` | 系统探针 |
 
@@ -551,8 +566,8 @@ pnpm build:rust
 
 - `smoke.mjs`：临时 `DSH_PROFILE_DIR` 启动服务，检查令牌页面、`/assets/`、WebSocket welcome/overview，确认旧 HTTP overview 路由不存在；
 - `media-progress.mjs`：进度平滑与 seek 规则；
-- `probe-bridge.mjs`：探针缺失时媒体/音量返回错误状态，且没有静默回退；
-- `probe-daemon.mjs`：真实二进制 daemon 的 version/performance/volume 请求、并发请求、关闭后重启与禁用开关；
+- `probe-bridge.mjs`：探针缺失时媒体/音量/运行时能力返回错误状态，且没有静默回退；
+- `probe-daemon.mjs`：真实二进制 daemon 的 version/performance/volume 请求、并发请求、关闭后重启与禁用开关，以及 `dsh-probe` 版本/平台后端能力；
 - `notifications.mjs`：字段归一化、数量限制、应用聚合、探针缺失载荷；
 - `notification-watch.mjs`：假探针验证 Linux 流式监视逐行解析；
 - `app-mapping.mjs`：默认名称/自动推导、来源记录、改名/恢复默认、持久化、旧缓存迁移；
@@ -605,7 +620,7 @@ pnpm build:rust
 - 不要在 `src/dsh/lib` 里重新引入 PowerShell / C# / playerctl / osascript 回退；探针缺失必须是显式错误状态。
 - 新增平台能力时同时更新：Rust 平台模块、`platform` 矩阵、`AGENTS.md` 的载荷/限制、必要时的 `INSTALLATION.md` 依赖说明。
 - 新增客户端适配时：在 `media/catalog.rs` 注册 profile，在 `media/vendor/` 加解析，在 `AGENTS.md` 的客户端表补一行；不要在媒体载荷里伪造进度。
-- 改设置字段时同时更新：`settings.ts` 的 normalize/default、`client.ts` 的编辑/保存、`README.md` 菜单说明；保持旧 `settings.json` 可迁移。
+- 改设置字段时同时更新：`settings.ts` 的 normalize/default、`src/dsh/client` 的编辑/保存、`README.md` 菜单说明；保持旧 `settings.json` 可迁移。
 - 改协议消息时同时更新 `service.ts`、`src/svelte/lib/ws.ts`、本文件的 WebSocket 表。
 - 新增文档文件时同步 `package.json` 的 `files`，并按“文档分工”放置内容。
 - 提交前至少跑：`pnpm check`、`pnpm build`、`pnpm test`；改 Rust 再跑 `cargo fmt --check`、`cargo test`。

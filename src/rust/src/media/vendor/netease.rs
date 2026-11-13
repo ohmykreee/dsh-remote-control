@@ -1,15 +1,26 @@
-//! NetEase Cloud Music local metadata (cover art + duration) and CDP bridge.
+//! NetEase Cloud Music vendor adapter: local metadata cache and CDP bridge.
 //!
-//! The desktop client keeps its own library in `Library/webdb.dat` (a SQLite
-//! database) and its image cache in `Statics/*.dat`. This module reads those
-//! files read-only to enrich the current SMTC/MPRIS session. It never writes to
-//! the client, never calls a network API and never extracts cookies.
+//! The desktop client keeps its library in `Library/webdb.dat` (a SQLite
+//! database) and its image cache in `Statics/*.dat`. This module opens those
+//! files read-only to enrich the private window-title path with a track id,
+//! duration and cover art. It never writes to the client, never calls a network
+//! API and never extracts cookies.
 //!
-//! Liked state and live playback progress are **only** available when the
-//! client was launched with the Chromium remote-debugging switch (CDP). Without
-//! CDP this module does not read liked state from the local database; the
-//! platform adapter keeps the existing now-playing-service fallback for
-//! progress and reports `liked = null`.
+//! When the client was launched with `/remote-debugging-port=<port>` (or
+//! `--remote-debugging-port=<port>`, default port `2015`), the CDP bridge also
+//! supplies:
+//!
+//! - with a usable SMTC/MPRIS/Now Playing session: exact playback progress,
+//!   duration and liked state, while the system session keeps its transport and
+//!   seek policy;
+//! - without a system session: the full media snapshot (title, artist, album,
+//!   cover URL, playback state and progress) plus play/pause and next/previous,
+//!   but no seek grant;
+//! - the like button state and click, which the client store does not expose.
+//!
+//! Without CDP, liked state stays `null` and progress falls back to the
+//! platform's window-title / UI Automation text. The local database is never
+//! used for liked state.
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};

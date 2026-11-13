@@ -17,6 +17,21 @@ assert.match(String(probeStatus().error), /native probe not built/);
 
 await assert.rejects(() => runProbe(['version']), /native probe not built|native probe unavailable/);
 
+// Runtime diagnostics must report the missing probe without fabricating a
+// version, while the Node.js half stays available.
+const { readNodeCapability, readProbeCapability } = await import('../lib/runtime.js');
+const probeCapability = await readProbeCapability();
+assert.equal(probeCapability.available, false);
+assert.equal(probeCapability.ok, false);
+assert.equal(probeCapability.version, null);
+assert.equal(probeCapability.backends, null);
+assert.match(String(probeCapability.error), /native probe not built/);
+const nodeCapability = readNodeCapability();
+assert.equal(nodeCapability.ok, true);
+assert.match(nodeCapability.version, /^v\d+/);
+assert.ok(nodeCapability.memory.rss > 0);
+assert.ok(nodeCapability.uptimeSeconds >= 0);
+
 // A missing sidecar must fail cleanly: no JavaScript fallback adapter exists.
 const { createProbeMediaAdapter } = await import('../lib/probe-adapter.js');
 const adapter = createProbeMediaAdapter({ label: 'test' });

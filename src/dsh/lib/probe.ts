@@ -51,6 +51,18 @@ export interface ProbeStatus {
   error: string | null;
 }
 
+/** Platform backends reported by `dsh-probe version`. */
+export interface ProbeVersionInfo {
+  version: string;
+  os: string;
+  arch: string;
+  media: string;
+  volume: string;
+  performance: string;
+  notifications: string;
+  location: string;
+}
+
 export interface RunProbeOptions {
   timeout?: number;
 }
@@ -141,6 +153,52 @@ export function probeStatus(): ProbeStatus {
     directory: info.directory,
     error: info.error || (coolingDown ? lastFailure : null),
   };
+}
+
+let versionCache: { until: number; value: ProbeVersionInfo | null } | null = null;
+
+/**
+ * Read the probe's build identity and platform backends.
+ *
+ * This is a diagnostics read, so it deliberately bypasses the shared failure
+ * cooldown: a broken `version` response must not make media/performance look
+ * unavailable. Results are cached briefly because the settings page may be
+ * opened repeatedly.
+ */
+export async function probeVersion(): Promise<ProbeVersionInfo | null> {
+  if (versionCache && Date.now() < versionCache.until) return versionCache.value;
+  const info = probeInfo();
+  if (!info.available) {
+    versionCache = { until: Date.now() + 30_000, value: null };
+    return null;
+  }
+  try {
+    const scratch = scratchDirectory();
+    const { stdout } = await execFileAsync(info.binary, ['version'], {
+      timeout: 2_500,
+      windowsHide: true,
+      maxBuffer: 1024 * 1024,
+      encoding: 'utf8',
+      env: scratch ? { ...process.env, DSH_RC_TMPDIR: scratch } : process.env,
+    });
+    const payload = extractJson(stdout);
+    if (!payload || payload.ok === false) throw new Error('dsh-probe version returned no payload');
+    const value: ProbeVersionInfo = {
+      version: String(payload.version || ''),
+      os: String(payload.os || ''),
+      arch: String(payload.arch || ''),
+      media: String(payload.media || ''),
+      volume: String(payload.volume || ''),
+      performance: String(payload.performance || ''),
+      notifications: String(payload.notifications || ''),
+      location: String(payload.location || ''),
+    };
+    versionCache = { until: Date.now() + 30_000, value };
+    return value;
+  } catch {
+    versionCache = { until: Date.now() + 15_000, value: null };
+    return null;
+  }
 }
 
 function extractJson(stdout: unknown): JsonRecord | null {

@@ -16,6 +16,8 @@ import { createPerformanceService } from './performance.js';
 import { createPlatformAdapters } from './platform/index.js';
 import { probeInfo, runProbe } from './probe.js';
 import { qrSvg } from './qr.js';
+import { readNodeCapability, readProbeCapability, readProfileName } from './runtime.js';
+import type { NodeCapability, ProbeCapability } from './runtime.js';
 import { collectSessions, createPendingTracker, parsePendingAnswer } from './sessions.js';
 import type { PendingAnswer } from './sessions.js';
 import { createSettingsStore } from './settings.js';
@@ -252,6 +254,8 @@ export interface SettingsPayload {
     media: unknown;
     volume: unknown;
     weather: { ok: unknown; updatedAt: unknown };
+    probe: ProbeCapability;
+    node: NodeCapability;
   };
   diagnostics: {
     platform: NodeJS.Platform;
@@ -261,6 +265,7 @@ export interface SettingsPayload {
     protocol: 'http' | 'https';
     clientCount: number;
     notificationApps: number;
+    profile: string;
   };
 }
 
@@ -1314,7 +1319,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
   }
 
   async function getSettingsPayload(): Promise<SettingsPayload> {
-    const notifications = await getNotificationsView();
+    const [notifications, probe] = await Promise.all([getNotificationsView(), readProbeCapability()]);
     const mediaStatus = adapters.media?.status?.() || {};
     return {
       ok: true,
@@ -1331,6 +1336,8 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
           ok: lastWeather?.ok ?? null,
           updatedAt: lastWeather?.updatedAt ?? null,
         },
+        probe,
+        node: readNodeCapability(),
       },
       diagnostics: {
         platform: adapters.platform,
@@ -1340,6 +1347,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
         protocol,
         clientCount: hub?.size?.() ?? 0,
         notificationApps: notifications.apps.length,
+        profile: readProfileName(),
       },
     };
   }

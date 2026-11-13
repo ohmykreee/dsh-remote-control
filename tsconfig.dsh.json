@@ -17,5 +17,5 @@
     "rootDir": "src/dsh"
   },
   "include": ["src/dsh/index.ts", "src/dsh/lib/**/*.ts", "src/dsh/types/**/*.d.ts"],
-  "exclude": ["src/dsh/client.ts"]
+  "exclude": ["src/dsh/client"]
 }

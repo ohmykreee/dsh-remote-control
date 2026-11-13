@@ -34,6 +34,14 @@ try {
   assert.equal(version.ok, true);
   assert.equal(version.name, 'dsh-probe');
 
+  const { readProbeCapability } = await import('../lib/runtime.js');
+  const capability = await readProbeCapability();
+  assert.equal(capability.ok, true);
+  assert.equal(typeof capability.version, 'string');
+  assert.ok(capability.version.length > 0);
+  assert.equal(typeof capability.backends?.media, 'string');
+  assert.ok(String(capability.backends?.media).length > 0);
+
   // The second sample must reuse the daemon's sysinfo baseline; only its shape
   // is asserted here because timing belongs to the benchmark, not this test.
   const first = await runProbe(['performance'], { timeout: 20_000 });
