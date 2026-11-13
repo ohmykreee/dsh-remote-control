@@ -129,6 +129,16 @@
     color: var(--danger);
   }
 
+  /* Low state adds the alert capsule; shrink the amount so the whole card
+     still fits in the short landscape layout instead of clipping the pill. */
+  .balance-line.is-low .balance-value {
+    font-size: clamp(36px, 4.6vw, 48px);
+  }
+
+  .balance-line.is-low .balance-symbol {
+    font-size: 20px;
+  }
+
   @media (max-height: 760px) {
     :global(.balance-card) {
       padding: 12px;
@@ -140,6 +150,14 @@
 
     .balance-symbol {
       font-size: 21px;
+    }
+
+    .balance-line.is-low .balance-value {
+      font-size: clamp(34px, 4.4vw, 40px);
+    }
+
+    .balance-line.is-low .balance-symbol {
+      font-size: 18px;
     }
   }
 

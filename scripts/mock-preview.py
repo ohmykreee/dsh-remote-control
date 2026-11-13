@@ -11,6 +11,7 @@ Usage (run after `pnpm build:web`):
     python3 scripts/mock-preview.py --web web --port 4173
     # http://127.0.0.1:4173/?page=music
     # http://127.0.0.1:4173/?page=home&sheet=1   (opens the question dialog)
+    # http://127.0.0.1:4173/?page=sessions&low=1 (low-balance warning state)
 
 The mock cover is a generated SVG; no image library or network access needed.
 """
@@ -317,7 +318,22 @@ def mock_socket_script(messages: list[dict]) -> str:
 (function () {
   const params = new URLSearchParams(location.search);
   const wantSheet = params.get('sheet') === '1';
+  const wantLowBalance = params.get('low') === '1';
   const MESSAGES = __MESSAGES__;
+  if (wantLowBalance) {
+    for (const message of MESSAGES) {
+      if (message.type !== 'overview' || !message.data?.account) continue;
+      message.data.account.lowBalance = true;
+      message.data.account.lowThreshold = 100;
+      message.data.account.balance = {
+        ...message.data.account.balance,
+        balance: 68.01,
+        paid: 68.01,
+        bonus: 0,
+        state: 'ready',
+      };
+    }
+  }
   class MockSocket {
     static CONNECTING = 0;
     static OPEN = 1;
