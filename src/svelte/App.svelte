@@ -202,6 +202,11 @@
     if (!document.hidden) refreshLive();
   }
 
+  function handleRefresh(): void {
+    refreshLive();
+    toast('正在刷新');
+  }
+
   onMount(() => {
     const stopTicks = startTicks();
     const initial = app.initialKey && order.includes(app.initialKey) ? app.initialKey : order[0];
@@ -239,6 +244,7 @@
     {errorCount}
     onNavigate={goTo}
     onFullscreen={toggleFullscreen}
+    onRefresh={handleRefresh}
   />
 
   <main class="pager" bind:this={pager} onscroll={handleScroll}>

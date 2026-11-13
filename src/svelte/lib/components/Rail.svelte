@@ -11,6 +11,7 @@
   import Cpu from '@lucide/svelte/icons/cpu';
   import Maximize2 from '@lucide/svelte/icons/maximize-2';
   import Minimize2 from '@lucide/svelte/icons/minimize-2';
+  import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 
   let {
     order,
@@ -19,6 +20,7 @@
     errorCount = 0,
     onNavigate,
     onFullscreen,
+    onRefresh,
   }: {
     order: PageKey[];
     activeKey: PageKey;
@@ -26,6 +28,7 @@
     errorCount?: number;
     onNavigate: (key: PageKey) => void;
     onFullscreen: () => void;
+    onRefresh: () => void;
   } = $props();
 
   const icons: Record<PageKey, Component<{ class?: string; strokeWidth?: number }>> = {
@@ -69,6 +72,17 @@
   </nav>
 
   <div class="rail-bottom">
+    <Button
+      variant="ghost"
+      size="icon"
+      class="rail-utility size-10 rounded-[12px] text-muted-foreground"
+      type="button"
+      aria-label="刷新页面状态"
+      title="刷新页面状态"
+      onclick={onRefresh}
+    >
+      <RefreshCw class="size-[20px]" strokeWidth={1.7} />
+    </Button>
     <Button
       variant="ghost"
       size="icon"
@@ -154,8 +168,10 @@
 
   .rail-bottom {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 6px;
   }
 
   :global(.app-shell.nav-top) .rail,
