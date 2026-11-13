@@ -1,231 +1,178 @@
 <script lang="ts">
   import { app } from '../state.svelte';
   import { clockParts } from '../format';
-  import { weatherInfo } from '../weather';
-  import Watermark from './Watermark.svelte';
+  import { Badge } from '$lib/components/ui/badge/index.js';
+  import CalendarDays from '@lucide/svelte/icons/calendar-days';
+  import Panel from './Panel.svelte';
   import WeatherPanel from './WeatherPanel.svelte';
   import PomodoroCard from './PomodoroCard.svelte';
+  import WeatherIcon from './WeatherIcon.svelte';
 
   const parts = $derived(clockParts(new Date(app.clockNow)));
   const weather = $derived(app.weather);
   const available = $derived(Boolean(weather && weather.ok !== false));
-  const info = $derived(available ? weatherInfo(weather?.current?.code, weather?.current?.isDay) : null);
+  const current = $derived(weather?.current || {});
 </script>
 
-<article class="card clock-card" class:has-pomodoro={app.pomodoro.enabled}>
-  <div class="clock-hero">
-    <div class="card-kicker"><span>{parts.dateLabel}</span><span class="kicker-dot"></span><span>{parts.periodLabel}</span></div>
-    <div class="clock-line">
-      <div class="clock">{parts.time}</div>
-      <div class="clock-seconds">{parts.seconds}</div>
+<Panel class="clock-card relative flex min-h-0 flex-col overflow-hidden">
+  <div class="clock-aura" aria-hidden="true"></div>
+  {#if available}
+    <div class="clock-graphic" aria-hidden="true">
+      <WeatherIcon code={current.code} isDay={current.isDay} class="size-full" strokeWidth={1.1} />
     </div>
-    <div class="clock-side"><span>{parts.greeting}</span></div>
-    <div class="clock-watermark" aria-hidden="true">
-      {#if info}<Watermark name={info.icon} />{/if}
-    </div>
-  </div>
-  {#if app.pomodoro.enabled}
-    <PomodoroCard />
   {/if}
-  <WeatherPanel {weather} />
-</article>
+
+  <div class="clock-content relative z-10 flex min-h-0 flex-1 flex-col">
+    <header class="flex items-start justify-between gap-3">
+      <div class="flex min-w-0 items-center gap-3">
+        <span class="grid size-11 shrink-0 place-items-center rounded-[13px] border border-border bg-secondary text-brand">
+          <CalendarDays class="size-[22px]" strokeWidth={1.7} />
+        </span>
+        <div class="min-w-0">
+          <p class="truncate text-[16px] font-semibold tracking-[-0.01em] text-foreground">{parts.dateLabel}</p>
+          <p class="mt-0.5 truncate text-[13px] text-muted-foreground">{parts.periodLabel}</p>
+        </div>
+      </div>
+      <Badge
+        variant="outline"
+        class="h-8 shrink-0 border-border bg-secondary px-3 text-[15px] font-medium text-muted-foreground"
+      >
+        {parts.greeting}
+      </Badge>
+    </header>
+
+    <div class="clock-line flex items-baseline gap-3">
+      <span class="clock-time numeric">{parts.time}</span>
+      <span class="clock-seconds numeric">{parts.seconds}</span>
+    </div>
+
+    {#if app.pomodoro.enabled}
+      <PomodoroCard />
+    {/if}
+
+    <WeatherPanel {weather} />
+  </div>
+</Panel>
 
 <style>
-.clock-card {
-container-type: inline-size;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  padding: 32px 28px 22px;
-  overflow: hidden;
-  background:
-    radial-gradient(120% 90% at 95% 0%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 58%),
-    linear-gradient(150deg, color-mix(in srgb, var(--card-2) 88%, var(--accent) 12%), var(--card) 62%);
-}
-
-.clock-card::before {
-content: "";
-  position: absolute;
-  width: 300px;
-  height: 300px;
-  right: -120px;
-  bottom: -160px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  filter: blur(50px);
-  pointer-events: none;
-}
-
-.clock-hero {
-position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  padding-top: 8px;
-}
-
-/* With the pomodoro mounted, the flexible middle belongs to it instead. */
-.clock-card.has-pomodoro .clock-hero {
-  flex: 0 0 auto;
-}
-
-/* The weather card's auto margin would otherwise steal the pomodoro's space. */
-.clock-card.has-pomodoro :global(.weather-line) {
-  margin-top: 0;
-}
-
-.clock-watermark {
-position: absolute;
-  z-index: 0;
-  right: -20%;
-  bottom: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  padding: 0;
-  opacity: 0.1;
-  filter: saturate(0.9);
-  pointer-events: none;
-}
-
-.clock-watermark :global(svg) {
-width: 100%;
-  height: 100%;
-  max-width: 100%;
-  object-fit: contain;
-}
-
-.clock-watermark :global(img) {
-width: 100%;
-  height: 100%;
-  max-width: 100%;
-  object-fit: contain;
-}
-
-.clock-hero > *:not(.clock-watermark) {
-position: relative;
-  z-index: 1;
-}
-
-.clock-card > *:not(.clock-watermark) {
-position: relative;
-  z-index: 1;
-}
-
-.clock-card .card-kicker {
-font-size: 12px;
-  letter-spacing: 0.12em;
-}
-
-.clock-line {
-display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-  margin-top: 10px;
-}
-
-.clock {
-display: block;
-  width: auto;
-  min-width: 0;
-  flex: 0 1 auto;
-  font-size: clamp(64px, 30cqw, 160px);
-  line-height: 0.9;
-  letter-spacing: -0.04em;
-  font-weight: 590;
-  font-variant-numeric: tabular-nums;
-  color: var(--text);
-  white-space: nowrap;
-}
-
-.clock-seconds {
-flex: 0 0 auto;
-  color: var(--accent-2);
-  font-family: var(--mono);
-  font-size: clamp(34px, 15cqw, 80px);
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  line-height: 1;
-}
-
-.clock-side {
-display: flex;
-  align-items: baseline;
-  justify-content: flex-end;
-  margin-top: 12px;
-}
-
-.clock-side span {
-color: color-mix(in srgb, var(--text) 66%, transparent);
-  font-size: 46px;
-  font-weight: 500;
-  line-height: 1.2;
-}
-
-@media (max-height: 760px) {
-  .clock-hero {
-    padding-top: 10px;
+  :global(.clock-card) {
+    container-type: inline-size;
+    background:
+      radial-gradient(95% 82% at 100% 3%, color-mix(in srgb, var(--brand) 10%, transparent), transparent 55%),
+      linear-gradient(145deg, color-mix(in srgb, var(--card) 88%, #16213c), var(--card) 62%);
   }
-  .clock-card {
-    padding: 22px 18px 15px;
+
+  .clock-content {
+    padding: clamp(16px, 2.6vh, 26px);
   }
-  .clock {
-    font-size: clamp(64px, 30cqw, 140px);
-    line-height: 0.9;
+
+  .clock-aura {
+    position: absolute;
+    inset: auto -18% -48% 28%;
+    height: 62%;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--brand) 10%, transparent);
+    filter: blur(65px);
+    pointer-events: none;
   }
+
+  .clock-graphic {
+    position: absolute;
+    right: -34px;
+    bottom: 118px;
+    width: 310px;
+    height: 310px;
+    color: var(--brand);
+    opacity: 0.05;
+    pointer-events: none;
+  }
+
   .clock-line {
-    gap: 10px;
-    margin-top: 6px;
+    min-height: 0;
+    padding-top: clamp(16px, 3.8vh, 34px);
+    line-height: 0.82;
   }
-  .clock-side {
-    margin-top: 8px;
-  }
-  .clock-side span {
-    font-size: 30px;
-  }
-}
 
-@media (orientation: portrait) {
-  .clock-card {
-    min-height: 560px;
+  .clock-time {
+    color: var(--foreground);
+    font-size: clamp(82px, 10.7vw, 138px);
+    font-weight: 560;
+    letter-spacing: -0.075em;
+    line-height: 0.82;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
   }
-  .clock-watermark {
-    display: none;
-  }
-}
 
-@media (max-height: 620px) {
-  .clock-hero {
-    padding-top: 12px;
-  }
-  .clock-card {
-    padding: 16px 14px 10px;
-  }
-  .clock {
-    font-size: clamp(58px, 28cqw, 110px);
-    line-height: 0.92;
-  }
   .clock-seconds {
-    font-size: clamp(29px, 14cqw, 55px);
+    color: var(--brand);
+    font-size: clamp(28px, 3vw, 40px);
+    font-weight: 560;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
   }
-  .clock-line {
-    gap: 8px;
-    margin-top: 4px;
-  }
-  .clock-side {
-    margin-top: 6px;
-  }
-  .clock-side span {
-    font-size: 24px;
-  }
-}
 
-@media (max-height: 500px) {
-  .clock-hero {
-    padding-top: 10px;
+  @media (max-height: 760px) {
+    .clock-content {
+      padding: 14px;
+    }
+
+    .clock-graphic {
+      width: 250px;
+      height: 250px;
+      bottom: 104px;
+    }
+
+    .clock-line {
+      padding-top: 10px;
+    }
+
+    .clock-time {
+      font-size: clamp(86px, 13.4vw, 123px);
+    }
+
+    .clock-seconds {
+      font-size: 29px;
+    }
   }
-}
+
+  @media (max-height: 620px) {
+    .clock-content {
+      padding: 12px;
+    }
+
+    .clock-line {
+      padding-top: 7px;
+      padding-bottom: 3px;
+    }
+
+    .clock-time {
+      font-size: clamp(76px, 10.7vw, 96px);
+      line-height: 0.9;
+    }
+
+    .clock-seconds {
+      font-size: 24px;
+    }
+
+    .clock-graphic {
+      width: 210px;
+      height: 210px;
+      bottom: 90px;
+    }
+  }
+
+  @media (orientation: portrait) {
+    :global(.clock-card) {
+      min-height: 620px;
+    }
+
+    .clock-graphic {
+      display: none;
+    }
+
+    .clock-time {
+      font-size: clamp(84px, 22vw, 124px);
+    }
+  }
 </style>

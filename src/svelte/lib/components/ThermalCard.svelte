@@ -1,6 +1,12 @@
 <script lang="ts">
   import { app } from '../state.svelte';
   import { temperatureUnitLabel, toDisplayTemperature } from '../format';
+  import { Badge } from '$lib/components/ui/badge/index.js';
+  import { ScrollArea } from '$lib/components/ui/scroll-area/index.js';
+  import Thermometer from '@lucide/svelte/icons/thermometer';
+  import ThermometerSun from '@lucide/svelte/icons/thermometer-sun';
+  import Panel from './Panel.svelte';
+  import SectionHeader from './SectionHeader.svelte';
   import EmptyState from './EmptyState.svelte';
 
   const data = $derived(app.performance);
@@ -22,7 +28,9 @@
     return max;
   });
   const heatWidth = $derived(Number.isFinite(maxTemp) ? Math.max(0, Math.min(100, maxTemp)) : 0);
-  const maxShown = $derived(Number.isFinite(maxTemp) ? Math.round(toDisplayTemperature(maxTemp, unit) ?? 0) : '—');
+  const maxShown = $derived(
+    Number.isFinite(maxTemp) ? Math.round(toDisplayTemperature(maxTemp, unit) ?? 0) : '—',
+  );
   const maxHot = $derived(Number.isFinite(maxTemp) && maxTemp >= 70);
   const maxCritical = $derived(Number.isFinite(maxTemp) && maxTemp >= 85);
 
@@ -32,268 +40,209 @@
 
   function shownOf(value: number): string {
     const display = toDisplayTemperature(value, unit);
-    return display === null ? '—' : `${display.toFixed(1)}${unitText}`;
+    return display === null ? '—' : `${display.toFixed(1)}°`;
   }
 </script>
 
-<article class="card perf-card perf-temp" class:is-empty={empty}>
-  <div class="perf-head"><span class="kicker">THERMALS</span><span class="perf-chip">{temperatures.length} 个传感器</span></div>
-  <div class="temp-hero" class:is-hot={maxHot} class:is-critical={maxCritical} style={`--heat:${heatWidth}%`}>
-    <div class="temp-hero-copy"><strong>{maxShown}</strong><span>{unitText} 最高</span></div>
-  </div>
-  <div class="temp-list">
-    {#if !loaded}
-      <p class="perf-note">正在读取温度</p>
-    {:else if empty}
-      <EmptyState icon="thermometer" title="暂无温度读数" className="temp-empty" />
-    {:else}
-      {#each temperatures as item, index (item.name || index)}
-        {@const value = Number(item.celsius)}
-        <div
-          class="temp-row"
-          class:is-hot={value >= 70 && value < 85}
-          class:is-critical={value >= 85}
-          style={`--heat:${levelOf(value)}%`}
-        >
-          <span class="temp-name">{item.name || '设备'}</span>
-          <b>{shownOf(value)}</b>
-        </div>
+<Panel class="thermal-card relative flex min-h-0 flex-col overflow-hidden p-4">
+  <div class="perf-glow" aria-hidden="true"></div>
+  <SectionHeader icon={Thermometer} eyebrow="THERMALS" title="温度">
+    {#snippet children()}
+      <Badge
+        variant="outline"
+        class="h-7 border-border bg-secondary px-2.5 text-[13px] font-medium text-muted-foreground"
+      >
+        {temperatures.length} 个
+      </Badge>
+    {/snippet}
+  </SectionHeader>
+
+  {#if !loaded}
+    <div class="mt-3 flex flex-1 flex-col gap-2">
+      <div class="h-24 rounded-[15px] bg-secondary/50"></div>
+      {#each Array(3) as _, index (index)}
+        <div class="h-12 rounded-[11px] bg-secondary/40"></div>
       {/each}
-      {#if !hasCpuSensor}
-        <div class="temp-row is-unavailable" title="Windows 未向用户态程序暴露 CPU 温度：需要主板 ACPI 热区或厂商驱动">
-          <span class="temp-name">CPU</span>
-          <b>未提供</b>
+    </div>
+  {:else if empty}
+    <div class="flex min-h-0 flex-1 items-center justify-center">
+      <EmptyState icon={Thermometer} title="暂无温度读数" text="稍后再试" />
+    </div>
+  {:else}
+    <div class="relative z-10 mt-3 flex flex-1 flex-col">
+      <div class="temp-hero" class:is-hot={maxHot} class:is-critical={maxCritical} style={`--heat:${heatWidth}%`}>
+        <div class="relative z-10 flex items-end justify-between gap-3">
+          <div>
+            <p class="text-[15px] text-muted-foreground">最高温度</p>
+            <div class="mt-1 flex items-baseline gap-1">
+              <span class="temp-max numeric">{maxShown}</span>
+              <span class="text-[17px] text-muted-foreground">{unitText}</span>
+            </div>
+          </div>
+          <ThermometerSun class="mb-1 size-[32px] text-muted-foreground" strokeWidth={1.5} />
         </div>
-      {/if}
-    {/if}
-  </div>
-</article>
+      </div>
+
+      <div class="mt-3 min-h-0 flex-1">
+        <ScrollArea class="h-full" scrollbarYClasses="w-2">
+          <div class="flex flex-col gap-2 pr-1">
+            {#each temperatures as item, index (item.name || index)}
+              {@const value = Number(item.celsius)}
+              <div
+                class="temp-row"
+                class:is-hot={value >= 70 && value < 85}
+                class:is-critical={value >= 85}
+                style={`--heat:${levelOf(value)}%`}
+              >
+                <span class="relative z-10 min-w-0 flex-1 truncate text-[16px] text-muted-foreground">
+                  {item.name || '设备'}
+                </span>
+                <b class="relative z-10 numeric shrink-0 text-[20px] font-semibold text-foreground">
+                  {shownOf(value)}
+                </b>
+              </div>
+            {/each}
+
+            {#if !hasCpuSensor}
+              <div class="temp-row is-unavailable">
+                <span class="relative z-10 text-[15px] text-muted-foreground">CPU</span>
+                <span class="relative z-10 text-[14px] text-muted-foreground">未提供</span>
+              </div>
+            {/if}
+          </div>
+        </ScrollArea>
+      </div>
+    </div>
+  {/if}
+</Panel>
 
 <style>
-.perf-temp {
-  min-height: 0;
-  padding: 16px 18px 14px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
+  :global(.thermal-card) {
+    background:
+      radial-gradient(90% 100% at 100% 0%, color-mix(in srgb, var(--warn) 5%, transparent), transparent 58%),
+      var(--card);
+  }
 
-.temp-hero {
-  position: relative;
-  margin-top: 10px;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: linear-gradient(150deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%);
-  overflow: hidden;
-}
+  .perf-glow {
+    position: absolute;
+    right: -70px;
+    bottom: -110px;
+    width: 210px;
+    height: 210px;
+    border-radius: 50%;
+    border: 1px solid color-mix(in srgb, var(--warn) 10%, transparent);
+    pointer-events: none;
+  }
 
-.temp-hero::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: var(--heat, 0%);
-  border-radius: inherit;
-  background: color-mix(in srgb, var(--green) 18%, transparent);
-  transition: width 0.35s ease, background 0.35s ease;
-}
-
-.temp-hero.is-hot::before {
-  background: color-mix(in srgb, var(--amber) 22%, transparent);
-}
-
-.temp-hero.is-critical::before {
-  background: color-mix(in srgb, var(--red) 24%, transparent);
-}
-
-.temp-hero-copy {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-
-.temp-hero-copy strong {
-  font-size: 38px;
-  line-height: 1;
-  font-weight: 580;
-  letter-spacing: -0.03em;
-  font-variant-numeric: tabular-nums;
-}
-
-.temp-hero-copy span {
-  color: var(--muted);
-  font-size: 10px;
-}
-
-.temp-hero.is-hot .temp-hero-copy strong {
-  color: var(--amber);
-}
-
-.temp-hero.is-critical .temp-hero-copy strong {
-  color: var(--red);
-}
-
-.temp-list {
-  flex: 1;
-  min-height: 0;
-  margin-top: 10px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  scrollbar-width: none;
-}
-
-.temp-row {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 9px 12px;
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--text) 3.5%, transparent);
-  overflow: hidden;
-}
-
-.temp-row::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: var(--heat, 0%);
-  border-radius: inherit;
-  background: color-mix(in srgb, var(--accent-2) 16%, transparent);
-  transition: width 0.35s ease, background 0.35s ease;
-}
-
-.temp-row > * {
-  position: relative;
-  z-index: 1;
-}
-
-.temp-name {
-  min-width: 0;
-  color: var(--muted);
-  font-size: 11px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.temp-row b {
-  flex: 0 0 auto;
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 570;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.temp-row.is-hot b {
-  color: var(--amber);
-}
-
-.temp-row.is-critical b {
-  color: var(--red);
-}
-
-.temp-row.is-hot::before {
-  background: color-mix(in srgb, var(--amber) 20%, transparent);
-}
-
-.temp-row.is-critical::before {
-  background: color-mix(in srgb, var(--red) 22%, transparent);
-}
-
-.temp-row.is-unavailable {
-  border: 1px dashed var(--line);
-  background: transparent;
-}
-
-.temp-row.is-unavailable .temp-name {
-  color: var(--faint);
-}
-
-.temp-row.is-unavailable b {
-  color: var(--faint);
-  font-size: 10px;
-  font-weight: 500;
-}
-
-.perf-temp.is-empty .temp-hero {
-  display: none;
-}
-
-.perf-temp.is-empty .temp-list {
-  justify-content: center;
-}
-
-.perf-temp.is-empty :global(.empty-state.temp-empty) {
-  margin: 0;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 0;
-  gap: 10px;
-}
-
-.perf-temp.is-empty :global(.empty-state.temp-empty svg) {
-  width: 42px;
-  height: 42px;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--text) 3.5%, transparent);
-  color: var(--accent-2);
-}
-
-.perf-temp.is-empty :global(.empty-state.temp-empty h3) {
-  font-size: 15px;
-}
-
-@media (max-height: 760px) {
   .temp-hero {
-    margin-top: 8px;
-    padding: 9px 11px;
+    position: relative;
+    overflow: hidden;
+    padding: 10px 13px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--secondary) 55%, transparent);
   }
-  .temp-hero-copy strong {
-    font-size: 30px;
-  }
-  .temp-row {
-    padding: 6px 9px;
-  }
-}
 
-@media (orientation: portrait) {
-  .perf-temp {
-    min-height: 0;
+  .temp-hero::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: var(--heat, 0%);
+    background: color-mix(in srgb, var(--success) 16%, transparent);
+    pointer-events: none;
   }
-}
 
-@media (max-height: 500px) {
-  .temp-hero {
-    margin-top: 5px;
-    padding: 7px 9px;
+  .temp-hero.is-hot::before {
+    background: color-mix(in srgb, var(--warn) 20%, transparent);
   }
-  .temp-hero-copy strong {
-    font-size: 24px;
+
+  .temp-hero.is-critical::before {
+    background: color-mix(in srgb, var(--danger) 22%, transparent);
   }
-  .temp-hero-copy span {
-    font-size: 8px;
+
+  .temp-max {
+    color: var(--foreground);
+    font-size: clamp(50px, 6.2vw, 68px);
+    font-weight: 560;
+    line-height: 1;
+    letter-spacing: -0.06em;
   }
-  .temp-list {
-    margin-top: 6px;
-    gap: 4px;
+
+  .temp-hero.is-hot .temp-max {
+    color: var(--warn);
   }
+
+  .temp-hero.is-critical .temp-max {
+    color: var(--danger);
+  }
+
   .temp-row {
-    padding: 4px 7px;
+    position: relative;
+    display: flex;
+    min-height: 52px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    overflow: hidden;
+    padding: 6px 10px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--secondary) 48%, transparent);
   }
-  .temp-name {
-    font-size: 8.5px;
+
+  .temp-row::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: var(--heat, 0%);
+    background: color-mix(in srgb, var(--brand) 13%, transparent);
+    pointer-events: none;
   }
-  .temp-row b {
-    font-size: 10px;
+
+  .temp-row.is-hot::before {
+    background: color-mix(in srgb, var(--warn) 17%, transparent);
   }
-}
+
+  .temp-row.is-critical::before {
+    background: color-mix(in srgb, var(--danger) 19%, transparent);
+  }
+
+  .temp-row.is-hot b {
+    color: var(--warn);
+  }
+
+  .temp-row.is-critical b {
+    color: var(--danger);
+  }
+
+  .temp-row.is-unavailable {
+    border: 1px dashed var(--border);
+    background: transparent;
+    opacity: 0.75;
+  }
+
+  @media (max-height: 760px) {
+    :global(.thermal-card) {
+      padding: 12px;
+    }
+
+    .temp-hero {
+      padding: 8px 11px;
+    }
+
+    .temp-max {
+      font-size: clamp(46px, 6.8vw, 60px);
+    }
+
+    .temp-row {
+      min-height: 46px;
+      padding: 4px 9px;
+    }
+  }
+
+  @media (orientation: portrait) {
+    :global(.thermal-card) {
+      min-height: 320px;
+    }
+  }
 </style>

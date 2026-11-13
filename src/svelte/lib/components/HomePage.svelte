@@ -9,26 +9,26 @@
 </div>
 
 <style>
-.home-grid {
-display: grid;
-  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
-  gap: 18px;
-  height: 100%;
-  min-height: 0;
-}
-
-@media (max-height: 760px) {
   .home-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(360px, 42%, 440px);
     gap: 12px;
+    height: 100%;
+    min-height: 0;
   }
-}
 
-@media (orientation: portrait) {
-  .home-grid {
-    grid-template-columns: 1fr;
-    height: auto;
-    min-height: 100%;
-    gap: 14px;
+  @media (max-height: 760px) {
+    .home-grid {
+      gap: 10px;
+    }
   }
-}
+
+  @media (orientation: portrait) {
+    .home-grid {
+      grid-template-columns: 1fr;
+      height: auto;
+      min-height: 100%;
+      gap: 12px;
+    }
+  }
 </style>

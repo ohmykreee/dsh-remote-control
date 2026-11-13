@@ -1,4 +1,6 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte';
+import tailwindcss from '@tailwindcss/vite';
+import path from 'node:path';
 import { defineConfig } from 'vite';
 
 // The phone console source lives in `src/svelte` (entry: src/svelte/index.html).
@@ -6,7 +8,12 @@ import { defineConfig } from 'vite';
 // `web/` for the Host service to serve. Both build-output paths are gitignored.
 export default defineConfig({
   root: 'src/svelte',
-  plugins: [svelte()],
+  plugins: [tailwindcss(), svelte()],
+  resolve: {
+    alias: {
+      $lib: path.resolve('./src/svelte/lib'),
+    },
+  },
   publicDir: '../../static',
   server: {
     watch: {

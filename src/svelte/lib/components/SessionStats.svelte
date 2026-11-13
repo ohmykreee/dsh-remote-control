@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { SessionItem } from '../types';
+  import { cn } from '$lib/utils.js';
+  import Panel from './Panel.svelte';
 
   let { sessions = [] }: { sessions?: SessionItem[] } = $props();
 
@@ -13,88 +15,83 @@
   });
 </script>
 
-{#snippet stat(value: number, label: string, className: string)}
-  <div class="stat {className}"><strong>{value}</strong><span>{label}</span></div>
+{#snippet stat(value: number, label: string, tone: string)}
+  <div class={cn('stat', tone)}>
+    <strong class="numeric">{value}</strong>
+    <span>{label}</span>
+  </div>
 {/snippet}
 
-<article class="card status-card">
-  {@render stat(counts.running, '运行中', '')}
+<Panel class="status-panel grid min-h-0 grid-cols-2 grid-rows-2 gap-1.5 p-2">
+  {@render stat(counts.running, '运行中', 'is-running')}
   {@render stat(counts.question, '等待回答', counts.question > 0 ? 'is-question' : '')}
   {@render stat(counts.error, '错误', counts.error > 0 ? 'is-error' : '')}
   {@render stat(counts.done, '已结束', '')}
-</article>
+</Panel>
 
 <style>
-.status-card {
-display: grid;
-  min-height: 0;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-rows: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  padding: 10px;
-}
-
-.stat {
-display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  padding: 8px 4px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--text) 3.5%, transparent);
-}
-
-.stat strong {
-font-size: 25px;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-
-.stat span {
-color: var(--faint);
-  font-size: 10px;
-  white-space: nowrap;
-}
-
-.stat.is-question {
-background: color-mix(in srgb, var(--amber) 16%, var(--card));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--amber) 32%, transparent);
-}
-
-.stat.is-question strong {
-color: var(--amber);
-}
-
-.stat.is-error {
-background: color-mix(in srgb, var(--red) 16%, var(--card));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--red) 32%, transparent);
-}
-
-.stat.is-error strong {
-color: var(--red);
-}
-
-@media (max-height: 760px) {
-  .status-card {
-    min-height: 0;
-    padding: 8px;
-    gap: 6px;
-  }
   .stat {
-    padding: 6px 2px;
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    padding: 6px 3px;
+    border: 1px solid transparent;
+    border-radius: 13px;
+    background: color-mix(in srgb, var(--secondary) 52%, transparent);
   }
-  .stat strong {
-    font-size: 20px;
-  }
-  .stat span {
-    font-size: 9px;
-  }
-}
 
-@media (orientation: portrait) {
-  .status-card {
-    min-height: 122px;
+  .stat strong {
+    color: var(--foreground);
+    font-size: clamp(36px, 4.6vw, 46px);
+    font-weight: 560;
+    line-height: 1;
+    letter-spacing: -0.03em;
   }
-}
+
+  .stat span {
+    color: var(--muted-foreground);
+    font-size: clamp(13px, 1.6vw, 16px);
+    white-space: nowrap;
+  }
+
+  .stat.is-running strong {
+    color: var(--success);
+  }
+
+  .stat.is-question {
+    border-color: color-mix(in srgb, var(--warn) 20%, transparent);
+    background: var(--warn-soft);
+  }
+
+  .stat.is-question strong {
+    color: var(--warn);
+  }
+
+  .stat.is-error {
+    border-color: color-mix(in srgb, var(--danger) 20%, transparent);
+    background: var(--danger-soft);
+  }
+
+  .stat.is-error strong {
+    color: var(--danger);
+  }
+
+  @media (max-height: 760px) {
+    .stat strong {
+      font-size: 36px;
+    }
+
+    .stat span {
+      font-size: 13px;
+    }
+  }
+
+  @media (orientation: portrait) {
+    :global(.status-panel) {
+      min-height: 120px;
+    }
+  }
 </style>

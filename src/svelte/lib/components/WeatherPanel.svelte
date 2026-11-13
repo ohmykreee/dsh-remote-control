@@ -3,7 +3,12 @@
   import { formatTemperature, pad, temperatureUnitLabel, toDisplayTemperature } from '../format';
   import { weatherInfo } from '../weather';
   import type { WeatherData } from '../types';
-  import Icon from './Icon.svelte';
+  import { Skeleton } from '$lib/components/ui/skeleton/index.js';
+  import { cn } from '$lib/utils.js';
+  import Sunrise from '@lucide/svelte/icons/sunrise';
+  import Sunset from '@lucide/svelte/icons/sunset';
+  import CloudSun from '@lucide/svelte/icons/cloud-sun';
+  import WeatherIcon from './WeatherIcon.svelte';
 
   let { weather }: { weather: WeatherData | null } = $props();
 
@@ -15,402 +20,392 @@
   const current = $derived(weather?.current || {});
   const daily = $derived(weather?.daily || {});
   const info = $derived(available ? weatherInfo(current.code, current.isDay) : null);
-  const artSkycon = $derived(info?.skycon || 'CLOUDY');
   const mainTemperature = $derived(available ? toDisplayTemperature(current.temperature, unit) : null);
   const hourly = $derived(available && Array.isArray(weather?.hourly) ? weather.hourly.slice(0, 6) : []);
-  const dailyForecast = $derived(available && Array.isArray(weather?.dailyForecast) ? weather.dailyForecast.slice(0, 7) : []);
+  const dailyForecast = $derived(
+    available && Array.isArray(weather?.dailyForecast) ? weather.dailyForecast.slice(0, 7) : [],
+  );
   const showDaily = $derived(available && weather?.forecastMode === 'daily' && dailyForecast.length > 0);
 
   const sunrise = $derived(weather?.daily?.sunrise ? new Date(weather.daily.sunrise) : null);
   const sunset = $derived(weather?.daily?.sunset ? new Date(weather.daily.sunset) : null);
-  const sunriseText = $derived(sunrise && !Number.isNaN(sunrise.getTime()) ? `${pad(sunrise.getHours())}:${pad(sunrise.getMinutes())}` : '--:--');
-  const sunsetText = $derived(sunset && !Number.isNaN(sunset.getTime()) ? `${pad(sunset.getHours())}:${pad(sunset.getMinutes())}` : '--:--');
+  const sunriseText = $derived(
+    sunrise && !Number.isNaN(sunrise.getTime()) ? `${pad(sunrise.getHours())}:${pad(sunrise.getMinutes())}` : '--:--',
+  );
+  const sunsetText = $derived(
+    sunset && !Number.isNaN(sunset.getTime()) ? `${pad(sunset.getHours())}:${pad(sunset.getMinutes())}` : '--:--',
+  );
   const tomorrowText = $derived(
     daily.tomorrowHigh != null && daily.tomorrowLow != null
       ? `${formatTemperature(daily.tomorrowHigh, unit)} / ${formatTemperature(daily.tomorrowLow, unit)}`
       : '--',
   );
+
+  function hourIsDay(time: string | undefined): boolean {
+    const hour = new Date(time || Date.now()).getHours();
+    return hour >= 6 && hour < 18;
+  }
 </script>
 
-<div class="weather-line">
-  <div class="weather-art" aria-hidden="true">
-    {#if loaded}<img src={`/weather-icons/${artSkycon}.svg`} alt="">{/if}
-  </div>
-  <div class="weather-copy">
-    <div class="weather-condition">
-      <span>{!loaded ? '正在获取天气' : available ? info?.label : '天气暂不可用'}</span>
-      <span>{available ? weather?.location?.name || '当前位置' : '当前位置'}</span>
+<section class="weather-panel" aria-label="天气">
+  {#if !loaded}
+    <div class="weather-main">
+      <div class="weather-condition">
+        <Skeleton class="size-14 rounded-[15px]" />
+        <div class="space-y-2">
+          <Skeleton class="h-4 w-28" />
+          <Skeleton class="h-3 w-20" />
+        </div>
+      </div>
+      <Skeleton class="h-12 w-24" />
     </div>
-  </div>
-  <div class="weather-metrics">
-    <span><b>{available ? `${formatTemperature(daily.high, unit)} / ${formatTemperature(daily.low, unit)}` : '-- / --'}</b><small>最高 / 最低</small></span>
-    <span><b>{available ? formatTemperature(current.feelsLike, unit) : '--'}</b><small>体感</small></span>
-    <span><b>{available ? `${Math.round(current.humidity ?? 0)}%` : '--'}</b><small>湿度</small></span>
-    <span><b>{available ? `${Math.round(current.windSpeed ?? 0)} km/h` : '--'}</b><small>风速</small></span>
-  </div>
-  <div class="temperature">
-    {#if mainTemperature === null}--{:else}{Math.round(mainTemperature)}{/if}<span>{displayUnit}</span>
-  </div>
-</div>
-
-<div class={showDaily ? 'hourly is-daily' : 'hourly'}>
-  {#if showDaily}
-    {#each dailyForecast as day, index (day.date || index)}
-      {@const dayInfo = weatherInfo(day.code, true)}
-      <div class="hour-chip" class:is-now={index === 0}>
-        <span>{index === 0 ? '今天' : weekdayFormatter.format(new Date(day.date || Date.now()))}</span>
-        <Icon name={dayInfo.icon} />
-        <b>{formatTemperature(day.high, unit)}</b>
-        <small>{formatTemperature(day.low, unit)}</small>
+  {:else if !available}
+    <div class="weather-main">
+      <div class="weather-condition">
+        <span class="weather-icon">
+          <CloudSun class="size-[26px] text-muted-foreground" strokeWidth={1.7} />
+        </span>
+        <div>
+          <p class="text-[19px] font-medium text-foreground">天气暂不可用</p>
+          <p class="mt-0.5 text-[14px] text-muted-foreground">稍后再试</p>
+        </div>
       </div>
-    {/each}
+    </div>
   {:else}
-    {#each hourly as hour, index (hour.time || index)}
-      {@const date = new Date(hour.time || Date.now())}
-      {@const hourInfo = weatherInfo(hour.code, date.getHours() >= 6 && date.getHours() < 18)}
-      <div class="hour-chip" class:is-now={index === 0}>
-        <span>{index === 0 ? '现在' : `${pad(date.getHours())}时`}</span>
-        <Icon name={hourInfo.icon} />
-        <b>{formatTemperature(hour.temperature, unit)}</b>
+    <div class="weather-main">
+      <div class="weather-condition">
+        <span class="weather-icon">
+          <WeatherIcon code={current.code} isDay={current.isDay} class="size-[26px]" />
+        </span>
+        <div class="min-w-0">
+          <p class="truncate text-[20px] font-semibold text-foreground">{info?.label}</p>
+          <p class="mt-0.5 truncate text-[14px] text-muted-foreground">{weather?.location?.name || '当前位置'}</p>
+        </div>
       </div>
-    {/each}
-  {/if}
-</div>
 
-{#if available}
-  <div class="weather-extra">
-    <span><Icon name="sun" />日出 <b>{sunriseText}</b></span>
-    <span><Icon name="moon" />日落 <b>{sunsetText}</b></span>
-    <span><Icon name="cloud" />明日 <b>{tomorrowText}</b></span>
-  </div>
-{/if}
+      <div class="weather-temp numeric">
+        {mainTemperature === null ? '--' : Math.round(mainTemperature)}<span>{displayUnit}</span>
+      </div>
+
+      <div class="weather-metrics numeric">
+        <span><b>{formatTemperature(daily.high, unit)} / {formatTemperature(daily.low, unit)}</b><small>最高 / 最低</small></span>
+        <span><b>{formatTemperature(current.feelsLike, unit)}</b><small>体感</small></span>
+        <span><b>{Math.round(current.humidity ?? 0)}%</b><small>湿度</small></span>
+        <span><b>{Math.round(current.windSpeed ?? 0)} km/h</b><small>风速</small></span>
+      </div>
+    </div>
+
+    <div class={cn('forecast-grid', showDaily ? 'is-daily' : 'is-hourly')}>
+      {#if showDaily}
+        {#each dailyForecast as day, index (day.date || index)}
+          <div class="forecast-chip" class:is-now={index === 0}>
+            <span class="forecast-label">{index === 0 ? '今天' : weekdayFormatter.format(new Date(day.date || Date.now()))}</span>
+            <WeatherIcon code={day.code} isDay class="size-[22px] text-brand" />
+            <b class="numeric">{formatTemperature(day.high, unit)}</b>
+            <small class="numeric">{formatTemperature(day.low, unit)}</small>
+          </div>
+        {/each}
+      {:else}
+        {#each hourly as hour, index (hour.time || index)}
+          {@const date = new Date(hour.time || Date.now())}
+          <div class="forecast-chip" class:is-now={index === 0}>
+            <span class="forecast-label">{index === 0 ? '现在' : `${pad(date.getHours())}时`}</span>
+            <WeatherIcon code={hour.code} isDay={hourIsDay(hour.time)} class="size-[22px] text-brand" />
+            <b class="numeric">{formatTemperature(hour.temperature, unit)}</b>
+          </div>
+        {/each}
+      {/if}
+    </div>
+
+    <div class="weather-extra">
+      <span><Sunrise class="size-4 text-muted-foreground" strokeWidth={1.7} />日出 {sunriseText}</span>
+      <span><Sunset class="size-4 text-muted-foreground" strokeWidth={1.7} />日落 {sunsetText}</span>
+      <span><CloudSun class="size-4 text-muted-foreground" strokeWidth={1.7} />明日 {tomorrowText}</span>
+    </div>
+  {/if}
+</section>
 
 <style>
-.weather-line {
-display: grid;
-  grid-template-columns: 92px minmax(0, 1fr) auto auto;
-  gap: 14px;
-  align-items: center;
-  margin-top: auto;
-  padding-top: 18px;
-  border-top: 1px solid var(--line);
-}
-
-.weather-art {
-width: 92px;
-  height: 92px;
-  display: grid;
-  place-items: center;
-  justify-self: center;
-}
-
-.weather-art img {
-width: 100%;
-  height: 100%;
-  object-fit: contain;
-  object-position: center;
-  overflow: visible;
-}
-
-.weather-copy {
-min-width: 0;
-}
-
-.temperature {
-justify-self: end;
-  font-size: 58px;
-  line-height: 0.9;
-  letter-spacing: -0.06em;
-  font-weight: 590;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  white-space: nowrap;
-}
-
-.temperature span {
-color: var(--accent-2);
-  font-size: 0.42em;
-  vertical-align: top;
-  letter-spacing: 0;
-}
-
-.weather-condition {
-display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
-  color: var(--text);
-  font-size: 16px;
-  line-height: 1.25;
-}
-
-.weather-condition span:last-child {
-color: var(--muted);
-  font-size: 12px;
-}
-
-.weather-condition span {
-max-width: 100%;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.weather-metrics {
-display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 16px;
-  min-width: 148px;
-}
-
-.weather-metrics span {
-display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.weather-metrics b {
-font-size: 12px;
-  font-weight: 580;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.weather-metrics small {
-color: var(--faint);
-  font-size: 9px;
-}
-
-.hourly {
-display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 18px;
-  padding-top: 0;
-}
-
-.hourly.is-daily {
-grid-template-columns: repeat(7, minmax(0, 1fr));
-}
-
-.hour-chip {
-display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 5px;
-  padding: 9px 4px;
-  border-radius: 14px;
-  border: 1px solid transparent;
-  background: color-mix(in srgb, var(--text) 3.5%, transparent);
-}
-
-.hour-chip.is-now {
-border-color: color-mix(in srgb, var(--accent) 34%, transparent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.hour-chip span {
-color: var(--faint);
-  font-size: 9px;
-}
-
-.hour-chip :global(svg) {
-width: 20px;
-  height: 20px;
-  color: var(--accent-2);
-}
-
-.hour-chip b {
-font-size: 11px;
-  font-weight: 560;
-}
-
-.hour-chip small {
-color: var(--faint);
-  font-size: 9px;
-}
-
-.weather-extra {
-display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  margin-top: 10px;
-  color: var(--faint);
-  font-size: 10px;
-}
-
-.weather-extra span {
-display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  white-space: nowrap;
-}
-
-.weather-extra :global(svg) {
-width: 13px;
-  height: 13px;
-  color: var(--accent-2);
-}
-
-.weather-extra b {
-color: var(--muted);
-  font-weight: 550;
-}
-
-@media (max-height: 760px) {
-  .weather-line {
-    grid-template-columns: 76px minmax(0, 1fr) auto auto;
-    gap: 9px;
+  .weather-panel {
+    flex: 0 0 auto;
     margin-top: auto;
-    padding-top: 10px;
+    padding-top: 15px;
+    border-top: 1px solid var(--border);
   }
-  .weather-art {
-    width: 76px;
-    height: 76px;
-  }
-  .temperature {
-    font-size: 42px;
-  }
-  .weather-metrics {
-    gap: 7px 12px;
-    min-width: 132px;
-  }
-  .hourly {
-    margin-top: 10px;
-    padding-top: 0;
-    gap: 4px;
-  }
-  .weather-extra {
-    display: none;
-  }
-  .hour-chip {
-    padding: 6px 2px;
-    border-radius: 11px;
-    gap: 3px;
-  }
-  .hour-chip b {
-    font-size: 10px;
-  }
-}
 
-@media (max-height: 620px) {
-  .weather-line {
-    padding-top: 8px;
+  .weather-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px 18px;
   }
-  .temperature {
-    font-size: 34px;
-  }
+
   .weather-condition {
-    gap: 1px;
-    font-size: 12px;
-  }
-  .weather-condition span:last-child {
-    font-size: 9px;
-  }
-  .weather-metrics {
-    min-width: 112px;
-    gap: 4px 10px;
-  }
-  .weather-metrics b {
-    font-size: 10px;
-  }
-  .weather-metrics small {
-    font-size: 8px;
-  }
-  .hourly {
-    margin-top: 8px;
-  }
-  .hour-chip {
-    padding: 3px 2px;
-    border-radius: 10px;
-    gap: 1px;
-  }
-  .hour-chip :global(svg) {
-    width: 15px;
-    height: 15px;
-  }
-  .hour-chip b {
-    font-size: 9px;
-  }
-  .hour-chip small {
-    font-size: 8px;
-  }
-  .weather-extra {
     display: flex;
-    margin-top: 6px;
-    font-size: 9px;
+    min-width: 0;
+    align-items: center;
+    gap: 11px;
   }
-  .weather-extra :global(svg) {
-    width: 11px;
-    height: 11px;
-  }
-}
 
-@media (max-width: 980px) {
-  .weather-line {
-    grid-template-columns: 84px minmax(0, 1fr) auto;
+  .weather-icon {
+    display: grid;
+    width: 52px;
+    height: 52px;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 1px solid color-mix(in srgb, var(--brand) 20%, transparent);
+    border-radius: 15px;
+    background: var(--brand-soft);
+    color: var(--brand);
   }
-  .weather-art {
-    grid-column: 1;
-    grid-row: 1;
-    width: 84px;
-    height: 84px;
+
+  .weather-temp {
+    justify-self: end;
+    color: var(--foreground);
+    font-size: clamp(44px, 5vw, 58px);
+    font-weight: 560;
+    line-height: 0.9;
+    letter-spacing: -0.06em;
+    white-space: nowrap;
   }
-  .weather-copy {
-    grid-column: 2;
-    grid-row: 1;
+
+  .weather-temp span {
+    margin-left: 2px;
+    color: var(--brand);
+    font-size: 0.36em;
+    font-weight: 600;
+    vertical-align: top;
+    letter-spacing: 0;
   }
-  .temperature {
-    grid-column: 3;
-    grid-row: 1;
-  }
+
   .weather-metrics {
     grid-column: 1 / -1;
-    grid-row: 2;
-    grid-template-columns: repeat(4, 1fr);
-    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 18px;
+    color: var(--muted-foreground);
   }
-}
 
-@container (min-width: 290px) and (max-width: 460px) {
-  .weather-line {
-    grid-template-columns: 64px minmax(0, 1fr) auto auto;
-    gap: 8px;
-    padding-top: 8px;
+  .weather-metrics span {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
   }
-  .weather-art {
-    grid-column: 1;
-    grid-row: 1;
-    width: 64px;
-    height: 64px;
+
+  .weather-metrics b {
+    color: var(--foreground);
+    font-size: 14px;
+    font-weight: 550;
+    white-space: nowrap;
   }
-  .weather-copy {
-    grid-column: 2;
-    grid-row: 1;
-  }
-  .weather-metrics {
-    grid-column: 3;
-    grid-row: 1;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    min-width: 0;
-    gap: 4px 8px;
-  }
-  .temperature {
-    grid-column: 4;
-    grid-row: 1;
-    font-size: 34px;
-  }
-  .weather-condition {
+
+  .weather-metrics small {
     font-size: 12px;
   }
-  .weather-condition span:last-child {
-    font-size: 9px;
+
+  .forecast-grid {
+    display: grid;
+    gap: 5px;
+    margin-top: 12px;
   }
-  .weather-metrics b {
-    font-size: 10px;
+
+  .forecast-grid.is-hourly {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
-  .weather-metrics small {
-    font-size: 8px;
+
+  .forecast-grid.is-daily {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
   }
-}
+
+  .forecast-chip {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 7px 3px 6px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--secondary) 70%, transparent);
+  }
+
+  .forecast-chip.is-now {
+    border-color: color-mix(in srgb, var(--brand) 24%, transparent);
+    background: var(--brand-soft);
+  }
+
+  .forecast-label {
+    color: var(--muted-foreground);
+    font-size: 13px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .forecast-chip b {
+    color: var(--foreground);
+    font-size: 14px;
+    font-weight: 560;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  .forecast-chip small {
+    color: var(--muted-foreground);
+    font-size: 12px;
+    line-height: 1;
+  }
+
+  .weather-extra {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px 12px;
+    margin-top: 9px;
+    color: var(--muted-foreground);
+    font-size: 13px;
+  }
+
+  .weather-extra span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+
+  @media (max-height: 760px) {
+    .weather-panel {
+      margin-top: auto;
+      padding-top: 12px;
+    }
+
+    .weather-icon {
+      width: 46px;
+      height: 46px;
+      border-radius: 13px;
+    }
+
+    .weather-temp {
+      font-size: 46px;
+    }
+
+    .weather-metrics {
+      gap: 4px 13px;
+    }
+
+    .weather-metrics b {
+      font-size: 13px;
+    }
+
+    .weather-metrics small {
+      font-size: 11px;
+    }
+
+    .forecast-grid {
+      margin-top: 9px;
+      gap: 4px;
+    }
+
+    .forecast-chip {
+      padding: 6px 2px 5px;
+      gap: 3px;
+    }
+
+    .forecast-chip :global(svg) {
+      width: 20px;
+      height: 20px;
+    }
+
+    .forecast-label {
+      font-size: 12px;
+    }
+
+    .forecast-chip b {
+      font-size: 13px;
+    }
+
+    .forecast-chip small {
+      font-size: 11px;
+    }
+
+    .weather-extra {
+      margin-top: 7px;
+      font-size: 12px;
+    }
+  }
+
+  @container (max-width: 400px) {
+    .forecast-grid.is-daily {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-height: 620px) {
+    .weather-panel {
+      margin-top: auto;
+      padding-top: 9px;
+    }
+
+    .weather-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+    }
+
+    .weather-condition {
+      gap: 8px;
+    }
+
+    .weather-condition p:first-child {
+      font-size: 18px;
+    }
+
+    .weather-condition p:last-child {
+      font-size: 12px;
+    }
+
+    .weather-temp {
+      font-size: 42px;
+    }
+
+    .weather-metrics {
+      gap: 2px 10px;
+    }
+
+    .weather-metrics b {
+      font-size: 12px;
+    }
+
+    .weather-metrics small {
+      font-size: 10px;
+    }
+
+    .forecast-grid {
+      margin-top: 7px;
+    }
+
+    .forecast-chip {
+      padding: 5px 2px 4px;
+    }
+
+    .weather-extra {
+      margin-top: 5px;
+      font-size: 11px;
+    }
+  }
+
+  @media (orientation: portrait) {
+    .weather-panel {
+      margin-top: auto;
+    }
+
+    .forecast-grid.is-hourly {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .forecast-grid.is-daily {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
 </style>

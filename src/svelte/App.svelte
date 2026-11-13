@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import WifiOff from '@lucide/svelte/icons/wifi-off';
   import { app, exposeState, restoreUrl, startLive, startTicks, stopLive, toast } from './lib/state.svelte';
   import { DEFAULT_ORDER, PAGE_LABELS, enabledOrder, normalizeOrder } from './lib/pages';
   import type { PageKey } from './lib/types';
@@ -101,7 +102,9 @@
   $effect(() => {
     document.body.dataset.theme = app.theme;
     document.body.dataset.page = app.activeKey;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', app.theme === 'light' ? '#eef3ff' : '#05070d');
+    document.documentElement.classList.toggle('dark', app.theme === 'dark');
+    document.documentElement.classList.toggle('light', app.theme === 'light');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', app.theme === 'light' ? '#eef2f8' : '#151a23');
   });
 
   function scheduleEdgeJump(jumpTo: number, count: number): void {
@@ -228,7 +231,7 @@
   });
 </script>
 
-<div class="app nav-{app.navPosition}">
+<div class="app-shell nav-{app.navPosition}">
   <Rail
     {order}
     activeKey={app.activeKey}
@@ -263,9 +266,9 @@
 </div>
 
 {#if app.online === false}
-  <div class="offline">
-    <span class="offline-dot"></span>
-    <span>连接中断，正在重新连接…</span>
+  <div class="offline" role="status">
+    <WifiOff class="size-3.5" strokeWidth={1.8} />
+    <span>正在重新连接…</span>
   </div>
 {/if}
 
@@ -273,43 +276,38 @@
 <QuestionSheet />
 
 <style>
-.app {
-display: flex;
+.app-shell {
+  display: flex;
   width: 100%;
   height: 100%;
-  background:
-    radial-gradient(80% 60% at 0% 0%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 58%),
-    var(--bg);
+  gap: 14px;
+  padding: 14px;
+  background: transparent;
 }
 
 /* Navigation placement: the rail itself is styled from Rail.svelte. */
-.app.nav-right {
+.app-shell.nav-right {
   flex-direction: row-reverse;
 }
 
-.app.nav-top {
+.app-shell.nav-top {
   flex-direction: column;
 }
 
-.app.nav-bottom {
+.app-shell.nav-bottom {
   flex-direction: column-reverse;
 }
 
-.app.nav-top .pager,
-.app.nav-bottom .pager {
+.app-shell.nav-top .pager,
+.app-shell.nav-bottom .pager {
   height: auto;
   min-height: 0;
 }
 
-.app.nav-top .page,
-.app.nav-bottom .page {
-  padding: 14px 18px;
-}
-
 .pager {
-flex: 1;
+  flex: 1;
   min-width: 0;
-  height: 100%;
+  min-height: 0;
   display: flex;
   overflow-x: auto;
   overflow-y: hidden;
@@ -320,89 +318,59 @@ flex: 1;
 }
 
 .pager::-webkit-scrollbar {
-display: none;
+  display: none;
 }
 
 .page {
-position: relative;
+  position: relative;
   flex: 0 0 100%;
   width: 100%;
   height: 100%;
-  padding: 20px 22px 20px 20px;
   overflow: hidden;
   scroll-snap-align: start;
-  scroll-snap-stop: normal;
+  /* One gesture can advance at most one page, no matter how fast the fling. */
+  scroll-snap-stop: always;
 }
 
 .page-music {
-padding: 0;
-  overflow: hidden;
   isolation: isolate;
 }
 
 .offline {
-position: fixed;
+  position: fixed;
   z-index: 50;
-  left: 112px;
-  top: 18px;
+  top: 20px;
+  left: 50%;
   display: inline-flex;
+  transform: translateX(-50%);
   align-items: center;
   gap: 8px;
-  padding: 9px 14px;
+  padding: 10px 16px;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--red) 28%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
   background: color-mix(in srgb, var(--card) 92%, transparent);
-  color: var(--red);
-  font-size: 11px;
+  color: var(--danger);
+  font-size: 15px;
   font-weight: 600;
+  box-shadow: 0 12px 28px rgb(0 0 0 / 18%);
   backdrop-filter: blur(16px);
 }
 
-.offline-dot {
-width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--red);
-  animation: blink 1.2s ease-in-out infinite;
-}
-
-@keyframes blink {
-0%, 100% { opacity: 0.35; }
-  50% { opacity: 1; }
-}
-
-.page-performance {
-overflow: hidden;
-}
-
 @media (max-height: 760px) {
-  .page {
-    padding: 10px 12px;
+  .app-shell {
+    gap: 10px;
+    padding: 10px;
   }
 }
 
 @media (orientation: portrait) {
+  .app-shell {
+    gap: 10px;
+    padding: 10px;
+  }
   .page {
-    padding: 14px;
-  }
-  .page-home {
     overflow-y: auto;
     scrollbar-width: none;
-  }
-  .page-sessions {
-    overflow-y: auto;
-    scrollbar-width: none;
-  }
-  .page-performance {
-    overflow-y: auto;
-    scrollbar-width: none;
-  }
-  .page-music {
-    overflow-y: auto;
-    scrollbar-width: none;
-  }
-  .offline {
-    left: 88px;
   }
 }
 </style>

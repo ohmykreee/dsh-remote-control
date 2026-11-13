@@ -1,51 +1,34 @@
 <script lang="ts">
-  import Icon from './Icon.svelte';
+  import type { Component } from 'svelte';
+  import {
+    Empty,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyMedia,
+    EmptyTitle,
+  } from '$lib/components/ui/empty/index.js';
+  import { cn } from '$lib/utils.js';
+  import Inbox from '@lucide/svelte/icons/inbox';
 
   let {
-    icon = 'cloud',
+    icon: Icon = Inbox,
     title = '',
     text = '',
-    className = '',
-  }: { icon?: string; title?: string; text?: string; className?: string } = $props();
+    class: className = '',
+  }: {
+    icon?: Component<{ class?: string; strokeWidth?: number }>;
+    title?: string;
+    text?: string;
+    class?: string;
+  } = $props();
 </script>
 
-<div class="empty-state {className}">
-  <Icon name={icon} />
-  <h3>{title}</h3>
-  {#if text}<p>{text}</p>{/if}
-</div>
-
-<style>
-.empty-state {
-margin: 20px 0;
-  padding: 46px 24px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border: 1px dashed var(--line);
-  border-radius: 22px;
-  color: var(--muted);
-  text-align: center;
-}
-
-.empty-state :global(svg) {
-width: 30px;
-  height: 30px;
-  color: var(--faint);
-}
-
-.empty-state h3 {
-margin: 0;
-  color: var(--text);
-  font-size: 15px;
-  font-weight: 570;
-}
-
-.empty-state p {
-margin: 0;
-  font-size: 11px;
-  line-height: 1.5;
-}
-</style>
+<Empty class={cn('gap-4 border-0 p-6 text-center', className)}>
+  <EmptyMedia variant="icon" class="mb-0 size-14 rounded-[16px] border border-border bg-secondary text-brand">
+    <Icon class="size-[26px]" strokeWidth={1.7} />
+  </EmptyMedia>
+  <EmptyHeader class="max-w-none gap-1.5">
+    <EmptyTitle class="text-[20px] font-medium text-foreground">{title}</EmptyTitle>
+    {#if text}<EmptyDescription class="text-[15px] leading-relaxed">{text}</EmptyDescription>{/if}
+  </EmptyHeader>
+</Empty>

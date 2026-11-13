@@ -624,10 +624,6 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
       const relative = safeRelativeFile(pathname.slice('/assets/'.length));
       if (relative) file = `assets/${relative}`;
     }
-    if (!file && pathname.startsWith('/weather-icons/')) {
-      const name = path.basename(pathname);
-      if (/^[A-Z_]+\.svg$/.test(name)) file = `weather-icons/${name}`;
-    }
     if (!file && pathname.startsWith('/fonts/')) {
       const relative = safeRelativeFile(pathname.slice('/fonts/'.length));
       if (relative) file = `fonts/${relative}`;
@@ -646,7 +642,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
         'x-content-type-options': 'nosniff',
         'referrer-policy': 'no-referrer',
         'content-security-policy':
-          "default-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob: https: http:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws: wss: https:; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+          "default-src 'self'; img-src 'self' data: blob: https: http:; media-src 'self' data: blob: https: http:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws: wss: https:; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
         ...extraHeaders,
       });
       res.end(req.method === 'HEAD' ? undefined : body);
@@ -737,8 +733,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
         || pathname === '/manifest.webmanifest'
         || pathname === '/icon.svg'
         || pathname.startsWith('/assets/')
-        || pathname.startsWith('/fonts/')
-        || pathname.startsWith('/weather-icons/');
+        || pathname.startsWith('/fonts/');
       if (staticPath && !authorized) {
         textResponse(res, 401, 'Pairing required');
         return;

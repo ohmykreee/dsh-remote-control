@@ -64,14 +64,8 @@ export const app: ConsoleState = $state({
   performance: null,
 
   media: null,
-  mediaReceivedAt: 0,
-  mediaNow: 0,
   clockNow: Date.now(),
 
-  seekDragging: false,
-  seekInput: 0,
-  seekTarget: 0,
-  seekHoldUntil: 0,
   volumeDragging: false,
   volumeInput: 0.2,
   volumeTarget: 0.2,
@@ -224,8 +218,6 @@ function applyOverview(data: OverviewData | undefined): void {
 
 function applyMedia(payload: MediaPayload | undefined): void {
   app.media = payload ?? null;
-  app.mediaReceivedAt = Date.now();
-  app.mediaNow = app.mediaReceivedAt;
 }
 
 function handleMessage(message: ServerMessage): void {
@@ -300,19 +292,14 @@ export function stopLive(): void {
   disposeLive();
 }
 
-/** One shared second tick and one shared media-projection tick. */
+/** One shared second tick for the clock; media progress is owned by SeekBar. */
 export function startTicks(): () => void {
   app.clockNow = Date.now();
-  app.mediaNow = Date.now();
   const clockTimer = setInterval(() => {
     app.clockNow = Date.now();
   }, 1000);
-  const mediaTimer = setInterval(() => {
-    app.mediaNow = Date.now();
-  }, 900);
   return () => {
     clearInterval(clockTimer);
-    clearInterval(mediaTimer);
   };
 }
 

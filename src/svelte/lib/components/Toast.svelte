@@ -1,38 +1,32 @@
 <script lang="ts">
   import { app } from '../state.svelte';
+  import { Alert } from '$lib/components/ui/alert/index.js';
+  import CircleAlert from '@lucide/svelte/icons/circle-alert';
 </script>
 
 {#if app.toastVisible}
-  <div class="toast" role="status">{app.toastMessage}</div>
+  <div class="toast-layer">
+    <Alert class="flex w-auto items-center gap-2.5 rounded-full border-border bg-popover/95 px-4 py-2.5 text-[15px] text-foreground shadow-lg backdrop-blur-md">
+      <CircleAlert class="size-[19px] text-brand" strokeWidth={1.8} />
+      <span>{app.toastMessage}</span>
+    </Alert>
+  </div>
 {/if}
 
 <style>
-.toast {
-position: fixed;
-  z-index: 60;
-  left: 112px;
-  bottom: 22px;
-  max-width: calc(100vw - 140px);
-  padding: 10px 16px;
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--card) 94%, transparent);
-  color: var(--text);
-  font-size: 11px;
-  font-weight: 550;
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(18px);
-  animation: toast-in 0.2s ease both;
-}
-
-@keyframes toast-in {
-from { opacity: 0; transform: translateY(7px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@media (orientation: portrait) {
-  .toast {
-    left: 88px;
+  .toast-layer {
+    position: fixed;
+    z-index: 60;
+    bottom: 22px;
+    left: 96px;
+    max-width: calc(100vw - 124px);
   }
-}
+
+  @media (max-width: 760px) {
+    .toast-layer {
+      left: 50%;
+      transform: translateX(-50%);
+      max-width: calc(100vw - 32px);
+    }
+  }
 </style>

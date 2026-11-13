@@ -261,14 +261,8 @@ export interface ConsoleState {
   performance: PerformanceData | null;
 
   media: MediaPayload | null;
-  mediaReceivedAt: number;
-  mediaNow: number;
   clockNow: number;
 
-  seekDragging: boolean;
-  seekInput: number;
-  seekTarget: number;
-  seekHoldUntil: number;
   volumeDragging: boolean;
   volumeInput: number;
   volumeTarget: number;

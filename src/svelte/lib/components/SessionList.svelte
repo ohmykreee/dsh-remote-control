@@ -3,8 +3,17 @@
   import type { SessionItem } from '../types';
   import { runningDuration, timeAgo } from '../format';
   import { buildSessionTree, type SessionNode } from '../session-tree';
+  import { Badge } from '$lib/components/ui/badge/index.js';
+  import { Card } from '$lib/components/ui/card/index.js';
+  import { ScrollArea } from '$lib/components/ui/scroll-area/index.js';
+  import { Skeleton } from '$lib/components/ui/skeleton/index.js';
+  import { cn } from '$lib/utils.js';
+  import Layers3 from '@lucide/svelte/icons/layers-3';
+  import MessageCircle from '@lucide/svelte/icons/message-circle';
+  import MessagesSquare from '@lucide/svelte/icons/messages-square';
+  import Panel from './Panel.svelte';
+  import SectionHeader from './SectionHeader.svelte';
   import EmptyState from './EmptyState.svelte';
-  import Icon from './Icon.svelte';
 
   let { sessions = [], error = null }: { sessions?: SessionItem[]; error?: string | null } = $props();
 
@@ -13,17 +22,25 @@
     app.overview === null
       ? '正在读取'
       : sessions.length
-        ? `${sessions.length} 个活动会话`
+        ? `${sessions.length} 个会话`
         : '暂无活动会话',
   );
   const labels: Record<string, string> = { running: '运行中', question: '等待回答', error: '错误', done: '已结束' };
+  const statusClasses: Record<string, string> = {
+    running: 'status-success',
+    question: 'status-warn',
+    error: 'status-danger',
+    done: 'border-border bg-secondary text-muted-foreground',
+  };
 
   function statusOf(session: SessionItem): string {
-    return session.status && ['running', 'question', 'error', 'done'].includes(session.status) ? session.status : 'done';
+    return session.status && ['running', 'question', 'error', 'done'].includes(session.status)
+      ? session.status
+      : 'done';
   }
 
   function previewOf(session: SessionItem): string {
-    return session.error || session.pending?.question || session.preview || session.cwd || '暂无消息';
+    return session.error || session.pending?.question || session.preview || '暂无消息';
   }
 
   function runningSinceOf(session: SessionItem): number | null {
@@ -31,23 +48,17 @@
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
   }
 
-  function metaOf(session: SessionItem, depth: number): string[] {
-    return [
-      session.cwd,
-      session.turn ? `第 ${session.turn} 轮` : '',
-      session.isSubagent && depth === 0 ? '子代理' : '',
-    ].filter((item): item is string => Boolean(item));
-  }
-
   function isWaiting(session: SessionItem): boolean {
     return statusOf(session) === 'question';
   }
 
   function canQuickAnswer(session: SessionItem): boolean {
-    return isWaiting(session)
-      && app.pushQuestions
-      && session.pending?.answerable !== false
-      && (session.pending?.questions?.length ?? 0) > 0;
+    return (
+      isWaiting(session) &&
+      app.pushQuestions &&
+      session.pending?.answerable !== false &&
+      (session.pending?.questions?.length ?? 0) > 0
+    );
   }
 
   function openSession(session: SessionItem): void {
@@ -60,446 +71,286 @@
     event.preventDefault();
     openSession(session);
   }
+
+  function metaOf(session: SessionItem, depth: number): string[] {
+    return [
+      session.turn ? `第 ${session.turn} 轮` : '',
+      session.isSubagent && depth === 0 ? '子代理' : '',
+    ].filter((item): item is string => Boolean(item));
+  }
 </script>
 
 {#snippet sessionNode(node: SessionNode, depth: number)}
   {@const session = node.session}
   {@const status = statusOf(session)}
   {@const runningSince = runningSinceOf(session)}
-  <article
-    class="session-card is-{status}"
-    class:is-subagent={depth > 0}
-    class:has-children={node.children.length > 0}
-    class:is-clickable={isWaiting(session)}
-    style={depth > 0 ? `--session-depth:${Math.min(depth, 4)}` : undefined}
+  <Card
+    class={cn(
+      'session-card gap-0 rounded-[18px] border bg-card px-3.5 py-3 shadow-none ring-0 [--card-spacing:0px]',
+      status === 'running' && 'border-success/20',
+      status === 'question' && 'border-warn/25',
+      status === 'error' && 'border-danger/25',
+      isWaiting(session) && 'cursor-pointer',
+      depth > 0 && 'is-subagent bg-surface-2/60',
+    )}
+    role={isWaiting(session) ? 'button' : undefined}
+    tabindex={isWaiting(session) ? 0 : undefined}
+    aria-label={isWaiting(session) ? `回答会话 ${session.title || '新会话'}` : undefined}
+    onclick={() => openSession(session)}
+    onkeydown={(event) => openSessionFromKey(event, session)}
   >
-    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-    <div
-      class="session-hit"
-      role={isWaiting(session) ? 'button' : undefined}
-      tabindex={isWaiting(session) ? 0 : undefined}
-      aria-label={isWaiting(session) ? `回答会话 ${session.title || '新会话'}` : undefined}
-      onclick={() => openSession(session)}
-      onkeydown={(event) => openSessionFromKey(event, session)}
-    >
-      <div class="session-row">
-        <div class="session-icon">{Array.from(session.title || '新')[0] || '新'}</div>
-        <div class="session-main">
-          <h3 class="session-title">{session.title || '新会话'}</h3>
-          <p class="session-preview">{previewOf(session)}</p>
+    <div class="flex min-w-0 items-start gap-3">
+      <span class={cn('session-icon', `tone-${status}`)} aria-hidden="true">
+        {Array.from(session.title || '新')[0] || '新'}
+        <i></i>
+      </span>
+
+      <div class="min-w-0 flex-1">
+        <div class="flex items-start justify-between gap-2.5">
+          <h3 class="session-title min-w-0 pt-0.5 text-[21px] leading-snug font-semibold text-foreground">
+            {session.title || '新会话'}
+          </h3>
+          <Badge
+            variant="outline"
+            class={cn(
+              'mt-0.5 h-8 shrink-0 gap-1.5 rounded-full border px-3 text-[13px] font-semibold',
+              statusClasses[status],
+            )}
+          >
+            <span class="status-dot"></span>
+            {labels[status]}
+          </Badge>
         </div>
-        <div class="session-side">
-          <span class="status-badge is-{status}"><i></i>{labels[status]}</span>
-        </div>
-      </div>
-      <div class="session-footer">
-        <div class="session-meta">
-          {#each metaOf(session, depth) as item, metaIndex (metaIndex)}<span>{item}</span>{/each}
-        </div>
-        <div class="session-footer-end">
-          {#if canQuickAnswer(session)}
-            <span class="session-answer"><Icon name="chat" /> 点击回答</span>
-          {/if}
+
+        <p class="session-preview mt-1 line-clamp-2 text-[15px] leading-snug text-muted-foreground">
+          {previewOf(session)}
+        </p>
+
+        <div class="mt-2 flex min-w-0 items-center justify-between gap-3">
+          <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            {#if session.error}
+              <span class="text-[13px] font-medium text-danger">需要处理</span>
+            {:else}
+              {#each metaOf(session, depth) as item, metaIndex (metaIndex)}
+                <span class="text-[13px] text-muted-foreground">{item}</span>
+              {/each}
+            {/if}
+            {#if canQuickAnswer(session)}
+              <span class="inline-flex items-center gap-1.5 text-[13px] font-semibold text-warn">
+                <MessageCircle class="size-4" strokeWidth={1.8} />
+                回答
+              </span>
+            {/if}
+          </div>
+
           {#if runningSince !== null}
-            <span class="session-time is-running" title="本轮用时">{runningDuration(runningSince, app.clockNow)}</span>
+            <span class="numeric shrink-0 text-[13px] font-semibold text-success">
+              {runningDuration(runningSince, app.clockNow)}
+            </span>
           {:else}
-            <span class="session-time">{timeAgo(session.lastActiveAt, app.clockNow)}</span>
+            <span class="shrink-0 text-[13px] text-muted-foreground">
+              {timeAgo(session.lastActiveAt, app.clockNow)}
+            </span>
           {/if}
         </div>
       </div>
     </div>
+
     {#if node.children.length > 0}
       <div class="session-children">
-        <div class="session-children-label">子代理 · {node.children.length}</div>
+        <div class="mb-2 flex items-center gap-2 text-[13px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
+          子代理
+          <span class="h-px flex-1 bg-border"></span>
+          {node.children.length}
+        </div>
         {#each node.children as child (child.session.id || child.session.title)}
           {@render sessionNode(child, depth + 1)}
         {/each}
       </div>
     {/if}
-  </article>
+  </Card>
 {/snippet}
 
-<section class="conversation-column">
-  <header class="section-header">
-    <div><span class="kicker">CONVERSATIONS</span><h1>会话</h1></div>
-    <span class="section-meta">{subtitle}</span>
-  </header>
-  <div class="session-list">
+<Panel class="conversation-panel flex min-h-0 flex-col p-4">
+  <SectionHeader icon={Layers3} eyebrow="CONVERSATIONS" title="会话" class="mb-3">
+    {#snippet children()}
+      <span class="text-[15px] text-muted-foreground">{subtitle}</span>
+    {/snippet}
+  </SectionHeader>
+
+  <div class="-mx-2 flex min-h-0 flex-1 flex-col border-t border-border pt-3">
     {#if app.overview === null && sessions.length === 0 && !error}
-      <div class="skeleton-row"></div>
-      <div class="skeleton-row"></div>
-      <div class="skeleton-row"></div>
+      <div class="flex flex-col gap-2 px-2">
+        {#each Array(4) as _, index (index)}
+          <div class="rounded-[18px] border border-border px-3.5 py-3">
+            <div class="flex items-center gap-3">
+              <Skeleton class="size-11 rounded-[13px]" />
+              <div class="flex-1 space-y-2">
+                <Skeleton class="h-4 w-2/5" />
+                <Skeleton class="h-3 w-3/4" />
+              </div>
+            </div>
+          </div>
+        {/each}
+      </div>
     {:else if error}
-      <EmptyState icon="layers" title="会话读取失败" text={error} />
+      <div class="flex min-h-0 flex-1 items-center justify-center px-6">
+        <EmptyState icon={MessagesSquare} title="会话暂时无法加载" text="稍后再试" />
+      </div>
     {:else if sessions.length === 0}
-      <EmptyState icon="layers" title="暂无会话" text="在 DSH 中开始一个会话后会出现在这里。" />
+      <div class="flex min-h-0 flex-1 items-center justify-center px-6">
+        <EmptyState icon={MessagesSquare} title="暂无会话" text="新的会话会显示在这里" />
+      </div>
     {:else}
-      {#each tree as node (node.session.id || node.session.title)}
-        {@render sessionNode(node, 0)}
-      {/each}
+      <ScrollArea class="min-h-0 flex-1" scrollbarYClasses="w-2">
+        <div class="flex flex-col gap-2 px-2 pb-1">
+          {#each tree as node (node.session.id || node.session.title)}
+            {@render sessionNode(node, 0)}
+          {/each}
+        </div>
+      </ScrollArea>
     {/if}
   </div>
-</section>
+</Panel>
 
 <style>
-.session-list::-webkit-scrollbar {
-display: none;
-}
-
-.section-header {
-display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.section-header h1 {
-margin: 4px 0 0;
-  font-size: 25px;
-  line-height: 1.05;
-  letter-spacing: -0.035em;
-  font-weight: 600;
-}
-
-.conversation-column {
-display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.section-header {
-align-items: flex-end;
-  margin: 2px 2px 8px;
-}
-
-.section-header h1 {
-font-size: 27px;
-}
-
-.section-meta {
-color: var(--muted);
-  font-size: 10px;
-}
-
-.session-list {
-flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-right: 2px;
-}
-
-.session-card {
-display: flex;
-  flex-direction: column;
-  gap: 0;
-  min-width: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--card);
-}
-
-.session-row {
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-  min-width: 0;
-}
-
-.session-hit {
-  border-radius: 12px;
-}
-
-.session-card.is-clickable .session-hit {
-  cursor: pointer;
-}
-
-/* Subagent cards live inside the dispatching agent's card and step right. */
-.session-card.is-subagent {
-  padding: 8px 10px;
-  border-radius: 13px;
-  background: color-mix(in srgb, var(--card-2) 76%, transparent);
-}
-
-.session-card.is-subagent .session-row {
-  grid-template-columns: 32px minmax(0, 1fr) auto;
-  gap: 8px;
-}
-
-.session-card.is-subagent .session-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  font-size: 12px;
-}
-
-.session-card.is-subagent .session-icon::after {
-  width: 8px;
-  height: 8px;
-}
-
-.session-card.is-subagent .session-title {
-  font-size: 12.5px;
-}
-
-.session-children {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
-  margin-left: 12px;
-  padding-left: 10px;
-  border-left: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
-}
-
-.session-children-label {
-  color: var(--faint);
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.session-time.is-running {
-  color: var(--green);
-  font-variant-numeric: tabular-nums;
-  font-weight: 650;
-}
-
-.session-hit:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
-  outline-offset: 2px;
-}
-
-.session-card.is-running {
-border-color: color-mix(in srgb, var(--green) 22%, transparent);
-  background: color-mix(in srgb, var(--green) 9%, var(--card));
-}
-
-.session-card.is-question {
-border-color: color-mix(in srgb, var(--amber) 38%, transparent);
-  background: color-mix(in srgb, var(--amber) 13%, var(--card));
-}
-
-.session-card.is-error {
-border-color: color-mix(in srgb, var(--red) 38%, transparent);
-  background: color-mix(in srgb, var(--red) 13%, var(--card));
-}
-
-.session-icon {
-width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent-2);
-  font-size: 14px;
-  font-weight: 680;
-  position: relative;
-}
-
-.session-card.is-running .session-icon {
-color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent);
-}
-
-.session-card.is-question .session-icon {
-color: var(--amber); background: color-mix(in srgb, var(--amber) 13%, transparent);
-}
-
-.session-card.is-error .session-icon {
-color: var(--red); background: color-mix(in srgb, var(--red) 13%, transparent);
-}
-
-.session-icon::after {
-content: "";
-  position: absolute;
-  right: -2px;
-  bottom: -2px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 2px solid var(--card);
-  background: var(--faint);
-}
-
-.session-card.is-running .session-icon::after {
-background: var(--green);
-}
-
-.session-card.is-question .session-icon::after {
-background: var(--amber);
-}
-
-.session-card.is-error .session-icon::after {
-background: var(--red);
-}
-
-.session-card.is-done .session-icon::after {
-background: var(--accent-2); opacity: 0.6;
-}
-
-.session-main {
-min-width: 0;
-}
-
-.session-title {
-margin: 0;
-  font-size: 13.5px;
-  line-height: 1.3;
-  font-weight: 590;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.session-preview {
-margin: 2px 0 0;
-  color: var(--muted);
-  font-size: 10.5px;
-  line-height: 1.32;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.session-meta {
-display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-  margin: 0;
-  color: var(--faint);
-  font-size: 9px;
-  line-height: 1.3;
-}
-
-.session-footer {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 3px;
-  padding-left: 48px;
-}
-
-.session-footer-end {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: baseline;
-  gap: 9px;
-}
-
-.session-answer {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 20px;
-  padding: 0 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--amber) 15%, transparent);
-  color: var(--amber);
-  font-size: 8.5px;
-  font-weight: 650;
-  white-space: nowrap;
-}
-
-.session-answer :global(svg) {
-  width: 10px;
-  height: 10px;
-}
-.session-card.is-subagent .session-footer {
-  padding-left: 40px;
-}
-
-.session-side {
-display: flex;
-  align-items: flex-start;
-  justify-content: flex-end;
-}
-
-.status-badge {
-display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 23px;
-  padding: 0 9px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 9.5px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.status-badge i {
-width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.status-badge.is-running {
-color: var(--green); border-color: color-mix(in srgb, var(--green) 22%, transparent); background: color-mix(in srgb, var(--green) 14%, var(--card));
-}
-
-.status-badge.is-question {
-color: var(--amber); border-color: color-mix(in srgb, var(--amber) 24%, transparent); background: color-mix(in srgb, var(--amber) 16%, var(--card));
-}
-
-.status-badge.is-error {
-color: var(--red); border-color: color-mix(in srgb, var(--red) 24%, transparent); background: color-mix(in srgb, var(--red) 16%, var(--card));
-}
-
-.status-badge.is-done {
-color: var(--accent-2); border-color: color-mix(in srgb, var(--accent) 18%, transparent);
-}
-
-.session-time {
-flex: 0 0 auto;
-  color: var(--faint);
-  font-size: 9.5px;
-  line-height: 1.3;
-  text-align: right;
-  white-space: nowrap;
-}
-
-@media (max-height: 760px) {
-  .section-header {
-    margin-bottom: 6px;
+  :global(.conversation-panel) {
+    background:
+      radial-gradient(80% 100% at 100% 0%, color-mix(in srgb, var(--brand) 4%, transparent), transparent 60%),
+      var(--card);
   }
-  .section-header h1 {
-    font-size: 24px;
+
+  .session-card.is-subagent {
+    border-radius: 15px;
   }
-  .session-list {
-    gap: 5px;
-  }
-  .session-card {
-    padding: 8px 10px;
-    border-radius: 14px;
-  }
+
   .session-icon {
-    width: 34px;
-    height: 34px;
-    border-radius: 10px;
-    font-size: 13px;
+    position: relative;
+    display: grid;
+    width: 42px;
+    height: 42px;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 1px solid color-mix(in srgb, var(--brand) 16%, transparent);
+    border-radius: 12px;
+    background: var(--brand-soft);
+    color: var(--brand);
+    font-size: 16px;
+    font-weight: 650;
   }
-  .session-title {
-    font-size: 13px;
-  }
-  .session-preview {
-    font-size: 10px;
-  }
-}
 
-@media (orientation: portrait) {
-  .conversation-column {
-    min-height: 420px;
+  .session-icon.tone-running {
+    border-color: color-mix(in srgb, var(--success) 18%, transparent);
+    background: var(--success-soft);
+    color: var(--success);
   }
-}
+
+  .session-icon.tone-question {
+    border-color: color-mix(in srgb, var(--warn) 20%, transparent);
+    background: var(--warn-soft);
+    color: var(--warn);
+  }
+
+  .session-icon.tone-error {
+    border-color: color-mix(in srgb, var(--danger) 20%, transparent);
+    background: var(--danger-soft);
+    color: var(--danger);
+  }
+
+  .session-icon i {
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+    width: 10px;
+    height: 10px;
+    border: 2px solid var(--card);
+    border-radius: 50%;
+    background: var(--muted-foreground);
+  }
+
+  .session-icon.tone-running i {
+    background: var(--success);
+  }
+
+  .session-icon.tone-question i {
+    background: var(--warn);
+  }
+
+  .session-icon.tone-error i {
+    background: var(--danger);
+  }
+
+  .session-icon.tone-done i {
+    background: var(--brand);
+    opacity: 0.55;
+  }
+
+  .session-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  :global(.session-card.is-subagent .session-icon) {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    font-size: 14px;
+  }
+
+  :global(.session-card.is-subagent .session-title) {
+    font-size: 19px;
+  }
+
+  .session-card:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--brand) 65%, transparent);
+    outline-offset: 2px;
+  }
+
+  .status-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  .session-children {
+    display: flex;
+    flex-direction: column;
+    margin-top: 10px;
+    margin-left: 16px;
+    padding-left: 12px;
+    border-left: 1px solid color-mix(in srgb, var(--brand) 20%, transparent);
+  }
+
+  @media (max-height: 760px) {
+    :global(.conversation-panel) {
+      padding: 12px;
+    }
+
+    :global(.session-card) {
+      padding: 8px 11px;
+    }
+
+    .session-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      font-size: 14px;
+    }
+
+    .session-title {
+      font-size: 19px;
+    }
+
+    .session-preview {
+      font-size: 14.5px;
+    }
+  }
+
+  @media (orientation: portrait) {
+    :global(.conversation-panel) {
+      min-height: 420px;
+    }
+  }
 </style>

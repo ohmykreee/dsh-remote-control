@@ -2,6 +2,7 @@
 node_modules/
 
 # local test / debug artifacts
+.mock-web/
 .scratch/
 scratch/
 tmp/

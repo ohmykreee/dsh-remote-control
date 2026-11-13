@@ -51,6 +51,9 @@ assert.equal(unauthorized.status, 401);
 
 const page = await fetch(`${base}/?token=${encodeURIComponent(service.settingsStore.get().token)}`);
 assert.equal(page.status, 200);
+const pageCsp = page.headers.get('content-security-policy') || '';
+assert.match(pageCsp, /img-src[^;]*https:/);
+assert.match(pageCsp, /img-src[^;]*http:/);
 const pageText = await page.text();
 assert.match(pageText, /DSH Home/);
 

@@ -10,7 +10,15 @@
     switchPomodoroPhase,
     togglePomodoro,
   } from '../pomodoro.svelte';
-  import Icon from './Icon.svelte';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import { Progress } from '$lib/components/ui/progress/index.js';
+  import { Badge } from '$lib/components/ui/badge/index.js';
+  import { cn } from '$lib/utils.js';
+  import Play from '@lucide/svelte/icons/play';
+  import Pause from '@lucide/svelte/icons/pause';
+  import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
+  import BellRing from '@lucide/svelte/icons/bell-ring';
+  import Timer from '@lucide/svelte/icons/timer';
 
   // Every page is rendered twice (infinite-loop clones), so the engine is
   // reference-counted and shared instead of running once per card instance.
@@ -18,17 +26,24 @@
 
   const phaseLabel = $derived(
     pomodoro.finished
-      ? pomodoro.phase === 'focus' ? '专注完成' : '休息结束'
-      : pomodoro.phase === 'focus' ? '专注' : '休息',
+      ? pomodoro.phase === 'focus'
+        ? '专注完成'
+        : '休息结束'
+      : pomodoro.phase === 'focus'
+        ? '专注'
+        : '休息',
   );
   const primaryLabel = $derived(
     pomodoro.alarmActive
       ? '停止响铃'
       : pomodoro.finished
-        ? pomodoro.phase === 'focus' ? '开始休息' : '开始专注'
-        : pomodoro.running ? '暂停' : '开始',
+        ? pomodoro.phase === 'focus'
+          ? '开始休息'
+          : '开始专注'
+        : pomodoro.running
+          ? '暂停'
+          : '开始',
   );
-  const primaryState = $derived(pomodoro.alarmActive ? 'is-alarm' : pomodoro.finished ? 'is-finished' : '');
   const time = $derived(formatRemaining(pomodoro.remainingMs));
   const percent = $derived(pomodoroProgress());
 
@@ -42,279 +57,193 @@
 </script>
 
 <div
-  class="pomodoro-card"
+  class="pomodoro"
   class:is-break={pomodoro.phase === 'break'}
-  class:is-running={pomodoro.running}
   class:is-finished={pomodoro.finished}
+  class:is-alarm={pomodoro.alarmActive}
   data-phase={pomodoro.phase}
   data-running={pomodoro.running ? 'true' : 'false'}
 >
-  <div class="pomodoro-main">
-    <div class="pomodoro-meta">
-      <span class="pomodoro-kicker">POMODORO</span>
+  <div class="flex min-w-0 flex-1 flex-col justify-center">
+    <div class="flex items-center gap-2.5">
+      <Timer class="size-[18px] text-brand" strokeWidth={1.8} />
+      <span class="text-[16px] font-medium text-muted-foreground">番茄钟</span>
       <button
-        class="pomodoro-phase"
+        class="phase-button"
         type="button"
         disabled={pomodoro.running}
         title="切换专注 / 休息"
         onclick={switchPomodoroPhase}
-      >{phaseLabel}{#if pomodoro.rounds > 0}<span> · {pomodoro.rounds} 个</span>{/if}</button>
-    </div>
-    <div class="pomodoro-clock" aria-live="off">{time}</div>
-    <div class="pomodoro-actions">
-      <button class="pomodoro-primary {primaryState}" type="button" onclick={handlePrimary} title={primaryLabel}>
-        <Icon name={pomodoro.alarmActive ? 'bell' : pomodoro.running ? 'pause' : 'play'} />
-        <span>{primaryLabel}</span>
+      >
+        {phaseLabel}
       </button>
-      <button class="pomodoro-reset" type="button" onclick={resetPomodoro} aria-label="重置番茄钟" title="重置">
-        <Icon name="reset" />
-      </button>
+      {#if pomodoro.rounds > 0}
+        <Badge
+          variant="outline"
+          class="h-6 border-border bg-secondary px-2 text-[12px] font-medium text-muted-foreground"
+        >
+          {pomodoro.rounds} 个
+        </Badge>
+      {/if}
     </div>
-    <div class="pomodoro-progress" aria-hidden="true"><i style={`width:${percent}%`}></i></div>
+
+    <div class="pomodoro-main-row">
+      <span class="pomodoro-time numeric" aria-live="off">{time}</span>
+
+      <div class="flex shrink-0 items-center gap-2.5">
+        <Button
+          class={cn(
+            'h-12 gap-2 rounded-[14px] px-5 text-[16px] font-semibold shadow-none',
+            pomodoro.finished && !pomodoro.alarmActive && 'bg-success text-[#041b14] hover:bg-success/90',
+            pomodoro.alarmActive && 'bg-danger text-white hover:bg-danger/90',
+          )}
+          type="button"
+          title={primaryLabel}
+          onclick={handlePrimary}
+        >
+          {#if pomodoro.alarmActive}
+            <BellRing class="size-[19px]" strokeWidth={1.9} />
+          {:else if pomodoro.running}
+            <Pause class="size-[19px]" strokeWidth={1.9} />
+          {:else}
+            <Play class="size-[19px] fill-current" strokeWidth={1.9} />
+          {/if}
+          <span>{primaryLabel}</span>
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          class="size-12 rounded-[14px] border-border bg-transparent text-muted-foreground hover:bg-secondary hover:text-foreground"
+          type="button"
+          onclick={resetPomodoro}
+          aria-label="重置番茄钟"
+          title="重置"
+        >
+          <RotateCcw class="size-[20px]" strokeWidth={1.8} />
+        </Button>
+      </div>
+    </div>
   </div>
+
+  <Progress
+    value={percent}
+    class={cn(
+      'mt-3 h-1.5 bg-secondary',
+      pomodoro.finished ? '[&>[data-slot=progress-indicator]]:bg-success' : '[&>[data-slot=progress-indicator]]:bg-brand',
+    )}
+  />
 </div>
 
 <style>
-/* No card chrome: a divider above and the weather panel's own divider below. */
-.pomodoro-card {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  margin-top: 14px;
-  padding: 18px 2px 28px;
-  border-top: 1px solid var(--line);
-  background: none;
-}
-
-.pomodoro-main {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas:
-    "meta actions"
-    "clock clock"
-    "progress progress";
-  align-content: center;
-  align-items: center;
-  gap: 18px 16px;
-}
-
-.pomodoro-meta {
-  grid-area: meta;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
-  min-width: 0;
-}
-
-.pomodoro-kicker {
-  color: var(--faint);
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-}
-
-.pomodoro-phase {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--accent-2);
-  font-size: 12px;
-  font-weight: 650;
-  text-align: left;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.pomodoro-phase:disabled {
-  cursor: default;
-  opacity: 0.85;
-}
-
-.pomodoro-phase span {
-  color: var(--faint);
-  font-weight: 500;
-}
-
-.pomodoro-clock {
-  grid-area: clock;
-  justify-self: center;
-  color: var(--text);
-  font-family: var(--mono);
-  font-size: clamp(52px, 17cqw, 80px);
-  font-weight: 600;
-  letter-spacing: -0.03em;
-  line-height: 1;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-
-.pomodoro-actions {
-  grid-area: actions;
-  justify-self: end;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.pomodoro-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 38px;
-  padding: 0 15px;
-  border-radius: 11px;
-  border: 1px solid transparent;
-  background: linear-gradient(145deg, var(--accent-2), var(--accent));
-  color: #fff;
-  font-size: 11.5px;
-  font-weight: 650;
-  white-space: nowrap;
-}
-
-.pomodoro-primary:active {
-  transform: scale(0.96);
-}
-
-.pomodoro-primary.is-finished {
-  background: linear-gradient(145deg, color-mix(in srgb, var(--green) 76%, #fff), var(--green));
-  color: #06241c;
-}
-
-.pomodoro-primary.is-alarm {
-  background: linear-gradient(145deg, color-mix(in srgb, var(--red) 82%, #fff), var(--red));
-  color: #fff;
-}
-
-.pomodoro-reset {
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  color: var(--muted);
-}
-
-.pomodoro-primary :global(svg) {
-  width: 15px;
-  height: 15px;
-}
-
-.pomodoro-reset :global(svg) {
-  width: 15px;
-  height: 15px;
-}
-
-.pomodoro-progress {
-  grid-area: progress;
-  height: 3px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--text) 5%, transparent);
-}
-
-.pomodoro-progress i {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--accent), var(--cyan));
-  transition: width 0.25s linear;
-}
-
-.pomodoro-card.is-break .pomodoro-progress i {
-  background: linear-gradient(90deg, var(--green), var(--cyan));
-}
-
-.pomodoro-card.is-finished {
-  border-top-color: color-mix(in srgb, var(--green) 55%, transparent);
-}
-
-.pomodoro-card.is-finished .pomodoro-clock,
-.pomodoro-card.is-finished .pomodoro-phase {
-  color: var(--green);
-}
-
-/* Narrow clock cards: stack the rows so actions never overlap the phase. */
-@container (max-width: 300px) {
-  .pomodoro-main {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      "meta"
-      "clock"
-      "actions"
-      "progress";
-    justify-items: center;
-    gap: 10px;
+  .pomodoro {
+    display: flex;
+    min-height: 142px;
+    max-height: 230px;
+    flex: 1 1 auto;
+    flex-direction: column;
+    justify-content: center;
+    margin: clamp(20px, 3.5vh, 32px) 0;
+    padding: 16px 18px 14px;
+    border: 1px solid var(--border);
+    border-radius: 19px;
+    background: color-mix(in srgb, var(--secondary) 46%, transparent);
   }
-  .pomodoro-meta {
+
+  .phase-button {
+    min-width: 0;
+    padding: 3px 8px;
+    border: 1px solid color-mix(in srgb, var(--brand) 20%, transparent);
+    border-radius: 999px;
+    background: var(--brand-soft);
+    color: var(--brand);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.2;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .phase-button:disabled {
+    cursor: default;
+    color: var(--foreground);
+    background: var(--secondary);
+    border-color: var(--border);
+  }
+
+  .pomodoro-main-row {
+    display: flex;
     align-items: center;
-    text-align: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-top: 7px;
   }
-  .pomodoro-phase {
-    text-align: center;
-  }
-  .pomodoro-actions {
-    justify-self: center;
-  }
-}
 
-@media (max-height: 620px) {
-  .pomodoro-card {
-    margin-top: 10px;
-    padding: 10px 2px 22px;
+  .pomodoro-time {
+    color: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: clamp(48px, 7vh, 62px);
+    font-weight: 580;
+    line-height: 1;
+    letter-spacing: -0.05em;
   }
-  .pomodoro-main {
-    gap: 18px 12px;
-  }
-  .pomodoro-clock {
-    font-size: clamp(48px, 18cqw, 64px);
-  }
-  .pomodoro-primary {
-    min-height: 32px;
-    padding: 0 11px;
-  }
-  .pomodoro-reset {
-    width: 32px;
-    height: 32px;
-  }
-}
 
-/* Very short landscape cards: keep one compact row so the card never spills
-   into the clock or weather sections. */
-@media (max-height: 500px) {
-  .pomodoro-card {
-    padding: 8px 2px 12px;
+  .pomodoro.is-finished .pomodoro-time {
+    color: var(--success);
   }
-  .pomodoro-main {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "clock actions"
-      "progress progress";
-    justify-items: stretch;
-    gap: 8px 10px;
+
+  .pomodoro.is-alarm {
+    border-color: color-mix(in srgb, var(--danger) 28%, transparent);
+    background: var(--danger-soft);
   }
-  .pomodoro-meta {
-    display: none;
+
+  @media (max-height: 760px) {
+    .pomodoro {
+      min-height: 118px;
+      max-height: 180px;
+      margin: 14px 0;
+      padding: 11px 13px 10px;
+      border-radius: 17px;
+    }
+
+    .pomodoro-main-row {
+      margin-top: 5px;
+    }
+
+    .pomodoro-time {
+      font-size: clamp(44px, 8vh, 58px);
+    }
   }
-  .pomodoro-clock {
-    justify-self: start;
-    font-size: clamp(32px, 10cqw, 44px);
+
+  @media (max-height: 620px) {
+    .pomodoro {
+      min-height: 104px;
+      max-height: 160px;
+      margin: 10px 0;
+      padding: 9px 12px 8px;
+    }
+
+    .pomodoro-time {
+      font-size: 42px;
+    }
+
+    .phase-button {
+      padding: 2px 7px;
+      font-size: 12px;
+    }
   }
-  .pomodoro-actions {
-    justify-self: end;
+
+  @container (max-width: 360px) {
+    .pomodoro-main-row {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+
+    .pomodoro-main-row > .flex {
+      width: 100%;
+    }
+
+    .pomodoro-main-row :global(button[data-slot='button']:first-child) {
+      flex: 1;
+    }
   }
-  .pomodoro-primary {
-    min-height: 30px;
-    padding: 0 9px;
-    font-size: 10px;
-  }
-  .pomodoro-reset {
-    width: 30px;
-    height: 30px;
-  }
-}
 </style>

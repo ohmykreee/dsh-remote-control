@@ -134,13 +134,14 @@ window.__ModuleLoader__.load({
 index.js                  生成物：Host 入口（gitignore）
 client.js                 生成物：DSH 侧边栏模块工厂（gitignore）
 lib/                      生成物：Host 逻辑（gitignore）
-web/                      生成物：手机端页面、字体、天气图标（gitignore）
+web/                      生成物：手机端页面、字体（gitignore）
 native/bin/               生成物：Rust 探针二进制（gitignore）
 locale/                   DSH 侧边栏本地化资源
 icon.svg                  插件图标
 cordis.patch.yml          bundle patch
 package.json              插件元数据、依赖、脚本、DSH 契约
-vite.config.js            Vite + Svelte 构建配置
+components.json           shadcn-svelte CLI 配置（UI 别名、样式注册表）
+vite.config.js            Vite + Tailwind CSS v4 + Svelte 构建配置
 svelte.config.js          Svelte 预处理器配置
 tsconfig.json             Svelte 端 TypeScript / svelte-check
 tsconfig.dsh.json         Host 编译配置（src/dsh → index.js + lib/）
@@ -148,6 +149,7 @@ tsconfig.dsh-client.json  浏览器端编译配置（src/dsh/client/index.ts + �
 scripts/build-dsh.mjs     编译 src/dsh，写 index.js / client.js / lib/，并把客户端模块合并成单一工厂
 scripts/build-web.mjs     以编程方式调用 Vite，输出 web/
 scripts/build-rust.mjs    编译 src/rust，产物写 native/bin/
+scripts/mock-preview.py   开发用：从 web/ 生成带假 WebSocket 的演示页并本地服务
 src/dsh/index.ts          Host 入口（inject / apply）
 src/dsh/client/index.ts   DSH 侧边栏入口（inject / apply / slot 注册）
 src/dsh/client/types.ts   Host/Client 线格式与 PanelApi 契约
@@ -177,10 +179,14 @@ src/dsh/lib/qr.ts         二维码 SVG
 src/dsh/lib/util.ts       路径、版本、时间、转义等纯函数
 src/dsh/lib/types.ts      共享 Host 类型
 src/dsh/lib/platform/index.ts 组装媒体与通知适配器
-src/svelte/               手机端 Svelte 5 + TypeScript
-src/svelte/lib/           状态、WebSocket、格式化、图标、媒体投影
-src/svelte/lib/components/ 页面与卡片组件
-src/svelte/styles/        全局颜色令牌与基础样式
+src/svelte/               手机端 Svelte 5 + TypeScript + Tailwind CSS v4
+src/svelte/lib/           状态、WebSocket、格式化、媒体投影；utils.ts 为 shadcn cn 辅助
+src/svelte/lib/components/ 页面与业务卡片；Panel/SectionHeader 为统一卡片外壳
+src/svelte/lib/components/ui/ shadcn-svelte 组件（Button/Card/Badge/Slider/Dialog/Sheet 等）
+src/svelte/lib/components/RadialGauge.svelte 性能占用率圆环
+src/svelte/lib/components/SeekBar.svelte 自实现拖动轨道 + shadcn Progress 的本地媒体时间轴
+src/svelte/lib/components/WeatherIcon.svelte Lucide 天气图标映射
+src/svelte/styles/        全局设计令牌与 Tailwind/shadcn 基础样式
 src/rust/src/cli.rs       命令行解析与 JSON 信封
 src/rust/src/daemon.rs    常驻模式：stdin/stdout 按行请求/响应
 src/rust/src/media/       媒体适配层（catalog + 平台实现 + 无障碍）
@@ -191,7 +197,8 @@ src/rust/src/volume/      音量
 src/rust/src/location/    定位
 src/rust/tests/cli.rs     CLI 端到端测试
 test/                     Node 集成测试（8 个 .mjs）
-static/                   Vite 公共资源（图标、manifest、字体许可、天气图标）
+.mock-web/                开发用：mock-preview.py 生成的预览目录（gitignore）
+static/                   Vite 公共资源（图标、manifest、字体许可）
 docs/screenshots/         手机端截图（仅图片）
 .probe-tmp/               探针只读 SQLite 副本的临时目录（运行时生成）
 ```
@@ -221,7 +228,7 @@ docs/screenshots/         手机端截图（仅图片）
 
 - 默认端口 `38765`，可用 `DSH_REMOTE_CONTROL_PORT` 覆盖；绑定 `0.0.0.0`；端口占用时回退到随机可用端口；
 - 可选 HTTPS：读取 PEM 证书/私钥；配置无效时回退 HTTP 并在 `info.tls.error` 中报告；
-- 静态文件：`web/` 下的页面、`/assets/`、字体、天气图标、`/manifest.webmanifest`、`/icon.svg`；
+- 静态文件：`web/` 下的页面、`/assets/`、字体、`/manifest.webmanifest`、`/icon.svg`；
 - 鉴权：`tokenEnabled` 时，`/`、静态资源和 `/ws` 需要 `?token=` 或 `dsh_rc` cookie；失败返回 401 页面；`/api/pomodoro/sound` 只对已授权页面开放；
 - 网卡限制：`allowedInterfaces` 为 null 表示全部；否则按 CIDR 匹配来源 IP，回环地址始终放行；
 - 请求体上限 64 KiB；JSON 响应带 `no-store`；
@@ -294,7 +301,7 @@ docs/screenshots/         手机端截图（仅图片）
 
 ### 安全模型
 
-- LAN 端：token（query/cookie）、可选网卡 CIDR 白名单、可选 HTTPS、Origin 校验、静态路径白名单、64 KiB body 限制。
+- LAN 端：token（query/cookie）、可选网卡 CIDR 白名单、可选 HTTPS、Origin 校验、静态路径白名单、64 KiB body 限制；CSP 的 `img-src` 允许 http(s) 远程封面/头像。
 - 侧边栏端：依赖 DSH `webServer` 的环回访问控制，并额外做 `sameOrigin`。
 - 设置与映射文件只存本机；仓库不包含路径、令牌、证书或通知内容。
 - 轮换 token 会断开全部 WebSocket；关闭 token 后 `/` 与 `/ws` 不再要求 token，但网卡白名单仍生效。
@@ -303,8 +310,14 @@ docs/screenshots/         手机端截图（仅图片）
 
 - 入口：`src/svelte/index.html` → `src/svelte/main.ts` → `App.svelte`。
 - Vite `root = src/svelte`，`publicDir = static`，`build.outDir = web`，`assetsDir = assets`，`emptyOutDir = true`，`target = es2022`。
-- 页面：`HomePage`、`SessionsPage`、`MusicPage`、`PerformancePage`；导航 `Rail`；卡片组件包括时钟、天气、通知、余额、消费、CPU/内存、GPU、温度、番茄钟、会话列表、统计、问题悬浮框（`QuestionSheet`）、Toast、水印等。
-- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`pomodoro.svelte.ts` 计时/提示音；`billing.svelte.ts` 峰谷与节假日；`format.ts` / `weather.ts` / `icons.ts` / `pages.ts` 为纯工具。
+- 技术栈：Svelte 5 runes + Vite 8 + Tailwind CSS v4 + shadcn-svelte（bits-ui）+ Lucide。图标一律使用 Lucide，不新增手绘 SVG 图标路径。
+- 页面：`HomePage`、`SessionsPage`、`MusicPage`、`PerformancePage`；导航 `Rail`；业务组件包括时钟、天气、通知、余额、消费、CPU/内存、GPU、温度、番茄钟、会话列表、统计、问题对话框（`QuestionSheet`，shadcn Dialog 居中弹出）、Toast 等。
+- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`pomodoro.svelte.ts` 计时/提示音；`billing.svelte.ts` 峰谷与节假日；`format.ts` / `weather.ts` / `pages.ts` 为纯工具。媒体进度在 `SeekBar.svelte` 内用 100 ms 本地时钟推进。
+- 视觉：`Panel` 包装 shadcn Card 作为统一容器；按钮、Badge、Slider、Dialog、ScrollArea 等优先用 `$lib/components/ui`；只在组件原有 class 上做样式覆盖。无 hover 过渡/缩放。
+- 性能页占用率使用 `RadialGauge`（圆环，不是横向条）；右侧温度保留大号最高温度与热区背景列表。
+- 音乐页封面支持 data URL 和 http(s) URL；页面用 `<img referrerpolicy="no-referrer">` 渲染并把封面地址加入 CSP `img-src`。后端未返回 `thumbnail`/`thumbnailUrl` 时显示占位，不伪造封面。
+- 音乐进度：`SeekBar.svelte` 采用与 shadcn Slider 相同的视觉，但拖动轨道自行实现，不把 100 ms 本地时间写回受控 Slider。可 seek 时用 pointer capture + window pointerup，松手只提交一次；`canSeek=false` 时改用只读 Progress。组件用 100 ms 本地时钟推进，快照只用于轨道/播放状态变化、明显前跳和 pending seek 确认，避免缓存快照把进度条拉回；400 ms 内相同目标的重复提交会去重。后端 `canSeek=false` 且总长度/当前长度缺失时，只读进度条固定 100%，不渲染拖拽把手，两个时间均显示 `--:--`。
+- 分页：每页 `scroll-snap-stop: always`，一次手势最多前进/后退一页；页面顺序/克隆逻辑保持不变。
 - 字体：`@fontsource-variable/inter`、`noto-sans-sc`、`jetbrains-mono` 在构建时由 Vite 打进 `web/assets/`，不依赖手机系统字体；许可见 `web/fonts/LICENSE.txt`。
 - 页面顺序/导航位置来自设置；关闭的页面不渲染、不轮询。
 - 手机端只读会话；`pushQuestions` 开启后才显示回答入口。
@@ -519,7 +532,7 @@ Node 侧 `media-enrich.ts` 会再次校验 `provider === 'system'`、时间轴�
 
 - `build-web.mjs` 直接 `import { build } from 'vite'`，不依赖 `node_modules/.bin`；
 - 配置见 `vite.config.js`：root `src/svelte`、publicDir `static`、outDir `web`、assetsDir `assets`、`emptyOutDir: true`、target `es2022`、无 sourcemap；
-- 字体、天气图标、manifest、图标随构建复制/打包。
+- 字体、manifest、图标随构建复制/打包；`@import shadcn-svelte/tailwind.css` 与 Tailwind v4 Vite 插件参与 CSS 构建。
 
 ### build-rust
 
@@ -545,6 +558,9 @@ Node 侧 `media-enrich.ts` 会再次校验 `provider === 'system'`、时间轴�
 ### 本地检查
 
 ```powershell
+# 截图预览（生成带演示数据的页面，可用 ?page=...&sheet=1 打开问询）
+python scripts/mock-preview.py --web web --port 4173
+
 pnpm check                      # tsc（Host + 浏览器端）+ svelte-check
 pnpm build                      # src/dsh + src/svelte
 pnpm test                       # 下面 8 个 Node 测试
@@ -564,7 +580,7 @@ pnpm build:rust
 
 测试覆盖：
 
-- `smoke.mjs`：临时 `DSH_PROFILE_DIR` 启动服务，检查令牌页面、`/assets/`、WebSocket welcome/overview，确认旧 HTTP overview 路由不存在；
+- `smoke.mjs`：临时 `DSH_PROFILE_DIR` 启动服务，检查令牌页面、`/assets/`、图片 CSP（data/blob/http/https）、WebSocket welcome/overview，确认旧 HTTP overview 路由不存在；
 - `media-progress.mjs`：进度平滑与 seek 规则；
 - `probe-bridge.mjs`：探针缺失时媒体/音量/运行时能力返回错误状态，且没有静默回退；
 - `probe-daemon.mjs`：真实二进制 daemon 的 version/performance/volume 请求、并发请求、关闭后重启与禁用开关，以及 `dsh-probe` 版本/平台后端能力；
@@ -587,7 +603,7 @@ pnpm build:rust
 - **Windows**：Rust SMTC + Core Audio + DXGI/PDH/WDDM D3DKMT 性能 + 磁盘温度 + 通知中心数据库 + WinRT Geolocation；无 PowerShell/C# 回退。
 - **Linux**：Rust MPRIS（zbus）、`wpctl`/`pactl`/`amixer` 音量、sysinfo + `/proc` + sysfs/hwmon 性能、D-Bus 通知监视、GeoClue2 位置。
 - **macOS**：Rust 媒体/音量/性能/通知源码（`nowplaying-cli`/AppleScript/通知数据库），未实机验证；GPU/温度不实现；位置回退 IP。
-- **手机端**：现代浏览器，WebSocket 可用；布局优先 1280×800 横屏，竖屏为紧凑降级。
+- **手机端**：现代浏览器，WebSocket 可用；布局面向小屏触摸，优先 1280×800 横屏，竖屏为紧凑降级。
 
 已验证环境（旧记录，新增改动需重新验证）：
 
@@ -611,7 +627,7 @@ pnpm build:rust
 - 网易云 CDP 的歌曲标题/歌手/专辑/时长/播放状态/进度来自客户端 store 与内部 audio progress 流，不依赖页面 DOM；只有红心按钮（store 不暴露）使用 DOM，并按可见按钮选择以适配迷你、展开和评论区布局。
 - 会话页只读；媒体和音量可写；开启「推送问询」后才能远程回答用户问题。
 - 「推送问询」默认关闭；只支持 DSH 正常的用户问题（`ask_user_question`），工具审批仍需在 DSH 中处理。远程回答后 DSH 自己的提问卡片可能需要手动关闭。
-- 手机端布局优先保证 1280×800 横屏；竖屏使用紧凑降级布局。
+- 手机端布局优先保证 1280×800 横屏；竖屏使用紧凑降级布局。触控目标至少 44 px，字体按小屏可读性放大；一次滑动手势最多翻一页。
 - 构建产物不入库、不发布 npm；安装必须从 GitHub 源码构建后用 `link:` 注册。
 
 ## 开发约定
