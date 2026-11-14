@@ -115,9 +115,44 @@ impl Media {
         if self.last_updated_at <= 0 {
             self.last_updated_at = util::now_ms();
         }
+        self.title = collapse_repeated_title(&self.title);
         crate::media::vendor::netease::enrich(&mut self);
         self
     }
+}
+
+/// Scrolling marquees in some clients render the title twice. Collapse only
+/// exact repeated halves (with an optional separator) so a genuinely repeated
+/// word in a song name is not rewritten.
+fn collapse_repeated_title(title: &str) -> String {
+    let text = title.trim();
+    if text.is_empty() {
+        return String::new();
+    }
+    for separator in [" - ", " – ", " — ", " · ", " | "] {
+        if let Some((left, right)) = text.split_once(separator) {
+            let left = left.trim();
+            let right = right.trim();
+            if !left.is_empty() && left == right {
+                return left.to_string();
+            }
+        }
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let length = chars.len();
+    if length >= 4 && length % 2 == 0 {
+        let half = length / 2;
+        if chars[..half] == chars[half..] {
+            return chars[..half].iter().collect::<String>().trim().to_string();
+        }
+    }
+    if length >= 5 && length % 2 == 1 {
+        let half = length / 2;
+        if chars[half].is_whitespace() && chars[..half] == chars[half + 1..] {
+            return chars[..half].iter().collect::<String>().trim().to_string();
+        }
+    }
+    text.to_string()
 }
 
 /// Options shared by read and control commands.
@@ -162,6 +197,37 @@ pub fn read(options: &ReadOptions) -> Value {
             "ok": false,
             "available": false,
             "media": null,
+            "error": error,
+            "backend": platform::BACKEND,
+            "sampledAt": started_at,
+        }),
+    }
+}
+
+/// Read all distinct sessions, ordered by the same priority as the active card.
+/// The first session is also returned as `media` for callers that only need the
+/// selected player.
+pub fn read_all(options: &ReadOptions) -> Value {
+    let started_at = util::now_ms();
+    match platform::read_all(options) {
+        Ok(sessions) => {
+            let sessions: Vec<Media> = sessions.into_iter().map(Media::finish).collect();
+            let media = sessions.first().cloned();
+            json!({
+                "ok": true,
+                "available": true,
+                "media": media,
+                "sessions": sessions,
+                "error": null,
+                "backend": platform::BACKEND,
+                "sampledAt": started_at,
+            })
+        }
+        Err(error) => json!({
+            "ok": true,
+            "available": true,
+            "media": null,
+            "sessions": [],
             "error": error,
             "backend": platform::BACKEND,
             "sampledAt": started_at,
@@ -239,6 +305,7 @@ pub fn cli(args: &[String], _started_at: i64) -> CliResult {
     let action = action_of(args);
     let options = ReadOptions::from_args(args);
     match action.as_str() {
+        "read" if has_flag(args, "--all") => Ok(read_all(&options)),
         "read" => Ok(read(&options)),
         "playpause" | "next" | "previous" | "seek" => {
             let position = if action == "seek" {
@@ -294,5 +361,24 @@ mod tests {
         let options = ReadOptions::from_args(&args);
         assert_eq!(options.app_id.as_deref(), Some("MSEdge"));
         assert!(!options.thumbnail);
+    }
+
+    #[test]
+    fn collapses_exactly_repeated_titles() {
+        assert_eq!(
+            collapse_repeated_title(
+                "The Daybreak Will Never Come Again. The Daybreak Will Never Come Again."
+            ),
+            "The Daybreak Will Never Come Again."
+        );
+        assert_eq!(
+            collapse_repeated_title(
+                "True Home, True World (2023 Rework) True Home, True World (2023 Rework)"
+            ),
+            "True Home, True World (2023 Rework)"
+        );
+        assert_eq!(collapse_repeated_title("Title - Title"), "Title");
+        assert_eq!(collapse_repeated_title("Song Song"), "Song");
+        assert_eq!(collapse_repeated_title("A B"), "A B");
     }
 }

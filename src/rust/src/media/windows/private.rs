@@ -156,9 +156,10 @@ pub fn read(
     media.last_updated_at = util::now_ms();
 
     // Accessibility is the last resort for a read-only progress display. It is
-    // never allowed to grant seek (see `catalog::seek_allowed`). NetEase defers
-    // this to `vendor::netease::resolve` so CDP can take precedence.
-    if profile.smtc_policy != catalog::SmtcPolicy::MetadataOnly {
+    // never allowed to grant seek (see `catalog::seek_allowed`). NetEase still
+    // gets it as a fallback when both its complete system session and CDP are
+    // unavailable.
+    if profile.accessibility {
         attach_progress(profile, windows, &mut media);
     }
     Some(media)

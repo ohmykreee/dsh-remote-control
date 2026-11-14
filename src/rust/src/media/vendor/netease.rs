@@ -96,9 +96,9 @@ pub fn enrich(media: &mut Media) {
     if !is_netease(&media.app_id) {
         return;
     }
-    // Seek policy is decided by the platform adapter. Windows NetEase SMTC is
-    // metadata-only; Linux MPRIS / macOS Now Playing may keep a valid seek
-    // grant. This module only enriches metadata and must not grant seek itself.
+    // Seek policy is decided by the platform adapter. A complete system
+    // session owns the timeline; an incomplete one may be filled from CDP.
+    // This module only enriches metadata and must not grant seek itself.
     let Some(local) = read_local(&media.title, &media.artist) else {
         return;
     };
@@ -1414,9 +1414,10 @@ fn system_valid(_platform: Platform, media: &Media) -> bool {
 /// 2. otherwise the caller-provided accessibility fallback (`MM:SS | MM:SS`),
 /// 3. otherwise leave the system metadata alone.
 ///
-/// With a valid MPRIS/Now Playing session, transport seeking stays on the
-/// system API; with Windows SMTC (MetadataOnly) it is disabled. Liked state is
-/// never read from the local database; it is CDP-only.
+/// With a complete system API, metadata, playback state, transport and the
+/// timeline stay on the system session; CDP only supplies the like control. If
+/// the system session is incomplete or missing, CDP/fallback fills the missing
+/// progress. Liked state is never read from the local database.
 #[allow(dead_code)] // called by vendor::resolve on every platform.
 pub fn resolve(
     platform: Platform,
@@ -1424,7 +1425,13 @@ pub fn resolve(
     fallback: impl FnOnce() -> Option<(f64, f64)>,
 ) {
     let seekable_system = system_valid(platform, media);
-    if apply_cdp(media, seekable_system) {
+    if seekable_system {
+        // Complete system session: only supplement the like control. Do not
+        // replace its progress/status with CDP or the accessibility fallback.
+        apply_cdp(media, true);
+        return;
+    }
+    if apply_cdp(media, false) {
         return;
     }
     if let Some((position, total)) = fallback() {
@@ -1452,6 +1459,16 @@ fn apply_cdp(media: &mut Media, seekable_system: bool) -> bool {
     let Some(state) = cdp_state() else {
         return false;
     };
+    if seekable_system {
+        // A complete SMTC/MPRIS session wins for metadata, playback state and
+        // timeline. CDP is consulted only for the like control, which the
+        // system API does not expose.
+        media.liked = state.liked;
+        media.can_like = state.can_like;
+        media.can_set_liked = state.can_set_liked;
+        media.last_updated_at = util::now_ms();
+        return true;
+    }
     if let Some(position) = state.position {
         media.position = position;
     }
@@ -1464,11 +1481,7 @@ fn apply_cdp(media: &mut Media, seekable_system: bool) -> bool {
     media.liked = state.liked;
     media.can_like = state.can_like;
     media.can_set_liked = state.can_set_liked;
-    // Windows SMTC has no progress timeline and must not grant seek. MPRIS/Now
-    // Playing can keep their seek grant while CDP supplies exact progress.
-    if !seekable_system {
-        media.can_seek = false;
-    }
+    media.can_seek = false;
     media.provider_detail = if media.provider_detail.starts_with("smtc") {
         "smtc+cdp".to_string()
     } else {

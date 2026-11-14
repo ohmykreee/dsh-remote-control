@@ -293,6 +293,10 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
     Ok(media)
 }
 
+pub fn read_all(options: &ReadOptions) -> Result<Vec<Media>, String> {
+    Ok(read(options)?.into_iter().collect())
+}
+
 fn accessibility_process(app_id: &str) -> Option<&'static str> {
     match app_id.to_lowercase().as_str() {
         "cider" => Some("Cider"),

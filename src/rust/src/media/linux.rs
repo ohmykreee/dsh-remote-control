@@ -247,6 +247,10 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
     Ok(Some(media))
 }
 
+pub fn read_all(options: &ReadOptions) -> Result<Vec<Media>, String> {
+    Ok(read(options)?.into_iter().collect())
+}
+
 fn preferred_is_netease(options: &ReadOptions) -> bool {
     options
         .app_id

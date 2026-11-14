@@ -136,6 +136,7 @@ Turn on **Push inquiries** and sessions waiting for an answer gain an **Answer**
 ## Music
 
 - Supports NetEase Cloud Music, QQ Music, KuGou, KuWo, Soda Music, WeSing, Spotify, Apple Music, YouTube Music, plus browsers and other common players.
+- When several players are open, a playing player with higher priority is shown first; if it pauses, a playing browser or other player takes over.
 - The music page shows album art, a full-bleed blurred background, track info, progress, previous / next, play-pause, system volume and mute. NetEase Cloud Music's like button is clickable when available.
 - Whether the progress bar can be dragged depends on the player supporting seek; some players only show progress. When progress is unavailable it is never fabricated.
 - NetEase Cloud Music's like state and exact progress need an optional feature enabled; see [`INSTALLATION.md`](../INSTALLATION.md).

@@ -128,9 +128,10 @@ export function createProbeMediaAdapter({ label = '平台' }: { label?: string }
     if (!force && mediaCache && now - mediaAt < ttl) return { ...mediaCache, cached: true };
 
     try {
+      // Do not pin the previously shown app id here. The probe selects the
+      // active player from all sessions using playback status + app priority,
+      // so a paused high-priority player cannot hide a playing browser/player.
       const args = ['media', 'read'];
-      const appId = activeAppId();
-      if (appId) args.push('--app-id', appId);
       const result = await callProbe(...args);
       mediaCache = {
         ok: true,

@@ -356,12 +356,19 @@ struct Candidate {
     current: bool,
 }
 
-fn rank(candidate: &Candidate) -> (u8, u8, u8, u8, usize) {
+fn rank(candidate: &Candidate) -> (u8, usize, u8, u8, u8, usize) {
     let playing = if candidate.media.playback_status == "Playing" {
         0
     } else {
         1
     };
+    // Every known vendor is above the browser, and browser is above any
+    // unprofiled native system session. Playing still wins over priority so a
+    // paused high-priority player does not hide an actively playing one.
+    let priority = candidate
+        .profile
+        .map(|profile| catalog::app_priority(profile.app))
+        .unwrap_or(catalog::APP_PRIORITY.len());
     let current = if candidate.current { 0 } else { 1 };
     let complete = if candidate.complete { 0 } else { 1 };
     let tier = match candidate.tier {
@@ -369,7 +376,7 @@ fn rank(candidate: &Candidate) -> (u8, u8, u8, u8, usize) {
         Tier::Private => 1,
         Tier::Accessibility => 2,
     };
-    (playing, current, complete, tier, candidate.order)
+    (playing, priority, current, complete, tier, candidate.order)
 }
 
 fn matches_preferred(candidate: &Candidate, preferred: &str) -> bool {
@@ -395,7 +402,7 @@ fn matches_preferred(candidate: &Candidate, preferred: &str) -> bool {
         .unwrap_or(false)
 }
 
-pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
+fn collect_candidates(options: &ReadOptions) -> Result<Vec<Candidate>, String> {
     ensure_com();
     let windows = private::enumerate_windows();
     let activities = audio::snapshot();
@@ -603,6 +610,11 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
         }
     }
 
+    Ok(candidates)
+}
+
+pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
+    let candidates = collect_candidates(options)?;
     if candidates.is_empty() {
         // No system API, no vendor interface, no accessibility tree: this is
         // an empty reading, not an error. The Node bridge clears the media card.
@@ -627,6 +639,29 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
             .cloned()
     };
     Ok(selected.map(|candidate| candidate.media))
+}
+
+/// Return every distinct application snapshot, sorted by the same priority used
+/// for the active card. The first item is the active one when no `--app-id` is
+/// supplied.
+pub fn read_all(options: &ReadOptions) -> Result<Vec<Media>, String> {
+    let mut candidates = collect_candidates(options)?;
+    candidates.sort_by_key(rank);
+    let mut seen = std::collections::HashSet::new();
+    let mut result = Vec::new();
+    for candidate in candidates {
+        let key = format!(
+            "{:?}\u{1f}{}\u{1f}{}\u{1f}{}",
+            candidate.profile.map(|profile| profile.app),
+            candidate.raw_app_id,
+            candidate.media.title,
+            candidate.media.artist
+        );
+        if seen.insert(key) {
+            result.push(candidate.media);
+        }
+    }
+    Ok(result)
 }
 
 fn best_for_app<'a>(candidates: &'a [Candidate], app: catalog::App) -> Option<&'a Candidate> {
@@ -755,13 +790,13 @@ mod tests {
     }
 
     #[test]
-    fn netease_smtc_is_metadata_only() {
+    fn netease_system_session_can_become_complete() {
         let profile = catalog::profile_for_id("cloudmusic.exe");
         let mut media = playable("cloudmusic.exe");
-        // Even a claimed timeline/position must not turn NetEase's SMTC into a
-        // seekable session; progress comes from UIA/local data.
-        assert!(!is_complete(profile, &media));
-        media.position = 42.0;
+        // A future NetEase client that actually reports a real position and
+        // timeline must be accepted without forcing the CDP/private path.
+        assert!(is_complete(profile, &media));
+        media.position = 0.0;
         assert!(!is_complete(profile, &media));
     }
 
@@ -771,5 +806,44 @@ mod tests {
         let mut media = playable("Spotify.exe");
         media.position = 0.0;
         assert!(is_complete(profile, &media));
+    }
+
+    fn candidate(app_id: &str, status: &str, app: Option<catalog::App>) -> Candidate {
+        let mut media = playable(app_id);
+        media.playback_status = status.to_string();
+        Candidate {
+            raw_app_id: app_id.to_string(),
+            media,
+            profile: app.and_then(catalog::profile_for_app),
+            tier: Tier::System,
+            complete: false,
+            order: 0,
+            current: false,
+        }
+    }
+
+    #[test]
+    fn playing_browser_outranks_paused_high_priority_vendor() {
+        let browser = candidate("MSEdge", "Playing", Some(catalog::App::Browser));
+        let netease = candidate("cloudmusic.exe", "Paused", Some(catalog::App::Netease));
+        assert!(rank(&browser) < rank(&netease));
+    }
+
+    #[test]
+    fn playing_vendors_use_priority_order() {
+        let netease = candidate("cloudmusic.exe", "Playing", Some(catalog::App::Netease));
+        let browser = candidate("MSEdge", "Playing", Some(catalog::App::Browser));
+        assert!(rank(&netease) < rank(&browser));
+    }
+
+    #[test]
+    fn browser_and_unknown_share_the_lowest_system_priority() {
+        assert_eq!(
+            catalog::app_priority(catalog::App::Browser),
+            catalog::APP_PRIORITY.len()
+        );
+        for app in catalog::APP_PRIORITY {
+            assert!(catalog::app_priority(*app) < catalog::app_priority(catalog::App::Browser));
+        }
     }
 }

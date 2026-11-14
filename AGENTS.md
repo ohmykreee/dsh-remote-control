@@ -40,7 +40,7 @@
 
 ## 项目形态
 
-- 名称 `@ohmykreee/dsh-remote-control`，版本 `1.0.3`，MIT；npm 包由 CI 发布，bundle 行的 `name` 与 `client.js` 的工厂 id 都必须等于这个包名。
+- 名称 `@ohmykreee/dsh-remote-control`，版本 `1.0.4`，MIT；npm 包由 CI 发布，bundle 行的 `name` 与 `client.js` 的工厂 id 都必须等于这个包名。
 - 运行形态：DSH Desktop / `dsh web` 的 Host 进程内加载的 bundle 插件。
 - 一个进程里同时存在四层：
   1. **Host**：`src/dsh`（TypeScript，ESM），编译为 `index.js` + `lib/`；
@@ -293,7 +293,7 @@ window.__ModuleLoader__.load({
 ### 架构与二进制
 
 - 唯一 OS 探测层：媒体、音量、性能 / GPU / 温度、通知、定位。Node 不保留 PowerShell / C# / playerctl / osascript 回退。
-- 源码 `src/rust`（crate `dsh-probe`，版本 `1.0.3`）。每个功能目录（`media/`、`perf/`、`notifications/`、`volume/`、`location/`）都按同一方式分层：`mod.rs` 只做命令行、JSON 外形和平台模块选择；`windows.rs` / `linux.rs` / `macos.rs` 各自实现完整平台逻辑。缺失能力由平台文件返回明确错误，不在 `mod.rs` 里写 `cfg` 分支。
+- 源码 `src/rust`（crate `dsh-probe`，版本 `1.0.4`）。每个功能目录（`media/`、`perf/`、`notifications/`、`volume/`、`location/`）都按同一方式分层：`mod.rs` 只做命令行、JSON 外形和平台模块选择；`windows.rs` / `linux.rs` / `macos.rs` 各自实现完整平台逻辑。缺失能力由平台文件返回明确错误，不在 `mod.rs` 里写 `cfg` 分支。
 - 媒体层在平台层之上做 vendor 调度：平台文件识别应用后调用 `vendor::resolve`，命中 vendor 进入对应客户端逻辑，未命中才回到系统 API。
 - 产物：`native/bin/<platform>-<arch>/dsh-probe[.exe]`，例如 `win32-x64`、`linux-x64`、`darwin-arm64`。
 - `src/dsh/lib/probe.ts` 按 `process.platform` / `process.arch` 定位，`DSH_RC_PROBE` 可覆盖；找不到时所有调用返回明确的「不可用」错误。
@@ -306,7 +306,7 @@ window.__ModuleLoader__.load({
 ```text
 dsh-probe version
 dsh-probe daemon                                  # Host 内部：stdin/stdout 按行请求
-dsh-probe media read [--app-id ID] [--player DEST] [--no-thumbnail]
+dsh-probe media read [--app-id ID] [--player DEST] [--no-thumbnail] [--all]
 dsh-probe media playpause|next|previous|seek --position SECONDS [--app-id ID] [--player DEST]
 dsh-probe media like [--value true|false] [--app-id ID] [--player DEST]   # NetEase CDP
 dsh-probe media cdp                                                       # NetEase CDP diagnostics
@@ -324,7 +324,7 @@ dsh-probe location request [--open-settings]    # 申请定位权限（Windows �
 
 ### 载荷
 
-- 媒体：基础字段（`appId`、`title`、`artist`、`album`、`albumArtist`、`trackNumber`、`playbackStatus`、`autoRepeatMode`、`shuffleActive`、`position`、`startTime` / `endTime`、`minSeekTime` / `maxSeekTime`、`lastUpdatedAt`）、控制位（`canPlayPause` / `canNext` / `canPrevious` / `canSeek`）、封面（`thumbnail`、`thumbnailType`、`thumbnailError`、`thumbnailUrl`）、来源（`provider` / `providerDetail`）与网易云 `liked` / `canLike` / `canSetLiked` / `trackId`。
+- 媒体：基础字段（`appId`、`title`、`artist`、`album`、`albumArtist`、`trackNumber`、`playbackStatus`、`autoRepeatMode`、`shuffleActive`、`position`、`startTime` / `endTime`、`minSeekTime` / `maxSeekTime`、`lastUpdatedAt`）、控制位（`canPlayPause` / `canNext` / `canPrevious` / `canSeek`）、封面（`thumbnail`、`thumbnailType`、`thumbnailError`、`thumbnailUrl`）、来源（`provider` / `providerDetail`）与网易云 `liked` / `canLike` / `canSetLiked` / `trackId`。`media read --all` 另外返回按优先级排序的 `sessions` 数组；`media` 是第一项。
 - 通知：`available`、`reason`、`source`、`liveOnly`、`notifications[]`（`id`、`appKey`、`appName`、`title`、`body`、`avatar`、`hasImage`、`receivedAt`、`isGroup`）、`apps[]`、`updatedAt`。Windows 的 `appName` 与 `appKey` 相同，中文名由 Node 映射生成。
 - 性能：`cpu`（`usage`、`model`、`cores`、`physicalCores`、`speedMhz`、`baseMhz`、`uptime`）、`memory`、`gpu`（`name`、`driver`、`adapters`、`utilization`、`memoryUsed` / `memoryTotal` / `memoryPercent`、核心 / 显存频率、`temperatureCelsius`、`powerPercent`、`fanRpm`）、`temperatures[]`、`backend`、`sampledAt`；不支持的字段为 `null`。
 - 位置：`ok`、`available`、`latitude`、`longitude`、`accuracy`、`source`、`error`；权限载荷另含 `access`、`allowed`、`lowIntegrity`、`openedSettings`、`reason`。
@@ -368,8 +368,12 @@ Windows 只允许 Medium 完整性及以上的进程访问定位。插件目录�
 `dsh-probe` 的媒体读取是 **vendor-first**：
 
 1. **识别当前播放软件**（SMTC AUMID / 进程 / MPRIS / bundle id）。
-2. **命中 vendor 适配** → 进入 `media/vendor/<client>.rs` 的逻辑：网易云在 SMTC 可用时用其元数据 / 封面 / 播放状态 / 传输控制，CDP 补精确进度和红心；SMTC 完全不可用但 CDP 可用时，CDP 从客户端 store 提供歌曲信息、封面 URL、精确进度、红心和播放控制；两者都不可用时窗口 / UIA 兜底，仍取不到就返回空。其他客户端完整系统会话优先，否则窗口标题 / Cider / UIA 私有层。
+2. **命中 vendor 适配** → 进入 `media/vendor/<client>.rs` 的逻辑：所有 vendor 都先尝试完整系统会话（元数据、播放状态、时间轴、控制与 seek）；只有系统会话缺失或不完整时，才用 CDP / 窗口标题 / Cider / UIA 补齐。网易云的系统会话完整时 CDP 只补红心；不完整时 CDP 补精确进度和红心，系统完全缺失时 CDP 提供歌曲信息 / 封面 URL / 播放控制；两者都不可用时窗口 / UIA 兜底，仍取不到就返回空。其他客户端完整系统会话优先，否则窗口标题 / Cider / UIA 私有层。
 3. **未命中 vendor**（浏览器、未知播放器）→ 直接使用系统媒体接口（Windows SMTC、Linux MPRIS、macOS MediaRemote）。
+
+同时存在多个软件会话时，选择顺序是 **正在播放 > vendor 优先级 > 当前会话 > 完整时间轴 > tier**。vendor 优先级为网易云、QQ、酷狗、酷我、汽水、全民 K 歌、Spotify、Apple Music、YouTube Music；浏览器和未识别的系统应用共用最低的系统 API 优先级。因此高优先级软件暂停时，正在播放的浏览器/其他应用会接替；都在播放时按优先级选择。`media read --all` 返回按同一顺序排列的 `sessions` 数组，`media` 是其中一个。
+
+播放器滚动标题可能在 DOM 中出现两遍；`Media::finish()` 只折叠完全相同的重复两半（以及 ` - ` / ` · ` 等分隔形式），不影响正常的重复歌名。
 
 **不访问任何外部 Web API。** 封面来自 SMTC `Thumbnail`、MPRIS `mpris:artUrl`、网易云 CDP 歌曲数据里的封面 URL 或本地缓存；歌曲信息不通过网易云 / QQ 音乐等网络接口查询。
 
@@ -400,7 +404,7 @@ Node 侧 `media-enrich.ts` 会再次校验 `provider === 'system'`、时间轴�
 
 | 客户端 | Windows | Linux | macOS |
 |---|---|---|---|
-| 网易云音乐 | SMTC 元数据 / 封面 / 状态 / 控制 → CDP 进度 / 红心；CDP-only 时 CDP 提供全量信息 / 封面 URL / 播放控制（不授予 seek）；否则窗口标题 + UIA | MPRIS（有效时保留 seek）+ CDP 进度 / 红心；MPRIS 不存在时 CDP 全量（不授予 seek） | `nowplaying-cli` / AppleScript + CDP 进度 / 红心；系统源不存在时 CDP 全量（不授予 seek） |
+| 网易云音乐 | 完整系统会话优先（元数据 / 封面 / 状态 / 进度 / 控制 / seek）；不完整时 CDP 补进度 / 红心，系统缺失时 CDP 全量，否则窗口标题 + UIA | 完整 MPRIS 优先；不完整时 CDP 补进度 / 红心，MPRIS 缺失时 CDP 全量 | 完整 `nowplaying-cli` / AppleScript 优先；不完整时 CDP 补进度 / 红心，系统源缺失时 CDP 全量 |
 | QQ 音乐 | SMTC（需真实位置）→ 窗口标题 | MPRIS | `nowplaying-cli` / AppleScript |
 | 酷狗 / 酷我 | SMTC（需真实位置）→ 窗口标题（滚动标题修正） | MPRIS | `nowplaying-cli` / AppleScript |
 | 汽水音乐 | SMTC（需真实位置） | MPRIS | `nowplaying-cli` / AppleScript |

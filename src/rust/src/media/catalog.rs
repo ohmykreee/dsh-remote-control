@@ -41,6 +41,30 @@ pub enum App {
     Browser,
 }
 
+/// Vendor priority when several applications expose a media session. Playing
+/// applications always outrank paused ones; this order decides both the active
+/// card when everything is playing and which paused player is shown. Browser
+/// and unprofiled native applications are not vendors: they share the final
+/// "system API" priority below every vendor.
+pub const APP_PRIORITY: &[App] = &[
+    App::Netease,
+    App::QQMusic,
+    App::Kugou,
+    App::Kuwo,
+    App::Qishui,
+    App::WeSing,
+    App::Spotify,
+    App::AppleMusic,
+    App::YouTubeMusic,
+];
+
+pub fn app_priority(app: App) -> usize {
+    APP_PRIORITY
+        .iter()
+        .position(|candidate| *candidate == app)
+        .unwrap_or(APP_PRIORITY.len())
+}
+
 /// How much trust to place in an application's system media session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SmtcPolicy {
@@ -51,11 +75,6 @@ pub enum SmtcPolicy {
     /// reporting a real position. Only accept the system session when it also
     /// reports a non-zero position.
     VerifyPosition,
-    /// The system session is useful for metadata/transport status but does not
-    /// report playback progress (current NetEase builds do this). Never treat
-    /// it as a complete timeline; fill progress from the private/accessibility
-    /// tiers instead.
-    MetadataOnly,
 }
 
 /// The private interface a client exposes, if any.
@@ -117,7 +136,7 @@ pub const PROFILES: &[Profile] = &[
         // Current NetEase builds expose SMTC metadata and transport controls
         // but not playback progress. Use SMTC as the metadata source, then fill
         // the position/duration from the window/UI Automation fallback.
-        smtc_policy: SmtcPolicy::MetadataOnly,
+        smtc_policy: SmtcPolicy::VerifyPosition,
         accessibility: true,
         private: PrivateKind::WindowTitle,
     },
@@ -309,14 +328,10 @@ pub fn system_complete(profile: Option<&Profile>, media: &Media) -> bool {
         .unwrap_or(SmtcPolicy::Trusted)
     {
         SmtcPolicy::Trusted => true,
-        // Older builds (notably some QQ/KuGou releases) advertise a seekable
-        // timeline but keep the position at zero. Require an actual position
-        // report for those adapters.
+        // Some older builds advertise a seekable timeline but never report a
+        // real position. Require an actual position report for those adapters;
+        // a future client that reports a complete timeline will be accepted.
         SmtcPolicy::VerifyPosition => media.position > 0.01,
-        // NetEase exposes SMTC metadata/controls but not playback progress.
-        // It must never be treated as a complete timeline (and never grants
-        // seek); the accessibility/local tier supplies the displayed progress.
-        SmtcPolicy::MetadataOnly => false,
     }
 }
 
@@ -401,7 +416,7 @@ mod tests {
         assert_eq!(profile_for_id("cloudmusic.exe").unwrap().app, App::Netease);
         assert_eq!(
             profile_for_id("cloudmusic.exe").unwrap().smtc_policy,
-            SmtcPolicy::MetadataOnly
+            SmtcPolicy::VerifyPosition
         );
         assert_eq!(
             profile_for_id("SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify")
