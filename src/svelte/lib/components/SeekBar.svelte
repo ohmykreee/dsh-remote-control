@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Progress } from '$lib/components/ui/progress/index.js';
+  import { sineInOut } from 'svelte/easing';
+  import { Tween } from 'svelte/motion';
   import { formatDuration } from '../format';
   import { t } from '../i18n.svelte';
   import { isPlaying, isSeekable, mediaDuration, seekMaximum } from '../media';
@@ -27,10 +28,31 @@
   const hasTimeline = $derived(hasTotal && hasCurrent);
   const seekable = $derived(Boolean(media && isSeekable(media) && hasTimeline));
 
+  // One long sine path in SVG user units (1 unit = 1 px, no viewBox), shifted
+  // by the live phase so the pattern is pinned to the leading edge. The phase
+  // shift (0..40) and drift (0..40) add up, so the path starts several periods
+  // left of the viewport — the visible left edge is always in the middle of
+  // the path, never on its start cap.
+  const WAVE_PERIOD = 40;
+  const WAVE_MIDDLE = 12;
+  const WAVE_AMPLITUDE = 2.52;
+  const WAVE_CONTROL_Y = WAVE_MIDDLE - WAVE_AMPLITUDE * 2;
+  const WAVE_LEAD = WAVE_PERIOD * 5;
+  const WAVE_PATH = buildWavePath();
+
+  function buildWavePath(): string {
+    let d = `M${-WAVE_LEAD} ${WAVE_MIDDLE}`;
+    for (let x = -WAVE_LEAD; x < 4000; x += WAVE_PERIOD) {
+      d += ` Q${x + 10} ${WAVE_CONTROL_Y} ${x + 20} ${WAVE_MIDDLE} T${x + WAVE_PERIOD} ${WAVE_MIDDLE}`;
+    }
+    return d;
+  }
+
   let now = $state(Date.now());
   let dragging = $state(false);
   let dragValue = $state(0);
   let trackEl = $state<HTMLDivElement | null>(null);
+  let trackWidth = $state(0);
   let anchor = 0;
   let anchorAt = Date.now();
   let lastKey = '';
@@ -39,6 +61,28 @@
   let lastSentValue = -1;
   let lastSentAt = 0;
   let activePointerId: number | null = null;
+
+  // Only a live, advancing timeline gets the wave. Pausing, dragging and
+  // unavailable timelines (fixed at 100%) fall back to a straight bar.
+  const flowing = $derived(hasTimeline && playing && !dragging);
+
+  const reduceMotion = typeof window !== 'undefined'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Freeze the phase (the CSS drift pauses immediately), hold for 120 ms,
+  // then tween the wave's amplitude into the line — and the exact reverse
+  // when playback resumes. Both directions share these options. The resting
+  // value is 0.001, not 0: a singular scaleY culls the path, while 0.001
+  // still renders its non-scaling 4px stroke as the straight bar.
+  const waveAmplitude = Tween.of(
+    () => (flowing ? 1 : 0.001),
+    {
+      duration: reduceMotion ? 0 : 320,
+      delay: reduceMotion ? 0 : 120,
+      easing: sineInOut,
+    },
+  );
+  const waveScale = $derived(waveAmplitude.current);
 
   function clampPosition(value: number): number {
     const limit = duration > 0 ? duration : max;
@@ -59,6 +103,9 @@
 
   const percent = $derived(max > 0 ? Math.min(100, Math.max(0, (position / max) * 100)) : 0);
   const displayPercent = $derived(!media ? 0 : !hasTotal ? 100 : hasTimeline ? percent : 0);
+  const wavePercent = $derived(seekable ? percent : displayPercent);
+  const waveWidth = $derived((trackWidth * wavePercent) / 100);
+  const phaseLock = $derived(((waveWidth % WAVE_PERIOD) + WAVE_PERIOD) % WAVE_PERIOD);
   const currentLabel = $derived(hasTimeline ? formatDuration(position) : '--:--');
   const totalLabel = $derived(hasTotal ? formatDuration(duration) : '--:--');
 
@@ -212,7 +259,19 @@
 
 <svelte:window onpointerup={handlePointerUp} onpointercancel={cancelPointer} />
 
-<div class={cn('seek-bar', className)}>
+{#snippet waveLine()}
+  <svg class="seek-wave" style={`width: ${wavePercent}%`} height="24" aria-hidden="true">
+    <g transform={`translate(${phaseLock} 0)`}>
+      <g class="seek-wave-drift">
+        <g class="seek-wave-amplitude" style={`transform: scaleY(${waveScale})`}>
+          <path class="seek-wave-line" d={WAVE_PATH} vector-effect="non-scaling-stroke" />
+        </g>
+      </g>
+    </g>
+  </svg>
+{/snippet}
+
+<div class={cn('seek-bar', className)} bind:clientWidth={trackWidth}>
   {#if seekable}
     <div
       bind:this={trackEl}
@@ -228,18 +287,30 @@
       onpointermove={handlePointerMove}
       onkeydown={handleKeydown}
     >
-      <div class="seek-track">
-        <div class="seek-range" style={`width: ${percent}%`}></div>
+      <div class="seek-track" class:is-flowing={flowing}>
+        <div class="seek-rest" style={`left: ${percent}%`}></div>
+        {@render waveLine()}
         <div class="seek-thumb" style={`left: ${percent}%`}></div>
       </div>
     </div>
   {:else}
-    <div class="flex h-6 items-center" title={!hasTotal ? t('progressUnavailable') : hasTimeline ? t('progressReadOnly') : t('playProgress')}>
-      <Progress
-        value={displayPercent}
+    <div
+      class="seek-readonly"
+      title={!hasTotal ? t('progressUnavailable') : hasTimeline ? t('progressReadOnly') : t('playProgress')}
+    >
+      <div
+        class="seek-track"
+        class:is-flowing={flowing}
+        role="progressbar"
         aria-label={hasTotal ? t('playProgress') : t('progressUnavailable')}
-        class="h-1.5 w-full bg-secondary [&>[data-slot=progress-indicator]]:bg-brand"
-      />
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(displayPercent)}
+        aria-valuetext={hasTimeline ? `${currentLabel} / ${totalLabel}` : undefined}
+      >
+        <div class="seek-rest" style={`left: ${displayPercent}%`}></div>
+        {@render waveLine()}
+      </div>
     </div>
   {/if}
 
@@ -268,29 +339,83 @@
     box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 32%, transparent);
   }
 
+  .seek-readonly {
+    display: flex;
+    height: 24px;
+    align-items: center;
+  }
+
   .seek-track {
     position: relative;
     width: 100%;
-    height: 6px;
+    height: 4px;
+    border-radius: 999px;
+  }
+
+  .seek-rest {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
     border-radius: 999px;
     background: color-mix(in srgb, var(--foreground) 14%, transparent);
   }
 
-  .seek-range {
+  /* A single long sine path is shifted by `phaseLock` so its phase is pinned
+     to the leading edge, then scrolled by the drift animation. Only the
+     amplitude group scales, and vector-effect keeps the 4px stroke intact:
+     the crests flatten into the same 4px line instead of fading into it. */
+  .seek-wave {
     position: absolute;
-    inset: 0 auto 0 0;
-    border-radius: 999px;
-    background: var(--brand);
+    top: 50%;
+    left: 0;
+    display: block;
+    height: 24px;
+    overflow: hidden;
+    color: var(--brand);
+    transform: translateY(-50%);
+    pointer-events: none;
+  }
+
+  .seek-wave-line {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 4;
+    stroke-linecap: round;
+  }
+
+  .seek-wave-amplitude {
+    transform-box: view-box;
+    transform-origin: 0 12px;
+  }
+
+  .seek-wave-drift {
+    animation: seek-wave-drift 3.8s linear infinite;
+    animation-play-state: paused;
+  }
+
+  .is-flowing .seek-wave-drift {
+    animation-play-state: running;
   }
 
   .seek-thumb {
     position: absolute;
     top: 50%;
-    width: 22px;
-    height: 22px;
-    border: 3px solid var(--brand);
+    width: 5px;
+    height: 24px;
     border-radius: 999px;
-    background: var(--background);
+    background: var(--brand);
     transform: translate(-50%, -50%);
   }
+
+  @keyframes seek-wave-drift {
+    from {
+      transform: translateX(0);
+    }
+
+    to {
+      transform: translateX(40px);
+    }
+  }
+
 </style>

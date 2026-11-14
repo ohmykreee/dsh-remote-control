@@ -196,7 +196,7 @@ src/svelte/lib/           状态、WebSocket、格式化、媒体投影；i18n.s
 src/svelte/lib/components/ 页面与业务卡片；Panel/SectionHeader 为统一卡片外壳
 src/svelte/lib/components/ui/ shadcn-svelte 组件（Button/Card/Badge/Slider/Dialog/Sheet 等）
 src/svelte/lib/components/RadialGauge.svelte 性能占用率圆环
-src/svelte/lib/components/SeekBar.svelte 自实现拖动轨道 + shadcn Progress 的本地媒体时间轴
+src/svelte/lib/components/SeekBar.svelte 自实现拖动轨道 + SVG 正弦波的本地媒体时间轴
 src/svelte/lib/components/WeatherIcon.svelte Lucide 天气图标映射
 src/svelte/lib/components/PomodoroCard.svelte 番茄钟卡片（专注/休息阶段、循环响铃）
 src/svelte/lib/components/CountdownCard.svelte 倒计时卡片（1–5 个预设、结束必须确认）
@@ -334,7 +334,7 @@ docs/screenshots/         手机端截图（仅图片）
 - 视觉：`Panel` 包装 shadcn Card 作为统一容器；按钮、Badge、Slider、Dialog、ScrollArea 等优先用 `$lib/components/ui`；只在组件原有 class 上做样式覆盖。无 hover 过渡/缩放。
 - 性能页占用率使用 `RadialGauge`（圆环，不是横向条）；右侧温度保留大号最高温度与热区背景列表。
 - 音乐页封面支持 data URL 和 http(s) URL；页面用 `<img referrerpolicy="no-referrer">` 渲染并把封面地址加入 CSP `img-src`。后端未返回 `thumbnail`/`thumbnailUrl` 时显示占位，不伪造封面。
-- 音乐进度：`SeekBar.svelte` 采用与 shadcn Slider 相同的视觉，但拖动轨道自行实现，不把 100 ms 本地时间写回受控 Slider。可 seek 时用 pointer capture + window pointerup，松手只提交一次；`canSeek=false` 时改用只读 Progress。组件用 100 ms 本地时钟推进，快照只用于轨道/播放状态变化、明显前跳和 pending seek 确认，避免缓存快照把进度条拉回；400 ms 内相同目标的重复提交会去重。后端 `canSeek=false` 且总长度/当前长度缺失时，只读进度条固定 100%，不渲染拖拽把手，两个时间均显示 `--:--`。
+- 音乐进度：`SeekBar.svelte` 采用与 shadcn Slider 相同的视觉，但拖动轨道自行实现，不把 100 ms 本地时间写回受控 Slider。可 seek 时用 pointer capture + window pointerup，松手只提交一次；`canSeek=false` 时改用同款只读轨道（不出现拖拽把手）。正在播放且时间轴有效时，已走进度显示为内联 SVG 正弦波：单条长路径用 `trackWidth` 计算 `translate` 相位锁在进度边缘，CSS drift 动画每 3.8 s 推进一个波长；波幅由 Svelte `Tween.of` + `sineInOut` 驱动。进度轨道与波形描边统一为 4 px，路径带 `vector-effect: non-scaling-stroke`，因此收平过程中线不会变细。暂停、拖动和时间轴不可用（固定 100%）时，drift 立即停住并保持 120 ms，再用 320 ms 把波幅收平到中线；恢复播放按同一组参数反向展开。`prefers-reduced-motion` 下 Tween 时长为 0，drift 停在静态波形。只读轨道播放时同样显示波浪，只是没有把手。组件用 100 ms 本地时钟推进，快照只用于轨道/播放状态变化、明显前跳和 pending seek 确认，避免缓存快照把进度条拉回；400 ms 内相同目标的重复提交会去重。后端 `canSeek=false` 且总长度/当前长度缺失时，只读进度条固定 100%，不渲染把手，两个时间均显示 `--:--`。
 - 分页：每页 `scroll-snap-stop: always`，一次手势最多前进/后退一页；页面顺序/克隆逻辑保持不变。
 - 字体：`@fontsource-variable/inter`、`noto-sans-sc`、`jetbrains-mono` 在构建时由 Vite 打进 `web/assets/`，不依赖手机系统字体；许可见 `web/fonts/LICENSE.txt`。
 - 页面顺序/导航位置来自设置；关闭的页面不渲染、不轮询。
