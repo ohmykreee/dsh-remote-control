@@ -339,8 +339,8 @@ mod tests {
     fn decodes_file_urls() {
         assert_eq!(percent_decode("a%20b%2Fc"), "a b/c");
         assert_eq!(
-            file_url_to_path("file:///home/kyree/a%20b.png"),
-            Some(PathBuf::from("/home/kyree/a b.png"))
+            file_url_to_path("file:///home/user/a%20b.png"),
+            Some(PathBuf::from("/home/user/a b.png"))
         );
     }
 

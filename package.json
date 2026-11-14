@@ -42,9 +42,11 @@
     "tsconfig.dsh-client.json",
     "scripts/**/*.mjs",
     "scripts/**/*.py",
+    "scripts/**/*.sh",
     "README.md",
     "INSTALLATION.md",
     "AGENTS.md",
+    "docs/**",
     "LICENSE"
   ],
   "engines": {

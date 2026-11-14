@@ -4,13 +4,18 @@
 This is development tooling, not part of the plugin runtime. It copies the
 Vite output to a temporary directory, injects a fake WebSocket that emits the
 same envelopes as the Host, and serves the result with a short artificial load
-delay so a headless/real-display screenshot includes the rendered data.
+delay so a screen capture includes the rendered data.
 
 Usage (run after `pnpm build:web`):
 
-    python3 scripts/mock-preview.py --web web --port 4173
+    python3 scripts/mock-preview.py --web web --port 4173 --locale zh --theme dark --freeze-clock
     # http://127.0.0.1:4173/?page=music
     # http://127.0.0.1:4173/?page=home&sheet=1   (opens the question dialog)
+
+For README images, show the preview on the real device screen
+(`scripts/screenshot-device.sh`) and compose the dark/light captures with
+`scripts/screenshot-compose.py`. `--freeze-clock` keeps the rendered clock
+identical across the two captures.
 
 The mock cover is a generated SVG; no image library or network access needed.
 """
@@ -41,9 +46,73 @@ def ago(seconds: int) -> int:
     return int(time.time() * 1000) - seconds * 1000
 
 
-def demo_payloads(locale: str = "zh", timer: str = "pomodoro") -> list[dict]:
+# Demo copy that exists only in the mock payloads. Keep it exact: the English
+# preview translates whole strings, so changing a sentence here also changes the
+# English preview.
+DEMO_EN = {
+    "演示城区": "Demo City",
+    "日历": "Calendar",
+    "产品评审会": "Product review",
+    "今天 18:30，线上会议 · 预计 45 分钟": "Today 18:30, online meeting · ~45 min",
+    "邮件": "Mail",
+    "新的设计交接说明": "New design handoff notes",
+    "附带了最新的界面规范和组件清单，请查收。": "Includes the latest UI spec and component list.",
+    "消息中心": "Messages",
+    "存储空间提醒": "Storage reminder",
+    "本月的备份已完成，当前占用空间 62%。": "This month's backup is complete; 62% used.",
+    "提醒事项": "Reminders",
+    "整理明天的待办": "Tidy tomorrow's to-do",
+    "还有 3 项任务没有完成": "3 tasks are still open",
+    "系统": "System",
+    "更新已就绪": "Update ready",
+    "新的系统更新将在空闲时安装。": "The new system update will install when idle.",
+    "本周": "This week",
+    "六": "Sat",
+    "日": "Sun",
+    "一": "Mon",
+    "二": "Tue",
+    "三": "Wed",
+    "四": "Thu",
+    "五": "Fri",
+    "重写远端控制台界面": "Rewrite the remote console UI",
+    "正在核对页面间距与卡片层级…": "Checking page spacing and card hierarchy…",
+    "拆分组件样式": "Split component styles",
+    "把全局规则收回各自的 Svelte 组件。": "Move global rules back into their Svelte components.",
+    "核对配色与间距": "Check colors and spacing",
+    "颜色变量与卡片间距已统一。": "Color variables and card spacing are now unified.",
+    "确认首页信息密度": "Confirm home information density",
+    "时钟、天气与通知的层级是否合适？": "Are the clock, weather and notification levels right?",
+    "首页": "Home",
+    "首页右侧的通知区域是否保留完整列表？": "Should the home screen keep the full notification list on the right?",
+    "保留完整列表（推荐）": "Keep the full list (Recommended)",
+    "可以滚动查看全部通知，信息更完整。": "Scroll to see every notification; more complete.",
+    "只显示前三条": "Show only the first three",
+    "视觉更轻，但会隐藏部分通知。": "Lighter visually, but hides some notifications.",
+    "移到独立页面": "Move to a separate page",
+    "首页更专注，但需要多一次跳转。": "A more focused home, at the cost of one extra tap.",
+    "整理演示数据": "Tidy demo data",
+    "已生成用于展示的示例内容。": "Generated sample content for the demo.",
+    "磁盘 0": "Disk 0",
+    "磁盘 1": "Disk 1",
+}
+
+
+def translate_demo(value, locale: str):
+    if locale != "en":
+        return value
+    if isinstance(value, str):
+        return DEMO_EN.get(value, value)
+    if isinstance(value, list):
+        return [translate_demo(item, locale) for item in value]
+    if isinstance(value, dict):
+        return {key: translate_demo(item, locale) for key, item in value.items()}
+    return value
+
+
+
+def demo_payloads(locale: str = "zh", timer: str = "pomodoro", theme: str = "dark") -> list[dict]:
     settings = {
-        "theme": "dark",
+        "theme": theme,
         "locale": locale,
         "temperatureUnit": "celsius",
         "pushQuestions": True,
@@ -307,13 +376,14 @@ def demo_payloads(locale: str = "zh", timer: str = "pomodoro") -> list[dict]:
         "performance": performance,
     }
 
-    return [
+    messages = [
         {"type": "welcome", "settings": settings},
         {"type": "overview", "data": overview},
         {"type": "media", "data": media},
         {"type": "performance", "data": performance},
         {"type": "clients", "data": []},
     ]
+    return translate_demo(messages, locale)
 
 
 def mock_socket_script(messages: list[dict]) -> str:
@@ -396,7 +466,33 @@ def cover_svg() -> str:
 """
 
 
-def prepare(web_dir: Path, out_dir: Path, locale: str = "zh", timer: str = "pomodoro") -> None:
+def freeze_script() -> str:
+    fixed = int(time.time() * 1000) + 5000
+    return f"""<script>/* FIXED_CLOCK */
+(() => {{
+  const RealDate = Date;
+  const fixed = {fixed};
+  setTimeout(() => {{
+    class FixedDate extends RealDate {{
+      constructor(...args) {{ if (args.length) super(...args); else super(fixed); }}
+      static now() {{ return fixed; }}
+    }}
+    FixedDate.parse = RealDate.parse;
+    FixedDate.UTC = RealDate.UTC;
+    window.Date = FixedDate;
+  }}, 1500);
+}})();
+</script>"""
+
+
+def prepare(
+    web_dir: Path,
+    out_dir: Path,
+    locale: str = "zh",
+    timer: str = "pomodoro",
+    theme: str = "dark",
+    freeze_clock: bool = False,
+) -> None:
     if not (web_dir / "index.html").is_file():
         raise SystemExit(f"missing built web page: {web_dir / 'index.html'}")
     if out_dir.exists():
@@ -405,10 +501,12 @@ def prepare(web_dir: Path, out_dir: Path, locale: str = "zh", timer: str = "pomo
     index = (out_dir / "index.html").read_text(encoding="utf-8")
     injection = (
         "<script>\n"
-        + mock_socket_script(demo_payloads(locale, timer))
+        + mock_socket_script(demo_payloads(locale, timer, theme))
         + "\n</script>\n"
         + '<img src="/slow.png" alt="" aria-hidden="true" style="position:fixed;width:1px;height:1px;opacity:0;pointer-events:none">\n'
     )
+    if freeze_clock:
+        injection += freeze_script() + "\n"
     if "</head>" not in index:
         raise SystemExit("index.html has no </head>")
     index = index.replace("</head>", injection + "</head>", 1)
@@ -451,14 +549,18 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=4173)
     parser.add_argument("--locale", choices=["zh", "en"], default="zh", help="demo console language")
     parser.add_argument("--timer", choices=["pomodoro", "countdown"], default="pomodoro", help="timer card shown on the home page")
+    parser.add_argument("--theme", choices=["dark", "light"], default="dark", help="demo console theme")
+    parser.add_argument("--freeze-clock", action="store_true", help="freeze the rendered clock so dark/light captures align")
     args = parser.parse_args()
 
     web_dir = Path(args.web).resolve()
     out_dir = Path(args.out).resolve()
-    prepare(web_dir, out_dir, args.locale, args.timer)
+    prepare(web_dir, out_dir, args.locale, args.timer, args.theme, args.freeze_clock)
     handler = functools.partial(PreviewHandler, directory=str(out_dir))
     with PreviewServer((args.host, args.port), handler) as server:
         print(f"mock preview: http://{args.host}:{args.port}/?page=home", flush=True)
+        print(f"locale:      {args.locale}", flush=True)
+        print(f"theme:       {args.theme}", flush=True)
         print(f"timer:       {args.timer}", flush=True)
         print("question:    ?page=home&sheet=1", flush=True)
         try:
