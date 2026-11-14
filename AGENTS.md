@@ -522,9 +522,19 @@ pnpm build:rust
 - 门禁：`jobs.checks` 是 `uses: ./.github/workflows/checks.yml`，检查不过不发布。
 - 构建：只跑 `pnpm build:dsh` 与 `pnpm build:web`；探针是平台相关的本机构建产物，不进 npm 包。
 - 校验：`node scripts/check-npm-package.mjs --tag <tag>` 验证产物、清单策略、版本 / 标签一致和 tarball 内容。
-- 发布：`npm publish --provenance --access public --tag latest|next`（预发布版本走 `next`），认证用 `npm` environment 的 secret `NPM_TOKEN`（Settings → Environments → npm；环境上还能加 required reviewers 做发布审批）；`permissions.id-token: write` 是 provenance 的前提。
-- npm 政策：scoped 包必须 `publishConfig.access: public`；`publishConfig.registry` 固定 npm 官方源；`publishConfig.provenance: true`；classic automation token 已下线，`NPM_TOKEN` 必须是该包的 granular token（带 2FA bypass）。改用 Trusted Publishing 时，在 npmjs.com 配好发布者并删掉 `NODE_AUTH_TOKEN` 即可。
+- 发布：`npm publish --provenance --access public --tag latest|next`（预发布版本走 `next`）。认证用 npm Trusted Publishing（OIDC），工作流里没有任何 token / secret：job 带 `id-token: write` 并在 `npm` environment 下运行，npm 用这次运行的短期 GitHub 身份换取一次性发布凭据。
+- 首次发布（一次性引导）：trusted publisher 只能为已存在的包配置，所以先用维护者账号交互式发布一个占位版本建立包记录（`0.0.0-bootstrap`，`--tag bootstrap`），再到 npm 设置页配 trusted publisher（owner `ohmykreee`、repo `dsh-remote-control`、workflow `publish-npm.yml`、environment `npm`），之后所有版本只走标签发布。新配置必须在 48 小时内完成首次发布，否则过期，所以配置好就尽快打标签。
+- npm 政策：scoped 包必须 `publishConfig.access: public`；`publishConfig.registry` 固定 npm 官方源；`publishConfig.provenance: true`；`repository` 必须与 GitHub 仓库一致；trusted publishing 要求 npm CLI `11.5.1+` 与 GitHub 托管 runner（工作流里有前置检查）。首次发布成功后，建议把包的 publishing access 设为「Require two-factor authentication and disallow tokens」。
 - 包内容：编译产物（`index.js` / `client.js` / `lib/` / `web/`）+ 源码（`src/**`、构建脚本、配置、README / INSTALLATION / AGENTS / docs）；`test/`、`.github/`、`native/bin/`、`src/rust/target/` 不进包。
+
+一次性引导（只有第一次需要；占位版本只用来在 registry 上创建包记录，正式版本仍由标签发布）：
+
+```bash
+mkdir -p /tmp/dsh-rc-bootstrap && cd /tmp/dsh-rc-bootstrap
+printf '{"name":"@ohmykreee/dsh-remote-control","version":"0.0.0-bootstrap","license":"MIT"}' > package.json
+npm login
+npm publish --access public --tag bootstrap
+```
 
 ## 已知限制
 

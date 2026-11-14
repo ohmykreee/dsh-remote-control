@@ -14,19 +14,33 @@
 # notifications, GPU/thermal or system location build it from the published
 # sources themselves (INSTALLATION.md).
 #
-# npm policy this job follows:
+# Authentication is npm Trusted Publishing (OIDC), not a token: this workflow
+# stores no credential and reads no secret. The `id-token: write` permission
+# lets npm exchange the job's short-lived GitHub identity for a one-time
+# publish credential, and the attestation that comes with it is what customers
+# verify on npmjs.com.
+#
+# One-time setup on npmjs.com -> the package -> Settings -> Trusted publishing:
+#   Provider           GitHub Actions
+#   Organization/user  ohmykreee
+#   Repository         dsh-remote-control
+#   Workflow filename  publish-npm.yml   (the file name only)
+#   Environment        npm               (matches the job environment below)
+#
+# npm only accepts a trusted publisher for a package that already exists, so the
+# very first release has to create the package record once; AGENTS.md documents
+# that bootstrap. A fresh configuration must also complete its first successful
+# publish within 48 hours, so add it when a release is ready.
+#
+# Other npm policy this job follows:
 #   - the package is scoped, so it publishes with `access: public` from
 #     publishConfig instead of a flag-only override;
 #   - `publishConfig.registry` pins the official registry, so a mirror can never
 #     receive a release by accident;
-#   - provenance is requested (`--provenance`, `id-token: write`), which needs
-#     the `repository` field in package.json to match this GitHub repository;
-#   - authentication is a granular access token with publish permission for
-#     this package and 2FA bypass; npm retired the classic automation tokens.
-#     The token is an environment secret of the `npm` environment, not a
-#     repository secret, so it can be scoped and reviewed there. For a
-#     token-free alternative, configure a Trusted Publisher for this workflow on
-#     npmjs.com and drop the NODE_AUTH_TOKEN lines below.
+#   - the `repository` field matches this GitHub repository, which provenance
+#     validation requires;
+#   - trusted publishing needs npm CLI 11.5.1+ on a GitHub-hosted runner, which
+#     the guard step below checks before anything is built.
 name: Publish npm
 
 on:
@@ -58,20 +72,16 @@ jobs:
     needs: checks
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # Secrets attached to this environment are what reaches npm; the workflow
-    # itself carries no credential. Protection rules (for example required
-    # reviewers) on the environment also gate the release.
+    # The trusted publisher is registered against this environment name, and
+    # protection rules on the environment (required reviewers, deployment tags)
+    # also gate the release.
     environment:
       name: npm
       url: https://www.npmjs.com/package/@ohmykreee/dsh-remote-control
     permissions:
       contents: read
-      # Required for the npm provenance attestation (`--provenance`).
+      # The OIDC identity npm exchanges for a short-lived publish credential.
       id-token: write
-    env:
-      # setup-node turns the `npm` environment secret into the `_authToken` of
-      # the runner-local .npmrc.
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@v7
@@ -84,11 +94,28 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          # Exact version, matching local development and checks.yml.
+          # Exact version, matching local development and checks.yml. Its
+          # bundled npm is 11.x, new enough for trusted publishing.
           node-version: 26.7.0
-          registry-url: https://registry.npmjs.org
           # Reuse the pnpm store across runs; the key follows pnpm-lock.yaml.
           cache: pnpm
+
+      # Fail before the build when the environment cannot mint an OIDC token or
+      # ships an npm too old for trusted publishing: both are configuration
+      # problems that would otherwise surface at the very end of the release.
+      - name: Check the npm client and OIDC
+        run: |
+          node --version
+          npm --version
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+            echo "::error::No OIDC endpoint. The job needs 'permissions: id-token: write' for trusted publishing."
+            exit 1
+          fi
+          current=$(npm --version)
+          if [ "$(printf '%s\n%s\n' 11.5.1 "$current" | sort -V | head -n1)" != "11.5.1" ]; then
+            echo "::error::npm $current is too old for trusted publishing; npm 11.5.1 or newer is required."
+            exit 1
+          fi
 
       # No install scripts run here or for consumers: the package deliberately
       # declares none, because pnpm blocks dependency build scripts and DSH
@@ -131,14 +158,9 @@ jobs:
           # Manual runs default to a rehearsal; only a tag push always uploads.
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
         run: |
-          npm --version
-          if [ "${DRY_RUN}" != "true" ] && [ -z "${NODE_AUTH_TOKEN}" ]; then
-            echo "::error::NPM_TOKEN is empty. Add it under Settings > Environments > npm > Secrets with publish access to @ohmykreee/dsh-remote-control (and 2FA bypass), or run the workflow manually as a dry run."
-            exit 1
-          fi
           args=(--provenance --access public --tag "${{ steps.release.outputs.tag }}")
           if [ "${DRY_RUN}" = "true" ]; then
-            echo "Dry run: trying the tarball and the provenance rules without uploading."
+            echo "Dry run: the tarball and the provenance rules are checked without uploading."
             args+=(--dry-run)
           fi
           npm publish "${args[@]}"
