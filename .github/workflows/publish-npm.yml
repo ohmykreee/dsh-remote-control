@@ -1,7 +1,7 @@
 # npm release for @ohmykreee/dsh-remote-control.
 #
-# Trigger: push a version tag (for example `git tag v1.0.2 && git push origin
-# v1.0.2`). A manual run only rehearses the release unless the dry-run toggle is
+# Trigger: push a version tag (for example `git tag v1.0.3 && git push origin
+# v1.0.3`). A manual run only rehearses the release unless the dry-run toggle is
 # cleared, so a mis-click cannot publish.
 #
 # The gate is checks.yml itself, reused through `workflow_call`: the release
