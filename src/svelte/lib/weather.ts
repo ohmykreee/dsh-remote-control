@@ -1,35 +1,36 @@
+import { t, type MessageKey } from './i18n.svelte';
 import type { WeatherData } from './types';
 
 /** WMO weather-code mapping ported from the original console. */
-export const WMO: Record<number, readonly [string, string, string]> = {
-  0: ['晴', 'sun', 'day'],
-  1: ['大致晴朗', 'sun', 'day'],
-  2: ['局部多云', 'cloud-sun', 'day'],
-  3: ['阴天', 'cloud', 'cloud'],
-  45: ['有雾', 'fog', 'cloud'],
-  48: ['雾凇', 'fog', 'cloud'],
-  51: ['毛毛雨', 'rain', 'rain'],
-  53: ['毛毛雨', 'rain', 'rain'],
-  55: ['较强毛毛雨', 'rain', 'rain'],
-  56: ['冻毛毛雨', 'rain', 'rain'],
-  57: ['强冻毛毛雨', 'rain', 'rain'],
-  61: ['小雨', 'rain', 'rain'],
-  63: ['中雨', 'rain', 'rain'],
-  65: ['大雨', 'rain', 'rain'],
-  66: ['冻雨', 'rain', 'rain'],
-  67: ['强冻雨', 'rain', 'rain'],
-  71: ['小雪', 'snow', 'rain'],
-  73: ['中雪', 'snow', 'rain'],
-  75: ['大雪', 'snow', 'rain'],
-  77: ['雪粒', 'snow', 'rain'],
-  80: ['阵雨', 'rain', 'rain'],
-  81: ['较强阵雨', 'rain', 'rain'],
-  82: ['强阵雨', 'storm', 'storm'],
-  85: ['阵雪', 'snow', 'rain'],
-  86: ['强阵雪', 'snow', 'rain'],
-  95: ['雷雨', 'storm', 'storm'],
-  96: ['雷雨伴冰雹', 'storm', 'storm'],
-  99: ['强雷雨伴冰雹', 'storm', 'storm'],
+export const WMO: Record<number, readonly [MessageKey, string, string]> = {
+  0: ['wmoClear', 'sun', 'day'],
+  1: ['wmoMostlyClear', 'sun', 'day'],
+  2: ['wmoPartlyCloudy', 'cloud-sun', 'day'],
+  3: ['wmoOvercast', 'cloud', 'cloud'],
+  45: ['wmoFog', 'fog', 'cloud'],
+  48: ['wmoRimeFog', 'fog', 'cloud'],
+  51: ['wmoDrizzle', 'rain', 'rain'],
+  53: ['wmoDrizzle', 'rain', 'rain'],
+  55: ['wmoDenseDrizzle', 'rain', 'rain'],
+  56: ['wmoFreezingDrizzle', 'rain', 'rain'],
+  57: ['wmoHeavyFreezingDrizzle', 'rain', 'rain'],
+  61: ['wmoLightRain', 'rain', 'rain'],
+  63: ['wmoRain', 'rain', 'rain'],
+  65: ['wmoHeavyRain', 'rain', 'rain'],
+  66: ['wmoFreezingRain', 'rain', 'rain'],
+  67: ['wmoHeavyFreezingRain', 'rain', 'rain'],
+  71: ['wmoLightSnow', 'snow', 'rain'],
+  73: ['wmoSnow', 'snow', 'rain'],
+  75: ['wmoHeavySnow', 'snow', 'rain'],
+  77: ['wmoSnowGrains', 'snow', 'rain'],
+  80: ['wmoRainShowers', 'rain', 'rain'],
+  81: ['wmoHeavyRainShowers', 'rain', 'rain'],
+  82: ['wmoViolentRainShowers', 'storm', 'storm'],
+  85: ['wmoSnowShowers', 'snow', 'rain'],
+  86: ['wmoHeavySnowShowers', 'snow', 'rain'],
+  95: ['wmoThunderstorm', 'storm', 'storm'],
+  96: ['wmoThunderstormHail', 'storm', 'storm'],
+  99: ['wmoSevereThunderstorm', 'storm', 'storm'],
 };
 
 export interface WeatherInfo {
@@ -74,8 +75,10 @@ export function skyconFor(code: number | undefined, isDay: boolean | undefined):
 }
 
 export function weatherInfo(code: number | undefined, isDay: boolean | undefined): WeatherInfo {
-  const item = WMO[Number(code)] || (isDay ? ['天气', 'sun', 'day'] : ['夜间', 'moon', 'night']);
-  return { label: item[0], icon: item[1], skycon: skyconFor(code, isDay), tone: item[2] };
+  const item = WMO[Number(code)] || (isDay
+    ? ['weatherFallback', 'sun', 'day'] as const
+    : ['weatherNight', 'moon', 'night'] as const);
+  return { label: t(item[0]), icon: item[1], skycon: skyconFor(code, isDay), tone: item[2] };
 }
 
 export type { WeatherData };

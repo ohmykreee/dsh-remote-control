@@ -13,6 +13,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Progress } from '$lib/components/ui/progress/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
+  import { t } from '../i18n.svelte';
   import { cn } from '$lib/utils.js';
   import Play from '@lucide/svelte/icons/play';
   import Pause from '@lucide/svelte/icons/pause';
@@ -27,22 +28,22 @@
   const phaseLabel = $derived(
     pomodoro.finished
       ? pomodoro.phase === 'focus'
-        ? '专注完成'
-        : '休息结束'
+        ? t('focusDone')
+        : t('breakDone')
       : pomodoro.phase === 'focus'
-        ? '专注'
-        : '休息',
+        ? t('focus')
+        : t('rest'),
   );
   const primaryLabel = $derived(
     pomodoro.alarmActive
-      ? '停止响铃'
+      ? t('stopAlarm')
       : pomodoro.finished
         ? pomodoro.phase === 'focus'
-          ? '开始休息'
-          : '开始专注'
+          ? t('startBreak')
+          : t('startFocus')
         : pomodoro.running
-          ? '暂停'
-          : '开始',
+          ? t('pause')
+          : t('start'),
   );
   const time = $derived(formatRemaining(pomodoro.remainingMs));
   const percent = $derived(pomodoroProgress());
@@ -67,12 +68,12 @@
   <div class="flex min-w-0 flex-1 flex-col justify-center">
     <div class="flex items-center gap-2.5">
       <Timer class="size-[18px] text-brand" strokeWidth={1.8} />
-      <span class="text-[16px] font-medium text-muted-foreground">番茄钟</span>
+      <span class="text-[16px] font-medium text-muted-foreground">{t('pomodoro')}</span>
       <button
         class="phase-button"
         type="button"
         disabled={pomodoro.running}
-        title="切换专注 / 休息"
+        title={t('switchPhase')}
         onclick={switchPomodoroPhase}
       >
         {phaseLabel}
@@ -82,7 +83,7 @@
           variant="outline"
           class="h-6 border-border bg-secondary px-2 text-[12px] font-medium text-muted-foreground"
         >
-          {pomodoro.rounds} 个
+          {t('roundCount', { count: pomodoro.rounds })}
         </Badge>
       {/if}
     </div>
@@ -116,8 +117,8 @@
           class="size-12 rounded-[14px] border-border bg-transparent text-muted-foreground hover:bg-secondary hover:text-foreground"
           type="button"
           onclick={resetPomodoro}
-          aria-label="重置番茄钟"
-          title="重置"
+          aria-label={t('resetPomodoro')}
+          title={t('reset')}
         >
           <RotateCcw class="size-[20px]" strokeWidth={1.8} />
         </Button>

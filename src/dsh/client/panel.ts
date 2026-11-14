@@ -21,7 +21,7 @@ import {
   readClients,
   requestJson,
 } from './api.js';
-import { useTranslator } from './i18n.js';
+import { setPluginLanguage, useTranslator } from './i18n.js';
 import {
   EMPTY_DRAFT,
   PAGE_ORDER,
@@ -134,6 +134,9 @@ export function RemotePanel(): React.ReactElement {
     if (!isSettingsPayload(payload)) return;
     setData(payload);
     setStaged({});
+    // The saved plugin language drives every label in this panel; apply it
+    // before the next render so the new language paints in one pass.
+    setPluginLanguage(payload.settings.language);
     const names = selectAllNames(payload);
     setSelectedInterfaces(payload.settings.allowedInterfaces === null ? names : [...payload.settings.allowedInterfaces]);
     const appKeys = (payload.apps ?? []).map((app) => app.key);

@@ -15,6 +15,7 @@ import {
   DISCONNECT_PATH,
   GEOCODE_PATH,
   INFO_PATH,
+  LOCALE_PATH,
   LOCATION_PATH,
   PANEL_ID,
   QR_PATH,
@@ -86,6 +87,7 @@ export async function apply(ctx: DshContext): Promise<void> {
       [LOCATION_PATH, (req, res) => service.handleLocation(req, res), 'location permission'],
       [GEOCODE_PATH, (req, res) => service.handleGeocode(req, res), 'city geocoding'],
       [THEME_PATH, (req, res) => service.handleTheme(req, res), 'theme sync'],
+      [LOCALE_PATH, (req, res) => service.handleLocale(req, res), 'locale sync'],
       [TOKEN_ROTATE_PATH, (req, res) => service.handleTokenRotate(req, res), 'token rotation'],
       [DISCONNECT_PATH, (req, res) => service.handleDisconnect(req, res), 'device disconnect'],
     ];

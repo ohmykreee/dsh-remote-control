@@ -30,7 +30,9 @@
         </span>
         <div class="min-w-0">
           <p class="truncate text-[16px] font-semibold tracking-[-0.01em] text-foreground">{parts.dateLabel}</p>
-          <p class="mt-0.5 truncate text-[13px] text-muted-foreground">{parts.periodLabel}</p>
+          {#if parts.periodLabel}
+            <p class="mt-0.5 truncate text-[13px] text-muted-foreground">{parts.periodLabel}</p>
+          {/if}
         </div>
       </div>
       <Badge

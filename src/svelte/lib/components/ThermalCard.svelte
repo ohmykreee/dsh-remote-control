@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app } from '../state.svelte';
   import { temperatureUnitLabel, toDisplayTemperature } from '../format';
+  import { t } from '../i18n.svelte';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { ScrollArea } from '$lib/components/ui/scroll-area/index.js';
   import Thermometer from '@lucide/svelte/icons/thermometer';
@@ -46,13 +47,13 @@
 
 <Panel class="thermal-card relative flex min-h-0 flex-col overflow-hidden p-4">
   <div class="perf-glow" aria-hidden="true"></div>
-  <SectionHeader icon={Thermometer} eyebrow="THERMALS" title="温度">
+  <SectionHeader icon={Thermometer} eyebrow="THERMALS" title={t('temperatures')}>
     {#snippet children()}
       <Badge
         variant="outline"
         class="h-7 border-border bg-secondary px-2.5 text-[13px] font-medium text-muted-foreground"
       >
-        {temperatures.length} 个
+        {t('itemCount', { count: temperatures.length })}
       </Badge>
     {/snippet}
   </SectionHeader>
@@ -66,14 +67,14 @@
     </div>
   {:else if empty}
     <div class="flex min-h-0 flex-1 items-center justify-center">
-      <EmptyState icon={Thermometer} title="暂无温度读数" text="稍后再试" />
+      <EmptyState icon={Thermometer} title={t('noTemperature')} text={t('tryLater')} />
     </div>
   {:else}
     <div class="relative z-10 mt-3 flex flex-1 flex-col">
       <div class="temp-hero" class:is-hot={maxHot} class:is-critical={maxCritical} style={`--heat:${heatWidth}%`}>
         <div class="relative z-10 flex items-end justify-between gap-3">
           <div>
-            <p class="text-[15px] text-muted-foreground">最高温度</p>
+            <p class="text-[15px] text-muted-foreground">{t('maxTemperature')}</p>
             <div class="mt-1 flex items-baseline gap-1">
               <span class="temp-max numeric">{maxShown}</span>
               <span class="text-[17px] text-muted-foreground">{unitText}</span>
@@ -95,7 +96,7 @@
                 style={`--heat:${levelOf(value)}%`}
               >
                 <span class="relative z-10 min-w-0 flex-1 truncate text-[16px] text-muted-foreground">
-                  {item.name || '设备'}
+                  {item.name || t('device')}
                 </span>
                 <b class="relative z-10 numeric shrink-0 text-[20px] font-semibold text-foreground">
                   {shownOf(value)}
@@ -106,7 +107,7 @@
             {#if !hasCpuSensor}
               <div class="temp-row is-unavailable">
                 <span class="relative z-10 text-[15px] text-muted-foreground">CPU</span>
-                <span class="relative z-10 text-[14px] text-muted-foreground">未提供</span>
+                <span class="relative z-10 text-[14px] text-muted-foreground">{t('notProvided')}</span>
               </div>
             {/if}
           </div>

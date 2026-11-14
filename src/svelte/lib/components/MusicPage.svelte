@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app } from '../state.svelte';
   import { sourceLabel } from '../format';
+  import { t } from '../i18n.svelte';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import Radio from '@lucide/svelte/icons/radio';
   import MusicControls from './MusicControls.svelte';
@@ -10,7 +11,7 @@
   const media = $derived(payload?.media?.media ?? null);
   const volume = $derived(payload?.volume ?? null);
   const thumbnail = $derived(media?.thumbnail || media?.thumbnailUrl || '');
-  const source = $derived(media ? String(media.appName || '').trim() || sourceLabel(media.appId) : '媒体');
+  const source = $derived(media ? String(media.appName || '').trim() || sourceLabel(media.appId) : t('mediaFallback'));
 </script>
 
 {#if thumbnail}

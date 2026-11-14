@@ -1,6 +1,5 @@
 import type { PageKey } from './types';
 
-export const PAGE_LABELS: Record<PageKey, string> = { home: '首页', sessions: '会话', music: '音乐', performance: '性能' };
 export const DEFAULT_ORDER: readonly PageKey[] = ['home', 'sessions', 'music', 'performance'];
 
 export function normalizeOrder(input: unknown): PageKey[] {

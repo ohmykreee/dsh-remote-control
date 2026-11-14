@@ -2,7 +2,7 @@
   import type { Component } from 'svelte';
   import { app } from '../state.svelte';
   import type { PageKey } from '../types';
-  import { PAGE_LABELS } from '../pages';
+  import { pageLabel, t } from '../i18n.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { cn } from '$lib/utils.js';
   import House from '@lucide/svelte/icons/house';
@@ -38,11 +38,11 @@
     performance: Cpu,
   };
 
-  const fullscreenTitle = $derived(app.fullscreen ? '退出全屏' : '进入全屏');
+  const fullscreenTitle = $derived(app.fullscreen ? t('fullscreenExit') : t('fullscreenEnter'));
 </script>
 
-<aside class="rail" aria-label="页面导航">
-  <nav class="rail-nav" aria-label="页面">
+<aside class="rail" aria-label={t('navLabel')}>
+  <nav class="rail-nav" aria-label={t('pagesLabel')}>
     {#each order as key (key)}
       {@const Icon = icons[key]}
       <Button
@@ -54,9 +54,9 @@
         )}
         type="button"
         data-key={key}
-        aria-label={PAGE_LABELS[key]}
+        aria-label={pageLabel(key)}
         aria-current={activeKey === key ? 'page' : undefined}
-        title={PAGE_LABELS[key]}
+        title={pageLabel(key)}
         onclick={() => onNavigate(key)}
       >
         <Icon class="size-[21px]" strokeWidth={1.7} />
@@ -64,7 +64,7 @@
           <span
             class="rail-badge"
             class:is-error={errorCount > 0}
-            aria-label={errorCount > 0 ? '有错误会话' : '有待回答问题'}
+            aria-label={errorCount > 0 ? t('errorSessions') : t('pendingQuestions')}
           ></span>
         {/if}
       </Button>
@@ -77,8 +77,8 @@
       size="icon"
       class="rail-utility size-10 rounded-[12px] text-muted-foreground"
       type="button"
-      aria-label="刷新页面状态"
-      title="刷新页面状态"
+      aria-label={t('refreshPage')}
+      title={t('refreshPage')}
       onclick={onRefresh}
     >
       <RefreshCw class="size-[20px]" strokeWidth={1.7} />

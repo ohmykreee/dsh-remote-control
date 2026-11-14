@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app } from '../state.svelte';
   import { formatTemperature, pad, temperatureUnitLabel, toDisplayTemperature } from '../format';
+  import { localeTag, t } from '../i18n.svelte';
   import { weatherInfo } from '../weather';
   import type { WeatherData } from '../types';
   import { Skeleton } from '$lib/components/ui/skeleton/index.js';
@@ -12,7 +13,7 @@
 
   let { weather }: { weather: WeatherData | null } = $props();
 
-  const weekdayFormatter = new Intl.DateTimeFormat('zh-CN', { weekday: 'short' });
+  const weekdayFormatter = $derived(new Intl.DateTimeFormat(localeTag(), { weekday: 'short' }));
   const unit = $derived(app.temperatureUnit);
   const displayUnit = $derived(temperatureUnitLabel(unit));
   const loaded = $derived(weather !== null);
@@ -45,9 +46,17 @@
     const hour = new Date(time || Date.now()).getHours();
     return hour >= 6 && hour < 18;
   }
+
+  /** The Host may fill generic fallback names; localize those, keep real cities. */
+  function locationName(name: string | undefined): string {
+    const value = String(name || '').trim();
+    if (!value || value === '当前位置') return t('currentLocation');
+    if (value === '自定义位置') return t('customLocation');
+    return value;
+  }
 </script>
 
-<section class="weather-panel" aria-label="天气">
+<section class="weather-panel" aria-label={t('weather')}>
   {#if !loaded}
     <div class="weather-main">
       <div class="weather-condition">
@@ -66,8 +75,8 @@
           <CloudSun class="size-[26px] text-muted-foreground" strokeWidth={1.7} />
         </span>
         <div>
-          <p class="text-[19px] font-medium text-foreground">天气暂不可用</p>
-          <p class="mt-0.5 text-[14px] text-muted-foreground">稍后再试</p>
+          <p class="text-[19px] font-medium text-foreground">{t('weatherUnavailable')}</p>
+          <p class="mt-0.5 text-[14px] text-muted-foreground">{t('tryLater')}</p>
         </div>
       </div>
     </div>
@@ -79,7 +88,7 @@
         </span>
         <div class="min-w-0">
           <p class="truncate text-[20px] font-semibold text-foreground">{info?.label}</p>
-          <p class="mt-0.5 truncate text-[14px] text-muted-foreground">{weather?.location?.name || '当前位置'}</p>
+          <p class="mt-0.5 truncate text-[14px] text-muted-foreground">{locationName(weather?.location?.name)}</p>
         </div>
       </div>
 
@@ -88,10 +97,10 @@
       </div>
 
       <div class="weather-metrics numeric">
-        <span><b>{formatTemperature(daily.high, unit)} / {formatTemperature(daily.low, unit)}</b><small>最高 / 最低</small></span>
-        <span><b>{formatTemperature(current.feelsLike, unit)}</b><small>体感</small></span>
-        <span><b>{Math.round(current.humidity ?? 0)}%</b><small>湿度</small></span>
-        <span><b>{Math.round(current.windSpeed ?? 0)} km/h</b><small>风速</small></span>
+        <span><b>{formatTemperature(daily.high, unit)} / {formatTemperature(daily.low, unit)}</b><small>{t('highLow')}</small></span>
+        <span><b>{formatTemperature(current.feelsLike, unit)}</b><small>{t('feelsLike')}</small></span>
+        <span><b>{Math.round(current.humidity ?? 0)}%</b><small>{t('humidity')}</small></span>
+        <span><b>{Math.round(current.windSpeed ?? 0)} km/h</b><small>{t('windSpeed')}</small></span>
       </div>
     </div>
 
@@ -99,7 +108,7 @@
       {#if showDaily}
         {#each dailyForecast as day, index (day.date || index)}
           <div class="forecast-chip" class:is-now={index === 0}>
-            <span class="forecast-label">{index === 0 ? '今天' : weekdayFormatter.format(new Date(day.date || Date.now()))}</span>
+            <span class="forecast-label">{index === 0 ? t('today') : weekdayFormatter.format(new Date(day.date || Date.now()))}</span>
             <WeatherIcon code={day.code} isDay class="size-[22px] text-brand" />
             <b class="numeric">{formatTemperature(day.high, unit)}</b>
             <small class="numeric">{formatTemperature(day.low, unit)}</small>
@@ -109,7 +118,7 @@
         {#each hourly as hour, index (hour.time || index)}
           {@const date = new Date(hour.time || Date.now())}
           <div class="forecast-chip" class:is-now={index === 0}>
-            <span class="forecast-label">{index === 0 ? '现在' : `${pad(date.getHours())}时`}</span>
+            <span class="forecast-label">{index === 0 ? t('now') : t('hourLabel', { hour: pad(date.getHours()) })}</span>
             <WeatherIcon code={hour.code} isDay={hourIsDay(hour.time)} class="size-[22px] text-brand" />
             <b class="numeric">{formatTemperature(hour.temperature, unit)}</b>
           </div>
@@ -118,9 +127,9 @@
     </div>
 
     <div class="weather-extra">
-      <span><Sunrise class="size-4 text-muted-foreground" strokeWidth={1.7} />日出 {sunriseText}</span>
-      <span><Sunset class="size-4 text-muted-foreground" strokeWidth={1.7} />日落 {sunsetText}</span>
-      <span><CloudSun class="size-4 text-muted-foreground" strokeWidth={1.7} />明日 {tomorrowText}</span>
+      <span><Sunrise class="size-4 text-muted-foreground" strokeWidth={1.7} />{t('sunrise')} {sunriseText}</span>
+      <span><Sunset class="size-4 text-muted-foreground" strokeWidth={1.7} />{t('sunset')} {sunsetText}</span>
+      <span><CloudSun class="size-4 text-muted-foreground" strokeWidth={1.7} />{t('tomorrow')} {tomorrowText}</span>
     </div>
   {/if}
 </section>

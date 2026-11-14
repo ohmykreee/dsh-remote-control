@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app } from '../state.svelte';
   import { currencySymbol, formatMoney } from '../format';
+  import { t } from '../i18n.svelte';
   import { beijingYear, ensureHolidayYear, tariffPeriod } from '../billing.svelte';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import Wallet from '@lucide/svelte/icons/wallet';
@@ -23,12 +24,15 @@
   );
   const caption = $derived(
     !loaded
-      ? '正在同步'
+      ? t('syncing')
       : !signedIn
-        ? account?.balance?.error || '未登录账号'
+        ? account?.balance?.error || t('signedOut')
         : balance?.state === 'ready'
-          ? `充值 ${formatMoney(balance?.paid, currency)} · 赠送 ${formatMoney(balance?.bonus, currency)}`
-          : balance?.error || '正在同步',
+          ? t('topUpBonus', {
+              paid: formatMoney(balance?.paid, currency),
+              bonus: formatMoney(balance?.bonus, currency),
+            })
+          : balance?.error || t('syncing'),
   );
 
   const tariff = $derived(tariffPeriod(new Date(app.clockNow)));
@@ -47,20 +51,20 @@
   <div class="balance-glow" aria-hidden="true"></div>
 
   <div class="relative z-10">
-    <SectionHeader icon={Wallet} eyebrow="ACCOUNT" title="账户余额">
+    <SectionHeader icon={Wallet} eyebrow="ACCOUNT" title={t('accountBalance')}>
       {#snippet children()}
         {#if showTariff}
           <Badge
             variant="outline"
             class="h-8 border-border bg-secondary px-3 text-[14px] font-medium text-muted-foreground"
-            title={tariff === 'peak' ? '高峰时段' : '低谷时段'}
+            title={tariff === 'peak' ? t('peakHours') : t('offpeakHours')}
           >
             {#if tariff === 'peak'}
               <Mountain class="size-3.5 text-warn" strokeWidth={1.8} />
-              高峰
+              {t('peak')}
             {:else}
               <MoonStar class="size-3.5 text-brand" strokeWidth={1.8} />
-              低谷
+              {t('offpeak')}
             {/if}
           </Badge>
         {/if}
@@ -77,7 +81,7 @@
     {#if low}
       <div class="mt-2 inline-flex items-center gap-1.5 self-start rounded-lg border border-danger/25 bg-danger-soft px-2 py-1 text-[14px] font-medium text-danger">
         <TriangleAlert class="size-4" strokeWidth={1.8} />
-        低于提醒线 {formatMoney(account?.lowThreshold, currency)}
+        {t('belowThreshold', { amount: formatMoney(account?.lowThreshold, currency) })}
       </div>
     {/if}
   </div>

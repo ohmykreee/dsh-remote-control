@@ -1,3 +1,4 @@
+import { setLocale, t } from './i18n.svelte';
 import { DEFAULT_ORDER, enabledOrder, normalizeOrder } from './pages';
 import { configureLive, connectLive, disposeLive, isLiveOpen, sendLive } from './ws';
 import type {
@@ -50,7 +51,7 @@ export const app: ConsoleState = $state({
   pushQuestions: false,
   navPosition: 'left',
   pomodoro: { enabled: false, focusMinutes: 25, breakMinutes: 5, soundPath: '', loopAlarm: false },
-  balanceDisplay: { showPeakValley: true },
+  balanceDisplay: { showPeakValley: true, spendWindow: 'calendar' },
   pageOrder: [...DEFAULT_ORDER],
   pageEnabled: { home: true, sessions: true, music: true, performance: true },
   pageRevision: 0,
@@ -99,7 +100,7 @@ export function toast(message: string): void {
 export function sendAction(action: string, value?: number | boolean): boolean {
   const message = { type: 'action' as const, action, ...(value !== undefined ? { value } : {}) };
   if (!sendLive(message)) {
-    toast('正在连接，请稍候');
+    toast(t('connecting'));
     return false;
   }
   return true;
@@ -122,19 +123,19 @@ export function openQuestion(sessionId: string): void {
   const session = app.sessions.find((item) => item.id === sessionId);
   if (!session) return;
   if (!app.pushQuestions) {
-    toast('「推送问询」已关闭，请在 DSH 的通知设置中开启');
+    toast(t('pushQuestionsOff'));
     return;
   }
   if (session.pending?.kind === 'approval') {
-    toast('该会话正在等待批准，请在 DSH 中处理');
+    toast(t('approvalPending'));
     return;
   }
   if (session.pending?.answerable === false) {
-    toast('这个问题需要在 DSH 中回答');
+    toast(t('answerInDsh'));
     return;
   }
   if (!session.pending?.questions?.length) {
-    toast('这个问题需要在 DSH 中回答');
+    toast(t('answerInDsh'));
     return;
   }
   app.answerSessionId = sessionId;
@@ -153,7 +154,7 @@ export function submitQuestionAnswer(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     if (!isLiveOpen()) {
-      reject(new Error('连接已断开，请稍后重试'));
+      reject(new Error(t('connectionLost')));
       return;
     }
     const key = answerKey(sessionId, requestId);
@@ -161,19 +162,19 @@ export function submitQuestionAnswer(
     if (previous) {
       clearTimeout(previous.timer);
       answerWaiters.delete(key);
-      previous.reject(new Error('答复已被新的回答替换'));
+      previous.reject(new Error(t('answerReplaced')));
     }
     const timer = setTimeout(() => {
       const waiter = answerWaiters.get(key);
       if (!waiter) return;
       answerWaiters.delete(key);
-      waiter.reject(new Error('回答超时，请重试'));
+      waiter.reject(new Error(t('answerTimeout')));
     }, 12_000);
     answerWaiters.set(key, { resolve, reject, timer });
     if (!sendLive({ type: 'answer-question', sessionId, requestId, answers })) {
       answerWaiters.delete(key);
       clearTimeout(timer);
-      reject(new Error('连接已断开，请稍后重试'));
+      reject(new Error(t('connectionLost')));
     }
   });
 }
@@ -185,13 +186,19 @@ export function applyTheme(theme: string): void {
 export function applySettings(settings: ConsoleSettings | undefined): void {
   if (!settings) return;
   if (settings.theme) applyTheme(settings.theme);
+  setLocale(settings.locale);
   if (settings.temperatureUnit) {
     app.temperatureUnit = settings.temperatureUnit === 'fahrenheit' ? 'fahrenheit' : 'celsius';
   }
   app.pushQuestions = settings.pushQuestions === true;
   if (settings.navPosition) app.navPosition = normalizeNavPosition(settings.navPosition);
   if (settings.pomodoro) app.pomodoro = normalizePomodoro(settings.pomodoro, app.pomodoro);
-  if (settings.balance) app.balanceDisplay = { showPeakValley: settings.balance.showPeakValley !== false };
+  if (settings.balance) {
+    app.balanceDisplay = {
+      showPeakValley: settings.balance.showPeakValley !== false,
+      spendWindow: settings.balance.spendWindow === 'rolling' ? 'rolling' : 'calendar',
+    };
+  }
   let pageChanged = false;
   if (settings.pageOrder) {
     app.pageOrder = normalizeOrder(settings.pageOrder);
@@ -254,7 +261,7 @@ function handleMessage(message: ServerMessage): void {
       applySettings(message.data as ConsoleSettings | undefined);
       break;
     case 'action-result':
-      if (!message.ok) toast(message.error || '操作失败');
+      if (!message.ok) toast(message.error || t('actionFailed'));
       break;
     case 'answer-result': {
       const key = answerKey(message.sessionId || '', message.requestId || '');
@@ -263,11 +270,11 @@ function handleMessage(message: ServerMessage): void {
       answerWaiters.delete(key);
       clearTimeout(waiter.timer);
       if (message.ok) waiter.resolve();
-      else waiter.reject(new Error(message.error || '回答失败'));
+      else waiter.reject(new Error(message.error || t('answerFailed')));
       break;
     }
     case 'error':
-      toast(message.error || '服务异常');
+      toast(message.error || t('serviceError'));
       break;
     default:
       break;

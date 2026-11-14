@@ -13,6 +13,7 @@ export const APP_NAMES_PATH = `${ROUTE_PREFIX}/api/apps`;
 export const LOCATION_PATH = `${ROUTE_PREFIX}/api/location`;
 export const GEOCODE_PATH = `${ROUTE_PREFIX}/api/geocode`;
 export const THEME_PATH = `${ROUTE_PREFIX}/api/theme`;
+export const LOCALE_PATH = `${ROUTE_PREFIX}/api/locale`;
 export const TOKEN_ROTATE_PATH = `${ROUTE_PREFIX}/api/token/rotate`;
 export const DISCONNECT_PATH = `${ROUTE_PREFIX}/api/disconnect`;
 

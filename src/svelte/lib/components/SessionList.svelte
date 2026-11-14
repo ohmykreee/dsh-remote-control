@@ -2,6 +2,7 @@
   import { app, openQuestion } from '../state.svelte';
   import type { SessionItem } from '../types';
   import { runningDuration, timeAgo } from '../format';
+  import { t } from '../i18n.svelte';
   import { buildSessionTree, type SessionNode } from '../session-tree';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { Card } from '$lib/components/ui/card/index.js';
@@ -20,12 +21,19 @@
   const tree = $derived(buildSessionTree(sessions));
   const subtitle = $derived(
     app.overview === null
-      ? '正在读取'
-      : sessions.length
-        ? `${sessions.length} 个会话`
-        : '暂无活动会话',
+      ? t('sessionLoading')
+      : sessions.length === 1
+        ? t('sessionCountOne')
+        : sessions.length
+          ? t('sessionCount', { count: sessions.length })
+          : t('noActiveSessions'),
   );
-  const labels: Record<string, string> = { running: '运行中', question: '等待回答', error: '错误', done: '已结束' };
+  const labels = $derived<Record<string, string>>({
+    running: t('statusRunning'),
+    question: t('statusQuestion'),
+    error: t('statusError'),
+    done: t('statusDone'),
+  });
   const statusClasses: Record<string, string> = {
     running: 'status-success',
     question: 'status-warn',
@@ -40,7 +48,7 @@
   }
 
   function previewOf(session: SessionItem): string {
-    return session.error || session.pending?.question || session.preview || '暂无消息';
+    return session.error || session.pending?.question || session.preview || t('noMessage');
   }
 
   function runningSinceOf(session: SessionItem): number | null {
@@ -74,8 +82,8 @@
 
   function metaOf(session: SessionItem, depth: number): string[] {
     return [
-      session.turn ? `第 ${session.turn} 轮` : '',
-      session.isSubagent && depth === 0 ? '子代理' : '',
+      session.turn ? t('turnLabel', { turn: session.turn }) : '',
+      session.isSubagent && depth === 0 ? t('subagent') : '',
     ].filter((item): item is string => Boolean(item));
   }
 </script>
@@ -95,20 +103,20 @@
     )}
     role={isWaiting(session) ? 'button' : undefined}
     tabindex={isWaiting(session) ? 0 : undefined}
-    aria-label={isWaiting(session) ? `回答会话 ${session.title || '新会话'}` : undefined}
+    aria-label={isWaiting(session) ? t('answerSession', { title: session.title || t('newSession') }) : undefined}
     onclick={() => openSession(session)}
     onkeydown={(event) => openSessionFromKey(event, session)}
   >
     <div class="flex min-w-0 items-start gap-3">
       <span class={cn('session-icon', `tone-${status}`)} aria-hidden="true">
-        {Array.from(session.title || '新')[0] || '新'}
+        {Array.from(session.title || t('newSession'))[0] || '?'}
         <i></i>
       </span>
 
       <div class="min-w-0 flex-1">
         <div class="flex items-start justify-between gap-2.5">
           <h3 class="session-title min-w-0 pt-0.5 text-[21px] leading-snug font-semibold text-foreground">
-            {session.title || '新会话'}
+            {session.title || t('newSession')}
           </h3>
           <Badge
             variant="outline"
@@ -129,7 +137,7 @@
         <div class="mt-2 flex min-w-0 items-center justify-between gap-3">
           <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
             {#if session.error}
-              <span class="text-[13px] font-medium text-danger">需要处理</span>
+              <span class="text-[13px] font-medium text-danger">{t('needsAttention')}</span>
             {:else}
               {#each metaOf(session, depth) as item, metaIndex (metaIndex)}
                 <span class="text-[13px] text-muted-foreground">{item}</span>
@@ -138,7 +146,7 @@
             {#if canQuickAnswer(session)}
               <span class="inline-flex items-center gap-1.5 text-[13px] font-semibold text-warn">
                 <MessageCircle class="size-4" strokeWidth={1.8} />
-                回答
+                {t('answer')}
               </span>
             {/if}
           </div>
@@ -159,7 +167,7 @@
     {#if node.children.length > 0}
       <div class="session-children">
         <div class="mb-2 flex items-center gap-2 text-[13px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
-          子代理
+          {t('subagent')}
           <span class="h-px flex-1 bg-border"></span>
           {node.children.length}
         </div>
@@ -172,7 +180,7 @@
 {/snippet}
 
 <Panel class="conversation-panel flex min-h-0 flex-col p-4">
-  <SectionHeader icon={Layers3} eyebrow="CONVERSATIONS" title="会话" class="mb-3">
+  <SectionHeader icon={Layers3} eyebrow="CONVERSATIONS" title={t('conversations')} class="mb-3">
     {#snippet children()}
       <span class="text-[15px] text-muted-foreground">{subtitle}</span>
     {/snippet}
@@ -195,11 +203,11 @@
       </div>
     {:else if error}
       <div class="flex min-h-0 flex-1 items-center justify-center px-6">
-        <EmptyState icon={MessagesSquare} title="会话暂时无法加载" text="稍后再试" />
+        <EmptyState icon={MessagesSquare} title={t('sessionLoadFailed')} text={t('tryLater')} />
       </div>
     {:else if sessions.length === 0}
       <div class="flex min-h-0 flex-1 items-center justify-center px-6">
-        <EmptyState icon={MessagesSquare} title="暂无会话" text="新的会话会显示在这里" />
+        <EmptyState icon={MessagesSquare} title={t('noSessions')} text={t('noSessionsHint')} />
       </div>
     {:else}
       <ScrollArea class="min-h-0 flex-1" scrollbarYClasses="w-2">

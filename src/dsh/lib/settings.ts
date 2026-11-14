@@ -17,6 +17,36 @@ export type TemperatureUnit = 'celsius' | 'fahrenheit';
 export type ForecastMode = 'hourly' | 'daily';
 export type SpendWindow = 'calendar' | 'rolling';
 export type NavPosition = 'left' | 'right' | 'top' | 'bottom';
+/** Plugin language preference: follow DSH, or force one supported language. */
+export type LanguageSetting = 'dsh' | 'zh' | 'en';
+/** Languages the plugin ships UI translations for. */
+export const SUPPORTED_LOCALES = ['zh', 'en'] as const;
+export type PluginLocale = (typeof SUPPORTED_LOCALES)[number];
+/** DSH locale ids are BCP 47-style tags; anything else is ignored. */
+const LOCALE_ID_PATTERN = /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/u;
+
+/**
+ * Resolve the console language.
+ *
+ * An explicit plugin choice wins. Following DSH requires an exact match against
+ * the languages this plugin actually translates; a DSH locale such as `ja` or a
+ * regional tag without its own bundle falls back to English rather than
+ * borrowing an unrelated dictionary.
+ */
+export function resolveLocale(language: LanguageSetting, dshLocale: string): PluginLocale {
+  if (language === 'zh' || language === 'en') return language;
+  const requested = String(dshLocale || '').trim().toLowerCase();
+  const exact = SUPPORTED_LOCALES.find((id) => id === requested);
+  return exact ?? 'en';
+}
+
+/** Normalize a DSH locale id pushed by the browser panel. */
+export function normalizeDshLocale(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (trimmed.length > 35 || !LOCALE_ID_PATTERN.test(trimmed)) return '';
+  return trimmed.toLowerCase();
+}
 
 export interface WeatherSettings {
   mode: 'auto' | 'manual';
@@ -64,6 +94,10 @@ export interface RemoteControlSettings {
   allowedInterfaces: string[] | null;
   theme: ThemeSetting;
   dshTheme: DshTheme;
+  /** Plugin UI language: follow DSH or force a shipped language. */
+  language: LanguageSetting;
+  /** Active DSH locale pushed by the sidebar; empty until the first sync. */
+  dshLocale: string;
   temperatureUnit: TemperatureUnit;
   weather: WeatherSettings;
   balance: BalanceSettings;
@@ -82,6 +116,9 @@ export interface PublicSettings {
   allowedInterfaces: string[] | null;
   theme: ThemeSetting;
   effectiveTheme: DshTheme;
+  language: LanguageSetting;
+  /** Resolved console language for the phone page. */
+  locale: PluginLocale;
   temperatureUnit: TemperatureUnit;
   weather: WeatherSettings;
   balance: BalanceSettings;
@@ -103,6 +140,7 @@ export interface SettingsStore {
   save(next: unknown): RemoteControlSettings;
   rotateToken(): RemoteControlSettings;
   setDshTheme(theme: string): RemoteControlSettings;
+  setDshLocale(locale: string): RemoteControlSettings;
 }
 
 function dataDirectory(): string {
@@ -129,6 +167,8 @@ export function defaultSettings(): RemoteControlSettings {
     allowedInterfaces: null,
     theme: 'dsh',
     dshTheme: 'dark',
+    language: 'dsh',
+    dshLocale: '',
     temperatureUnit: 'celsius',
     weather: {
       mode: 'auto',
@@ -194,6 +234,8 @@ function normalize(raw: unknown): RemoteControlSettings {
   const dshThemeInput = input.dshTheme;
   const theme: ThemeSetting = oneOf(themeInput, ['dsh', 'light', 'dark'] as const) ? themeInput : 'dsh';
   const dshTheme: DshTheme = oneOf(dshThemeInput, ['light', 'dark'] as const) ? dshThemeInput : 'dark';
+  const languageInput = input.language;
+  const language: LanguageSetting = oneOf(languageInput, ['dsh', 'zh', 'en'] as const) ? languageInput : 'dsh';
   const navPositionInput = input.navPosition;
   const navPosition: NavPosition = oneOf(navPositionInput, ['left', 'right', 'top', 'bottom'] as const)
     ? navPositionInput
@@ -228,6 +270,8 @@ function normalize(raw: unknown): RemoteControlSettings {
     allowedInterfaces: input.allowedInterfaces === null ? null : normalizeStringArray(input.allowedInterfaces),
     theme,
     dshTheme,
+    language,
+    dshLocale: normalizeDshLocale(input.dshLocale),
     temperatureUnit: input.temperatureUnit === 'fahrenheit' ? 'fahrenheit' : 'celsius',
     weather: {
       mode,
@@ -312,6 +356,12 @@ export function createSettingsStore(): SettingsStore {
     return save({ ...current, dshTheme: theme });
   }
 
+  function setDshLocale(locale: string): RemoteControlSettings {
+    const next = normalizeDshLocale(locale);
+    if (!next || current.dshLocale === next) return current;
+    return save({ ...current, dshLocale: next });
+  }
+
   function publicSettings(): PublicSettings {
     return {
       tokenEnabled: current.tokenEnabled,
@@ -319,6 +369,8 @@ export function createSettingsStore(): SettingsStore {
       allowedInterfaces: current.allowedInterfaces,
       theme: current.theme,
       effectiveTheme: current.theme === 'dsh' ? current.dshTheme : current.theme,
+      language: current.language,
+      locale: resolveLocale(current.language, current.dshLocale),
       temperatureUnit: current.temperatureUnit,
       weather: { ...current.weather },
       balance: { ...current.balance },
@@ -341,5 +393,6 @@ export function createSettingsStore(): SettingsStore {
     save,
     rotateToken,
     setDshTheme,
+    setDshLocale,
   };
 }

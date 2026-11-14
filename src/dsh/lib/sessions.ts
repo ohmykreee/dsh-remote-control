@@ -2,6 +2,8 @@
 
 import { isRecord } from './types.js';
 import type { DshContext, DshEventHandler, JsonRecord } from './types.js';
+import { hostMessage } from './i18n.js';
+import type { PluginLocale } from './settings.js';
 import { basename, finiteNumber, serializeError } from './util.js';
 
 /** Console status of one session row, ranked in this order. */
@@ -184,6 +186,8 @@ interface QuestionHandle {
 export interface PendingTrackerOptions {
   /** Called shortly after the pending set changes, so the console can refresh. */
   onChange?: () => void;
+  /** Language used for generated session/question copy. */
+  getLocale?: () => PluginLocale;
 }
 
 function isTurnErrorReason(value: unknown): value is TurnErrorReason {
@@ -323,7 +327,7 @@ interface AnswerWaitState {
  * Find the latest `ask_user_question` call that is still open or continued.
  * A call with a plain tool result is settled and no longer represents a wait.
  */
-function findAnswerWait(events: SessionEvent[]): AnswerWaitState {
+function findAnswerWait(events: SessionEvent[], locale: PluginLocale = 'zh'): AnswerWaitState {
   interface CallState {
     event: SessionEvent;
     result: SessionEvent | null;
@@ -369,7 +373,7 @@ function findAnswerWait(events: SessionEvent[]): AnswerWaitState {
     const first = questions[0] ?? null;
     pending = {
       kind: 'question',
-      question: first?.question || '正在等待你的回答',
+      question: first?.question || hostMessage(locale, 'answerWaiting'),
       header: first?.header || '',
       detail: first?.detail || '',
       count: questions.length || 1,
@@ -394,28 +398,32 @@ function isTimedOutError(error: unknown): boolean {
   return isRecord(error) && (error.code === 'ASK_TIMED_OUT' || error.name === 'UserQuestionError' && error.code === 'ASK_TIMED_OUT');
 }
 
-function validateAnswer(questions: PublicQuestion[], answer: PendingAnswer): string | null {
+function validateAnswer(questions: PublicQuestion[], answer: PendingAnswer, locale: PluginLocale): string | null {
   if (answer.answers.length !== questions.length) {
-    return `回答数量不匹配：需要 ${questions.length} 项，收到 ${answer.answers.length} 项`;
+    return hostMessage(locale, 'answerCountMismatch', {
+      expected: questions.length,
+      received: answer.answers.length,
+    });
   }
   const seen = new Set<string>();
   for (const item of answer.answers) {
-    if (!item.id || seen.has(item.id)) return '回答项重复或缺少问题编号';
+    if (!item.id || seen.has(item.id)) return hostMessage(locale, 'answerDuplicate');
     seen.add(item.id);
     const question = questions.find((candidate) => candidate.id === item.id);
-    if (!question) return '回答项不属于当前问题';
-    if (question.multiSelect !== true && item.selected.length > 1) return '单选题只能选择一个选项';
+    if (!question) return hostMessage(locale, 'answerUnknownQuestion');
+    if (question.multiSelect !== true && item.selected.length > 1) return hostMessage(locale, 'answerSingleChoice');
     for (const label of item.selected) {
-      if (!question.options.some((option) => option.label === label)) return '选择的选项已不在问题中';
+      if (!question.options.some((option) => option.label === label)) return hostMessage(locale, 'answerOptionGone');
     }
   }
   for (const question of questions) {
-    if (!seen.has(question.id)) return '回答缺少问题';
+    if (!seen.has(question.id)) return hostMessage(locale, 'answerMissingQuestion');
   }
   return null;
 }
 
 export function createPendingTracker(ctx: DshContext, options: PendingTrackerOptions = {}): PendingTracker {
+  const locale = (): PluginLocale => options.getLocale?.() ?? 'zh';
   const bySession = new Map<string, Map<string, PendingInfo>>();
   const handles = new Map<string, QuestionHandle>();
   /** `${sessionId}\0${callId}` → time the answer was sent. */
@@ -528,9 +536,9 @@ export function createPendingTracker(ctx: DshContext, options: PendingTrackerOpt
   async function respond(sessionId: string, requestId: string, answer: PendingAnswer): Promise<PendingAnswerResult> {
     const key = handleKey(sessionId, requestId);
     const handle = handles.get(key);
-    if (!handle) return { ok: false, error: '这个问题已经结束或不在等待回答' };
-    if (handle.mode === 'unavailable') return { ok: false, error: '这个问题需要在 DSH 中回答' };
-    const invalid = validateAnswer(handle.questions, answer);
+    if (!handle) return { ok: false, error: hostMessage(locale(), 'answerExpired') };
+    if (handle.mode === 'unavailable') return { ok: false, error: hostMessage(locale(), 'answerNeedsDsh') };
+    const invalid = validateAnswer(handle.questions, answer, locale());
     if (invalid) return { ok: false, error: invalid };
 
     if (handle.mode === 'live' && handle.resolve) {
@@ -548,10 +556,10 @@ export function createPendingTracker(ctx: DshContext, options: PendingTrackerOpt
       removeHandle(key);
       handle.removeInfo?.();
       notify();
-      return { ok: false, error: '缺少问题编号，无法回答' };
+      return { ok: false, error: hostMessage(locale(), 'answerMissingId') };
     }
     const service = ctx.get?.('userQuestions') as UserQuestionsService | undefined;
-    if (!service?.answer) return { ok: false, error: '当前 DSH 不支持远程回答' };
+    if (!service?.answer) return { ok: false, error: hostMessage(locale(), 'answerUnsupported') };
     try {
       const accepted = service.answer(handle.agent, handle.callId, answer);
       if (!accepted) {
@@ -559,7 +567,7 @@ export function createPendingTracker(ctx: DshContext, options: PendingTrackerOpt
         removeHandle(key);
         handle.removeInfo?.();
         notify();
-        return { ok: false, error: '这个问题已经不再等待回答' };
+        return { ok: false, error: hostMessage(locale(), 'answerNotWaiting') };
       }
       markSettled(sessionId, handle.callId);
       removeHandle(key);
@@ -587,10 +595,14 @@ export function createPendingTracker(ctx: DshContext, options: PendingTrackerOpt
       const requestAgentId = requestAgent && typeof requestAgent.id === 'string' ? requestAgent.id : undefined;
       const sessionId = requestAgentId || self?.id || agents?.currentInitiator?.()?.id || undefined;
       const display: JsonRecord = isRecord(body.displayReason) ? body.displayReason : {};
-      const localized = asText(display.zh) || asText(display.en);
+      const localized = locale() === 'en'
+        ? asText(display.en) || asText(display.zh)
+        : asText(display.zh) || asText(display.en);
       const info: PendingInfo = {
         kind: 'approval',
-        question: localized || asText(body.reason) || `需要允许 ${asText(body.toolName) || '工具'} 执行`,
+        question: localized || asText(body.reason) || hostMessage(locale(), 'approvalPrompt', {
+          tool: asText(body.toolName) || hostMessage(locale(), 'approvalTool'),
+        }),
         header: asText(body.toolName),
         detail: '',
         count: 1,
@@ -624,7 +636,7 @@ export function createPendingTracker(ctx: DshContext, options: PendingTrackerOpt
       const requestId = callId || `question-${Date.now()}-${++serial}`;
       const info: PendingInfo = {
         kind: 'question',
-        question: first?.question || '正在等待你的回答',
+        question: first?.question || hostMessage(locale(), 'answerWaiting'),
         header: first?.header || '',
         detail: first?.detail || '',
         count: questions.length || 1,
@@ -729,10 +741,15 @@ export function createPendingTracker(ctx: DshContext, options: PendingTrackerOpt
   };
 }
 
-export function collectSessions(ctx: DshContext, pendingTracker?: PendingTracker | null): SessionSummary[] {
+export function collectSessions(
+  ctx: DshContext,
+  pendingTracker?: PendingTracker | null,
+  getLocale?: () => PluginLocale,
+): SessionSummary[] {
   const sessionService = ctx.get?.('sessions') as SessionService | undefined;
   const sessions = sessionService?.list?.() ?? [];
   const agents = ctx.get?.('agents') as AgentService | undefined;
+  const locale: PluginLocale = getLocale?.() ?? 'zh';
   const agentList = agents?.list?.() ?? [];
   const agentById = new Map<string, AgentLike>(
     agentList.map((agent): [string, AgentLike] => [String(agent.id), agent]),
@@ -747,7 +764,7 @@ export function collectSessions(ctx: DshContext, pendingTracker?: PendingTracker
     const events = recentEvents(session);
     const lastEvent = events.length > 0 ? events[events.length - 1] : null;
     const lastActiveAt: number = finiteNumber(lastEvent?.time, null) ?? finiteNumber(session.header?.createdAt, now) ?? now;
-    const wait = findAnswerWait(events);
+    const wait = findAnswerWait(events, locale);
     pendingTracker?.pruneContinued(id, wait.settledCallIds);
     const tracked = pendingTracker?.snapshot(id) ?? [];
     let fallbackPending: PendingInfo | null = null;
@@ -790,7 +807,7 @@ export function collectSessions(ctx: DshContext, pendingTracker?: PendingTracker
       }
     }
     const cwd = session.header?.cwd || '';
-    if (!title) title = basename(cwd) || '新会话';
+    if (!title) title = basename(cwd) || hostMessage(locale, 'newSession');
 
     let lastTurnStart: SessionEvent | null = null;
     let lastTurnEnd: SessionEvent | null = null;
@@ -843,9 +860,9 @@ export function collectSessions(ctx: DshContext, pendingTracker?: PendingTracker
     const status: SessionStatus = isQuestion ? 'question' : isRunning ? 'running' : errorReason ? 'error' : 'done';
     const primaryPending = pending[0] || null;
     const errorMessage = errorReason?.kind === 'error'
-      ? errorReason.error?.message || '本轮运行出错'
+      ? errorReason.error?.message || hostMessage(locale, 'turnFailed')
       : errorReason?.kind === 'blocked'
-        ? '本轮被阻止'
+        ? hostMessage(locale, 'turnBlocked')
         : '';
 
     result.push({

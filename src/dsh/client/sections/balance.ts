@@ -21,7 +21,7 @@ export function renderBalance(api: PanelApi): React.ReactElement {
     h('div', { className: 'drc-group' },
       groupHead(t('lowThreshold'), t('lowThresholdHint')),
       h('div', { className: 'drc-fields' },
-        h(Field, { label: t('lowThreshold'), value: draft.threshold, placeholder: '例如：5', inputMode: 'decimal', onChange: (value) => setDraft((current) => ({ ...current, threshold: value })) }),
+        h(Field, { label: t('lowThreshold'), value: draft.threshold, placeholder: t('thresholdPlaceholder'), inputMode: 'decimal', onChange: (value) => setDraft((current) => ({ ...current, threshold: value })) }),
       ),
     ),
     h('div', { className: 'drc-group' },

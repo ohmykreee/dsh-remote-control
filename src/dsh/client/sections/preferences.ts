@@ -1,8 +1,26 @@
-/** Preferences section: units, theme, page order, and navigation placement. */
+/** Preferences section: plugin language, units, theme, page order, and navigation placement. */
 
 import type * as React from 'react';
 import { Seg, Toggle, groupHead, h, sectionHead } from '../ui.js';
 import type { PanelApi } from '../types.js';
+
+function languageGroup(api: PanelApi): React.ReactElement {
+  const { t, settings, stage } = api;
+  return h('div', { className: 'drc-group' },
+    groupHead(t('language'), t('languageHint')),
+    h('div', { className: 'drc-actions' },
+      h(Seg, {
+        options: [
+          { value: 'dsh', label: t('languageFollowDsh') },
+          { value: 'zh', label: '简体中文' },
+          { value: 'en', label: 'English' },
+        ],
+        value: settings.language ?? 'dsh',
+        onChange: (value) => stage({ language: value }),
+      }),
+    ),
+  );
+}
 
 function unitGroup(api: PanelApi): React.ReactElement {
   const { t, settings, stage } = api;
@@ -111,6 +129,7 @@ function navGroup(api: PanelApi): React.ReactElement {
 export function renderPreferences(api: PanelApi): React.ReactElement {
   return h('div', { className: 'drc-section' },
     sectionHead(api.t('menuPlugin'), api.t('preferencesHint')),
+    languageGroup(api),
     unitGroup(api),
     themeGroup(api),
     orderGroup(api),

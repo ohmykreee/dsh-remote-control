@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { SessionItem } from '../types';
+  import { t } from '../i18n.svelte';
   import { cn } from '$lib/utils.js';
   import Panel from './Panel.svelte';
 
@@ -23,10 +24,10 @@
 {/snippet}
 
 <Panel class="status-panel grid min-h-0 grid-cols-2 grid-rows-2 gap-1.5 p-2">
-  {@render stat(counts.running, '运行中', 'is-running')}
-  {@render stat(counts.question, '等待回答', counts.question > 0 ? 'is-question' : '')}
-  {@render stat(counts.error, '错误', counts.error > 0 ? 'is-error' : '')}
-  {@render stat(counts.done, '已结束', '')}
+  {@render stat(counts.running, t('statusRunning'), 'is-running')}
+  {@render stat(counts.question, t('statusQuestion'), counts.question > 0 ? 'is-question' : '')}
+  {@render stat(counts.error, t('statusError'), counts.error > 0 ? 'is-error' : '')}
+  {@render stat(counts.done, t('statusDone'), '')}
 </Panel>
 
 <style>

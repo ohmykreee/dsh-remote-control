@@ -105,6 +105,7 @@ Host 与浏览器端（侧边栏）通过 DSH 自带 `webServer` 的环回路由
 | POST | `/dsh-remote-control/api/location` | 调探针 `location request`，成功则清定位缓存 |
 | GET | `/dsh-remote-control/api/geocode?q=` | Open-Meteo 城市检索（天气设置的城市下拉） |
 | POST | `/dsh-remote-control/api/theme` | 同步 DSH 明暗主题 |
+| POST | `/dsh-remote-control/api/locale` | 同步 DSH 当前语言（供手机端「跟随 DSH」解析） |
 | POST | `/dsh-remote-control/api/token/rotate` | 轮换令牌并断开所有设备 |
 | POST | `/dsh-remote-control/api/disconnect` | 按客户端 id 断开设备 |
 
@@ -127,7 +128,15 @@ window.__ModuleLoader__.load({
 
 ### 本地化
 
-`locale/en.json`、`locale/zh.json` 提供插件元信息（标题、描述），由 `@deepseek-ai/dsh-client-locale` 注入。侧边栏内部的中英文案在 `src/dsh/client/i18n.ts` 的 `zh` / `en` 字典里；面板通过 `useTranslator()` 跟随 DSH 当前语言，修改后需要重新构建 `client.js`。
+- 插件元信息：`locale/en.json`、`locale/zh.json`（标题、描述），由 `@deepseek-ai/dsh-client-locale` 注入。
+- 三份运行时字典，结构一致：每种语言一个扁平 `key -> 文案` 大对象，再加一个 `DICTS` 表按语言索引；新增语言只需追加一个对象并在 `SUPPORTED_LOCALES` / `DICTS` 注册。
+  - `src/dsh/client/i18n.ts`：侧边栏面板文案，`zh` / `en`；`en` 的 key 必须覆盖 `zh`。
+  - `src/dsh/lib/i18n.ts`：Host 生成并随载荷发给手机端的文案（会话兜底标题、回答校验、未配对页）；不能复用浏览器字典（分别编译进 `client.js` / Vite bundle），因此单独维护但保持同样格式。
+  - `src/svelte/lib/i18n.svelte.ts`：手机端页面文案；`en` 以 `Record<keyof typeof zh, string>` 声明，漏译是编译错误。
+- 插件语言设置：`settings.language` 为 `dsh` / `zh` / `en`，默认 `dsh`。`dsh` 的行为是**精确匹配** DSH 当前 locale id（`zh`、`en`），未命中（如 `ja`、`zh-CN`）回退英语；`resolveLocale()` 在 Host 与面板各有一份同规则实现。
+- DSH 当前语言由侧边栏 `apply()` 订阅 `ctx.locale` 并 `POST /api/locale` 写入 `settings.dshLocale`；Host 的 `public()` 输出解析后的 `settings.locale`，随 `welcome` / `overview` / `settings` 推送给手机端。
+- 侧边栏通过 `useTranslator()` 渲染；它同时订阅 DSH locale 与插件语言变化，读取 `data.settings.language` 后立即切换。手机端 `applySettings()` 调用 `setLocale(settings.locale)`，`t()` 读取 `$state` 里的当前语言，因此所有调用点自动响应。
+- 修改文案后需要重新构建 `client.js` / `web/`。
 
 ## 目录
 
@@ -154,7 +163,8 @@ scripts/mock-preview.py   开发用：从 web/ 生成带假 WebSocket 的演示�
 src/dsh/index.ts          Host 入口（inject / apply）
 src/dsh/client/index.ts   DSH 侧边栏入口（inject / apply / slot 注册）
 src/dsh/client/types.ts   Host/Client 线格式与 PanelApi 契约
-src/dsh/client/i18n.ts    zh/en 字典、宿主语言跟随
+src/dsh/client/i18n.ts    zh/en 扁平字典、DICTS、插件语言解析与宿主语言跟随
+src/dsh/lib/i18n.ts       Host 发给手机端的文案（zh/en 扁平字典 + DICTS）
 src/dsh/client/api.ts     环回 API、JSON 请求与错误解析
 src/dsh/client/logic.ts   草稿/合并/保存载荷/格式化等纯函数
 src/dsh/client/ui.ts      React 原语（Toggle/Seg/Btn/Field/Row/StatusRow）
@@ -181,7 +191,7 @@ src/dsh/lib/util.ts       路径、版本、时间、转义等纯函数
 src/dsh/lib/types.ts      共享 Host 类型
 src/dsh/lib/platform/index.ts 组装媒体与通知适配器
 src/svelte/               手机端 Svelte 5 + TypeScript + Tailwind CSS v4
-src/svelte/lib/           状态、WebSocket、格式化、媒体投影；utils.ts 为 shadcn cn 辅助
+src/svelte/lib/           状态、WebSocket、格式化、媒体投影；i18n.svelte.ts 为中英文案与语言状态；utils.ts 为 shadcn cn 辅助
 src/svelte/lib/components/ 页面与业务卡片；Panel/SectionHeader 为统一卡片外壳
 src/svelte/lib/components/ui/ shadcn-svelte 组件（Button/Card/Badge/Slider/Dialog/Sheet 等）
 src/svelte/lib/components/RadialGauge.svelte 性能占用率圆环
@@ -197,7 +207,7 @@ src/rust/src/notifications/ 通知读取/监视
 src/rust/src/volume/      音量
 src/rust/src/location/    定位
 src/rust/tests/cli.rs     CLI 端到端测试
-test/                     Node 集成测试（8 个 .mjs）
+test/                     Node 集成测试（9 个 .mjs）
 .mock-web/                开发用：mock-preview.py 生成的预览目录（gitignore）
 static/                   Vite 公共资源（图标、manifest、字体许可）
 docs/screenshots/         手机端截图（仅图片）
@@ -216,7 +226,7 @@ docs/screenshots/         手机端截图（仅图片）
 
 - 数据目录：`DSH_PROFILE_DIR/remote-control`（优先）或 `DSH_HOME/remote-control`，否则 `~/.dsh/remote-control`；
 - 文件：`settings.json`（原子写：临时文件 + rename）；
-- 当前 schema 版本 `1`，字段包括 token、允许网卡、主题、温度单位、天气、余额、通知、TLS、导航位置、番茄钟、页面顺序/开关；
+- 当前 schema 版本 `1`，字段包括 token、允许网卡、主题、插件语言（`language` / `dshLocale`）、温度单位、天气、余额、通知、TLS、导航位置、番茄钟、页面顺序/开关；
 - `normalize()` 对每个字段做白名单/范围校验，缺失时回落到默认值；
 - `update(patch)` 做浅合并 + 嵌套对象合并，`save()` 重写整个文件；
 - 令牌 24 字节随机 `base64url`；`rotateToken()` 轮换后由 service 断开所有设备。
@@ -313,7 +323,8 @@ docs/screenshots/         手机端截图（仅图片）
 - Vite `root = src/svelte`，`publicDir = static`，`build.outDir = web`，`assetsDir = assets`，`emptyOutDir = true`，`target = es2022`。
 - 技术栈：Svelte 5 runes + Vite 8 + Tailwind CSS v4 + shadcn-svelte（bits-ui）+ Lucide。图标一律使用 Lucide，不新增手绘 SVG 图标路径。
 - 页面：`HomePage`、`SessionsPage`、`MusicPage`、`PerformancePage`；导航 `Rail`；业务组件包括时钟、天气、通知、余额、消费、CPU/内存、GPU、温度、番茄钟、会话列表、统计、问题对话框（`QuestionSheet`，shadcn Dialog 居中弹出）、Toast 等。
-- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`pomodoro.svelte.ts` 计时/提示音；`billing.svelte.ts` 峰谷与节假日；`format.ts` / `weather.ts` / `pages.ts` 为纯工具。媒体进度在 `SeekBar.svelte` 内用 100 ms 本地时钟推进。
+- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`pomodoro.svelte.ts` 计时/提示音；`billing.svelte.ts` 峰谷与节假日；`i18n.svelte.ts` 提供 `t()`、`localeTag()` 与响应式当前语言；`format.ts` / `weather.ts` / `pages.ts` 为纯工具。媒体进度在 `SeekBar.svelte` 内用 100 ms 本地时钟推进。
+- 语言：`applySettings()` 从 `settings.locale` 调用 `setLocale()`；所有组件与 `format.ts` / `weather.ts` 通过 `t()` 取文案，日期/星期格式化使用 `localeTag()`，因此语言切换无需刷新页面。`zh` 为基准字典，`en` 必须以 `Record<keyof typeof zh, string>` 覆盖全部 key，漏译会编译失败。
 - 视觉：`Panel` 包装 shadcn Card 作为统一容器；按钮、Badge、Slider、Dialog、ScrollArea 等优先用 `$lib/components/ui`；只在组件原有 class 上做样式覆盖。无 hover 过渡/缩放。
 - 性能页占用率使用 `RadialGauge`（圆环，不是横向条）；右侧温度保留大号最高温度与热区背景列表。
 - 音乐页封面支持 data URL 和 http(s) URL；页面用 `<img referrerpolicy="no-referrer">` 渲染并把封面地址加入 CSP `img-src`。后端未返回 `thumbnail`/`thumbnailUrl` 时显示占位，不伪造封面。
@@ -328,7 +339,8 @@ docs/screenshots/         手机端截图（仅图片）
 - `src/dsh/client` 用 `React.createElement`（`h`）而不是 JSX；模块由 DSH loader 提供 React。
 - 入口 `src/dsh/client/index.ts` 向 DSH 注册设置页（slot），菜单包含：连接、偏好设置、番茄钟设置、天气设置、余额显示、通知设置、软件映射、系统信息。
 - 所有设置先进入 `DraftState`，点“保存设置”才 `POST /api/settings` 一次性提交；应用改名、主题同步、令牌轮换、断开设备是即时请求。
-- 主题：`theme = dsh` 时跟随 DSH 的 `dshTheme`，由 `/api/theme` 同步；也可固定 light/dark。
+- 偏好设置的第一个设置组是 **插件语言**（跟随 DSH / 简体中文 / English）；保存后 `hydrate()` 调用 `setPluginLanguage()` 立即重绘面板，Host 同时把解析后的 `locale` 推给手机端。
+- 主题：`theme = dsh` 时跟随 DSH 的 `dshTheme`，由 `/api/theme` 同步；也可固定 light/dark。语言同理：`ctx.locale` 的当前 id 由 `apply()` 同步到 `/api/locale`，供手机端“跟随 DSH”使用。
 - 样式集中在 `src/dsh/client/styles.ts`：按 DSH 设置页的 188px 导航、54px 顶栏、卡片分组与 14px 行文字实现，只读取 `--dsw-*` 令牌，不复制宿主颜色值；`--drc-*` 仅为旧版 DSH 缺失令牌提供回退。
 - 窗口窄于 767px 时（与样式断点一致）导航由 `matchMedia` 切换为原生 `<select>` 下拉选择器，避免八个横向 tab 无法操作。
 - 系统信息页读取 `/api/settings` 的 `capabilities.probe` / `capabilities.node` 与 `diagnostics.profile`：服务状态使用探针后端补充性能/定位能力，并把 Node.js 作为天气链路的详情；`dsh-probe` 版本、探针路径与 Node.js 版本、V8、平台、内存合并到最下面的“诊断信息”卡片，和插件/探针版本、协议、Profile 一起用双列 key-value 排列。
@@ -559,13 +571,14 @@ Node 侧 `media-enrich.ts` 会再次校验 `provider === 'system'`、时间轴�
 ### 本地检查
 
 ```powershell
-# 截图预览（生成带演示数据的页面，可用 ?page=...&sheet=1 打开问询）
+# 截图预览（生成带演示数据的页面，可用 ?page=...&sheet=1 打开问询；--locale en 预览英文界面）
 python scripts/mock-preview.py --web web --port 4173
 
 pnpm check                      # tsc（Host + 浏览器端）+ svelte-check
 pnpm build                      # src/dsh + src/svelte
-pnpm test                       # 下面 8 个 Node 测试
+pnpm test                       # 下面 9 个 Node 测试
 node test/smoke.mjs
+node test/i18n.mjs
 node test/media-progress.mjs
 node test/probe-bridge.mjs
 node test/probe-daemon.mjs
@@ -582,6 +595,7 @@ pnpm build:rust
 测试覆盖：
 
 - `smoke.mjs`：临时 `DSH_PROFILE_DIR` 启动服务，检查令牌页面、`/assets/`、图片 CSP（data/blob/http/https）、WebSocket welcome/overview，确认旧 HTTP overview 路由不存在；
+- `i18n.mjs`：插件语言精确匹配/英语回退、`dshLocale` 校验与持久化、Host 中英字典 key 对齐与占位符；
 - `media-progress.mjs`：进度平滑与 seek 规则；
 - `probe-bridge.mjs`：探针缺失时媒体/音量/运行时能力返回错误状态，且没有静默回退；
 - `probe-daemon.mjs`：真实二进制 daemon 的 version/performance/volume 请求、并发请求、关闭后重启与禁用开关，以及 `dsh-probe` 版本/平台后端能力；
@@ -638,6 +652,7 @@ pnpm build:rust
 - 新增平台能力时同时更新：Rust 平台模块、`platform` 矩阵、`AGENTS.md` 的载荷/限制、必要时的 `INSTALLATION.md` 依赖说明。
 - 新增客户端适配时：在 `media/catalog.rs` 注册 profile，在 `media/vendor/` 加解析，在 `AGENTS.md` 的客户端表补一行；不要在媒体载荷里伪造进度。
 - 改设置字段时同时更新：`settings.ts` 的 normalize/default、`src/dsh/client` 的编辑/保存、`README.md` 菜单说明；保持旧 `settings.json` 可迁移。
+- 新增或修改用户可见文案时，同时更新对应语言的扁平字典（`src/dsh/client/i18n.ts`、`src/dsh/lib/i18n.ts`、`src/svelte/lib/i18n.svelte.ts`）；英文漏 key 会编译失败，Host 字典由 `test/i18n.mjs` 校验 key 对齐。不要写死中文文案。
 - 改协议消息时同时更新 `service.ts`、`src/svelte/lib/ws.ts`、本文件的 WebSocket 表。
 - 新增文档文件时同步 `package.json` 的 `files`，并按“文档分工”放置内容。
 - 提交前至少跑：`pnpm check`、`pnpm build`、`pnpm test`；改 Rust 再跑 `cargo fmt --check`、`cargo test`。

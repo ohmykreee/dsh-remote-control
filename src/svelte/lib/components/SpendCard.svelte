@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app } from '../state.svelte';
   import { formatMoney } from '../format';
+  import { t } from '../i18n.svelte';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import ChartColumn from '@lucide/svelte/icons/chart-column';
   import Panel from './Panel.svelte';
@@ -15,7 +16,7 @@
   const max = $derived(Math.max(0, ...daily.map((day) => Number(day.cost) || 0)));
   const today = $derived(ready ? usage.today : null);
   const spend = $derived(ready ? usage.spend : null);
-  const spendLabel = $derived(usage.spendLabel || '本周');
+  const spendLabel = $derived(t(app.balanceDisplay.spendWindow === 'rolling' ? 'last7Days' : 'thisWeek'));
 </script>
 
 <Panel class="spend-card relative flex min-h-0 flex-col overflow-hidden p-4">
@@ -27,20 +28,20 @@
   </div>
 
   <div class="relative z-10">
-    <SectionHeader icon={ChartColumn} eyebrow="USAGE" title="消费">
+    <SectionHeader icon={ChartColumn} eyebrow="SPEND" title={t('usage')}>
       {#snippet children()}
         <Badge
           variant="outline"
           class="h-8 border-border bg-secondary px-3 text-[14px] font-medium text-muted-foreground"
         >
-          近 7 日
+          {t('last7DaysShort')}
         </Badge>
       {/snippet}
     </SectionHeader>
 
     <div class="spend-values mt-3 grid grid-cols-2 gap-3">
       <div>
-        <p class="text-[15px] text-muted-foreground">今日</p>
+        <p class="text-[15px] text-muted-foreground">{t('todaySpend')}</p>
         <p class="spend-number numeric mt-1">{ready ? formatMoney(today, usage.currency || currency) : '—'}</p>
       </div>
       <div class="border-l border-border pl-3">

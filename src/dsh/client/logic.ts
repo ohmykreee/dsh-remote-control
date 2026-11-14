@@ -117,6 +117,7 @@ export function buildSavePatch(input: SavePatchInput): SavePatch {
     tokenEnabled: settings.tokenEnabled,
     temperatureUnit: settings.temperatureUnit === 'fahrenheit' ? 'fahrenheit' : 'celsius',
     theme: settings.theme,
+    language: settings.language === 'zh' || settings.language === 'en' ? settings.language : 'dsh',
     navPosition: settings.navPosition ?? 'left',
     pomodoro: {
       enabled: Boolean(settings.pomodoro?.enabled),

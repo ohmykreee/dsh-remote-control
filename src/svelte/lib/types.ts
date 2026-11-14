@@ -13,6 +13,8 @@ export interface PomodoroSettings {
 
 export interface ConsoleSettings {
   theme?: string;
+  /** Console language resolved by the Host (`zh` or `en`). */
+  locale?: string;
   temperatureUnit?: string;
   pushQuestions?: boolean;
   navPosition?: string;
@@ -247,7 +249,7 @@ export interface ConsoleState {
   pushQuestions: boolean;
   navPosition: NavPosition;
   pomodoro: PomodoroSettings;
-  balanceDisplay: { showPeakValley: boolean };
+  balanceDisplay: { showPeakValley: boolean; spendWindow: 'calendar' | 'rolling' };
   pageOrder: PageKey[];
   pageEnabled: Record<PageKey, boolean>;
   pageRevision: number;

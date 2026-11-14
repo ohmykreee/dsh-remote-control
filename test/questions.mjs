@@ -301,7 +301,7 @@ try {
   }));
   const rejected = await waitFor((message) => message.type === 'answer-result' && message.requestId === 'call-2');
   assert.equal(rejected.ok, false);
-  assert.match(rejected.error || '', /推送问询/);
+  assert.match(rejected.error || '', /推送问询|Pushed inquiries/);
 
   nextResolve({ answers: [{ id: 'mode', selected: [] }] });
   secondResolve({ answers: [{ id: 'detail', selected: ['不用'] }] });

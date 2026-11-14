@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { createAccountService } from './account.js';
 import { createAppMapping } from './app-mapping.js';
 import type { MappedApp } from './app-mapping.js';
+import { hostMessage } from './i18n.js';
 import { createPerformanceService } from './performance.js';
 import { createPlatformAdapters } from './platform/index.js';
 import { probeInfo, runProbe } from './probe.js';
@@ -20,11 +21,13 @@ import { readNodeCapability, readProbeCapability, readProfileName } from './runt
 import type { NodeCapability, ProbeCapability } from './runtime.js';
 import { collectSessions, createPendingTracker, parsePendingAnswer } from './sessions.js';
 import type { PendingAnswer } from './sessions.js';
-import { createSettingsStore } from './settings.js';
+import { createSettingsStore, normalizeDshLocale, resolveLocale } from './settings.js';
+import type { PluginLocale } from './settings.js';
 import {
   APP_NAMES_PATH,
   INFO_PATH,
   LOCATION_PATH,
+  LOCALE_PATH,
   QR_PATH,
   ROUTE_PREFIX,
   SETTINGS_PATH,
@@ -134,6 +137,8 @@ type WeatherInput = {
 /** Browser-facing settings snapshot pushed over the socket. */
 export interface RemoteSettingsPayload {
   theme: string;
+  /** Resolved console language (Chinese or English). */
+  locale: PluginLocale;
   temperatureUnit: string;
   notificationLimit: number;
   /** Whether the phone may show and answer pending session questions. */
@@ -289,6 +294,7 @@ export interface RemoteControlService {
   handleLocation(req: IncomingMessage, res: ServerResponse): Promise<void>;
   handleGeocode(req: IncomingMessage, res: ServerResponse): Promise<void>;
   handleTheme(req: IncomingMessage, res: ServerResponse): Promise<void>;
+  handleLocale(req: IncomingMessage, res: ServerResponse): Promise<void>;
   handleTokenRotate(req: IncomingMessage, res: ServerResponse): Promise<void>;
   handleDisconnect(req: IncomingMessage, res: ServerResponse): Promise<void>;
   settingsStore: SettingsStore;
@@ -392,10 +398,12 @@ function textResponse(res: ServerResponse, status: number, body: string, extraHe
   res.end(body);
 }
 
-function unauthorizedPage(): string {
-  return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>需要配对</title>
+function unauthorizedPage(locale: PluginLocale): string {
+  const title = hostMessage(locale, 'pairingTitle');
+  const body = hostMessage(locale, 'pairingBody');
+  return `<!doctype html><html lang="${locale === 'zh' ? 'zh-CN' : 'en'}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>
 <style>html,body{height:100%;margin:0;background:#05070d;color:#f4f7ff;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Noto Sans SC",sans-serif}main{height:100%;display:grid;place-items:center;padding:32px;box-sizing:border-box}.card{max-width:460px;padding:32px;border:1px solid #1b2436;border-radius:28px;background:#0c111c;box-shadow:0 30px 80px #0008}h1{font-size:24px;margin:0 0 12px}p{color:#93a0b8;margin:0 0 10px}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#4d6bff;margin-right:8px}</style>
-<main><div class="card"><h1><span class="dot"></span>需要配对</h1><p>请从 DSH 侧边栏的远程控制台重新扫码。</p></main></html>`;
+<main><div class="card"><h1><span class="dot"></span>${title}</h1><p>${body}</p></main></html>`;
 }
 
 function readBody(req: IncomingMessage, limit: number = BODY_LIMIT): Promise<JsonRecord> {
@@ -434,6 +442,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     onChange: () => {
       void pushSessions(true);
     },
+    getLocale: effectiveLocale,
   });
   const weather: WeatherService = createWeatherService();
   const performance: PerformanceService = createPerformanceService();
@@ -470,6 +479,12 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
   function effectiveTheme(): string {
     const value = settings();
     return value.theme === 'dsh' ? value.dshTheme : value.theme;
+  }
+
+  /** Console language after the plugin setting and the synced DSH locale. */
+  function effectiveLocale(): PluginLocale {
+    const value = settings();
+    return resolveLocale(value.language, value.dshLocale);
   }
 
   function interfaceEntries(withUrls: boolean = false): InterfaceEntry[] {
@@ -582,6 +597,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
   function remoteSettings(): RemoteSettingsPayload {
     return {
       theme: effectiveTheme(),
+      locale: effectiveLocale(),
       temperatureUnit: settings().temperatureUnit,
       notificationLimit: settings().notifications.limit,
       pushQuestions: settings().notifications.pushQuestions,
@@ -723,7 +739,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
       const authorized = isAuthorized(req, url);
 
       if (pathname === '/' && !authorized) {
-        textResponse(res, 401, unauthorizedPage(), {
+        textResponse(res, 401, unauthorizedPage(effectiveLocale()), {
           'x-content-type-options': 'nosniff',
           'referrer-policy': 'no-referrer',
         });
@@ -884,7 +900,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
 
   /** Session list sent to the phone, with question details only when enabled. */
   function consoleSessions(): SessionList {
-    const sessions = collectSessions(ctx, pending);
+    const sessions = collectSessions(ctx, pending, effectiveLocale);
     if (settings().notifications.pushQuestions) return sessions;
     return sessions.map((session) => session.pending
       ? { ...session, pending: { ...session.pending, questions: [], answerable: false } }
@@ -1156,12 +1172,12 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
       const sessionId = safeString(message.sessionId, 200);
       const requestId = safeString(message.requestId, 200);
       if (!settings().notifications.pushQuestions) {
-        client.send({ type: 'answer-result', ok: false, sessionId, requestId, error: '推送问询已关闭' });
+        client.send({ type: 'answer-result', ok: false, sessionId, requestId, error: hostMessage(effectiveLocale(), 'answerPushOff') });
         return;
       }
       const answer: PendingAnswer | null = parsePendingAnswer(message);
       if (!sessionId || !requestId || !answer) {
-        client.send({ type: 'answer-result', ok: false, sessionId, requestId, error: '回答格式无效' });
+        client.send({ type: 'answer-result', ok: false, sessionId, requestId, error: hostMessage(effectiveLocale(), 'answerInvalid') });
         return;
       }
       const result = await pending.respond(sessionId, requestId, answer);
@@ -1520,6 +1536,32 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     }
   }
 
+  async function handleLocale(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (!sameOrigin(req)) {
+      jsonResponse(res, 403, { ok: false, error: 'origin rejected' });
+      return;
+    }
+    try {
+      const body = await readBody(req);
+      const requested = safeString(body?.locale, 35);
+      const locale = normalizeDshLocale(requested);
+      if (!locale) {
+        jsonResponse(res, 400, { ok: false, error: 'invalid locale' });
+        return;
+      }
+      settingsStore.setDshLocale(locale);
+      pushSettings(true);
+      jsonResponse(res, 200, {
+        ok: true,
+        dshLocale: locale,
+        locale: effectiveLocale(),
+        settings: settingsStore.public(),
+      });
+    } catch (errorValue) {
+      jsonResponse(res, 400, { ok: false, error: serializeError(errorValue) });
+    }
+  }
+
   async function handleTokenRotate(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!sameOrigin(req)) {
       jsonResponse(res, 403, { ok: false, error: 'origin rejected' });
@@ -1578,6 +1620,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     handleLocation,
     handleGeocode,
     handleTheme,
+    handleLocale,
     handleTokenRotate,
     handleDisconnect: handleDisconnectRequest,
     settingsStore,

@@ -116,6 +116,10 @@ export interface RemoteSettings {
   tokenEnabled: boolean;
   allowedInterfaces: string[] | null;
   theme: string;
+  /** Plugin language preference: `dsh`, `zh`, or `en`. */
+  language?: string;
+  /** Resolved console language computed by the Host. */
+  locale?: string;
   temperatureUnit: string;
   navPosition?: string;
   pomodoro?: PomodoroSettings;
@@ -218,6 +222,7 @@ export interface StagedSettings {
   tokenEnabled?: boolean;
   temperatureUnit?: string;
   theme?: string;
+  language?: string;
   navPosition?: string;
   pomodoro?: PomodoroSettings;
   pageOrder?: string[];
@@ -234,6 +239,7 @@ export interface SavePatch {
   tokenEnabled: boolean;
   temperatureUnit: string;
   theme: string;
+  language: string;
   navPosition: string;
   pomodoro: { enabled: boolean; focusMinutes: number; breakMinutes: number; soundPath: string; loopAlarm: boolean };
   pageOrder: string[];
@@ -266,6 +272,9 @@ export interface LocaleService {
   bind(namespace: string): (key: string) => string;
   register(namespace: string, dictionaries: Record<string, Record<string, string>>): void;
   subscribe?(listener: () => void): () => void;
+  /** DSH's active locale snapshot (locale runtime). */
+  getLocale?(): { active?: string } | undefined;
+  getSnapshot?(): { active?: string } | undefined;
 }
 
 export interface SlotRegisterOptions {

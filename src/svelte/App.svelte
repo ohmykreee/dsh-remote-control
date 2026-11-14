@@ -2,7 +2,8 @@
   import { onMount, tick } from 'svelte';
   import WifiOff from '@lucide/svelte/icons/wifi-off';
   import { app, exposeState, restoreUrl, startLive, startTicks, stopLive, toast } from './lib/state.svelte';
-  import { DEFAULT_ORDER, PAGE_LABELS, enabledOrder, normalizeOrder } from './lib/pages';
+  import { DEFAULT_ORDER, enabledOrder, normalizeOrder } from './lib/pages';
+  import { pageLabel, t } from './lib/i18n.svelte';
   import type { PageKey } from './lib/types';
   import { refreshLive } from './lib/ws';
   import HomePage from './lib/components/HomePage.svelte';
@@ -190,10 +191,10 @@
         const root = document.documentElement as FullscreenElement;
         if (root.requestFullscreen) await root.requestFullscreen();
         else if (root.webkitRequestFullscreen) await root.webkitRequestFullscreen();
-        else toast('当前浏览器不支持全屏');
+        else toast(t('fullscreenUnsupported'));
       }
     } catch {
-      toast('当前浏览器不允许全屏');
+      toast(t('fullscreenDenied'));
     }
     setTimeout(updateFullscreen, 120);
   }
@@ -204,7 +205,7 @@
 
   function handleRefresh(): void {
     refreshLive();
-    toast('正在刷新');
+    toast(t('refreshing'));
   }
 
   onMount(() => {
@@ -254,7 +255,7 @@
         class:page-clone={item.clone !== null}
         data-page-key={item.clone ? (item.clone === 'first' ? '__first-clone' : '__last-clone') : item.key}
         data-source-key={item.clone ? item.key : undefined}
-        aria-label={PAGE_LABELS[item.key]}
+        aria-label={pageLabel(item.key)}
         aria-hidden={item.clone ? 'true' : undefined}
       >
         {#if item.key === 'home'}
@@ -274,7 +275,7 @@
 {#if app.online === false}
   <div class="offline" role="status">
     <WifiOff class="size-3.5" strokeWidth={1.8} />
-    <span>正在重新连接…</span>
+    <span>{t('offline')}</span>
   </div>
 {/if}
 

@@ -1,4 +1,5 @@
 import type { TemperatureUnit } from './types';
+import { isChinese, localeTag, t, type MessageKey } from './i18n.svelte';
 
 /** Shared formatting helpers, ported from the original web/app.js. */
 
@@ -9,27 +10,41 @@ export function pad(value: string | number): string {
 export function timeAgo(timestamp: number | undefined, now = Date.now()): string {
   if (!Number.isFinite(timestamp)) return '';
   const seconds = Math.max(0, Math.round((now - (timestamp as number)) / 1000));
-  if (seconds < 45) return '刚刚';
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`;
-  return `${Math.floor(seconds / 86400)} 天前`;
+  if (seconds < 45) return t('justNow');
+  if (seconds < 3600) return t('minutesAgo', { count: Math.floor(seconds / 60) });
+  if (seconds < 86400) return t('hoursAgo', { count: Math.floor(seconds / 3600) });
+  return t('daysAgo', { count: Math.floor(seconds / 86400) });
 }
 
 const LUNAR_DAYS = ['初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十', '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十', '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十'];
-const SOLAR_TERM_NAMES = ['小寒', '大寒', '立春', '雨水', '惊蛰', '春分', '清明', '谷雨', '立夏', '小满', '芒种', '夏至', '小暑', '大暑', '立秋', '处暑', '白露', '秋分', '寒露', '霜降', '立冬', '小雪', '大雪', '冬至'];
+
+const SOLAR_TERM_KEYS: readonly MessageKey[] = [
+  'termMinorCold', 'termMajorCold', 'termStartOfSpring', 'termRainWater', 'termAwakening', 'termSpringEquinox',
+  'termClearAndBright', 'termGrainRain', 'termStartOfSummer', 'termGrainFull', 'termGrainInEar', 'termSummerSolstice',
+  'termMinorHeat', 'termMajorHeat', 'termStartOfAutumn', 'termEndOfHeat', 'termWhiteDew', 'termAutumnEquinox',
+  'termColdDew', 'termFrostDescent', 'termStartOfWinter', 'termMinorSnow', 'termMajorSnow', 'termWinterSolstice',
+];
+
 const SOLAR_TERM_MINUTES = [0, 21208, 42467, 63836, 85337, 107014, 128867, 150921, 173149, 195551, 218072, 240693, 263343, 285989, 308563, 331033, 353350, 375494, 397447, 419210, 440795, 462224, 483532, 504758];
 
 let lunarFormatter: Intl.DateTimeFormat | null = null;
-try {
-  lunarFormatter = new Intl.DateTimeFormat('zh-CN-u-ca-chinese', { month: 'long', day: 'numeric' });
-} catch {
-  lunarFormatter = null;
+function getLunarFormatter(): Intl.DateTimeFormat | null {
+  if (lunarFormatter) return lunarFormatter;
+  try {
+    lunarFormatter = new Intl.DateTimeFormat('zh-CN-u-ca-chinese', { month: 'long', day: 'numeric' });
+  } catch {
+    lunarFormatter = null;
+  }
+  return lunarFormatter;
 }
 
+/** Lunar month/day text; the Chinese calendar labels only make sense in zh. */
 export function lunarDateText(date: Date): string {
-  if (!lunarFormatter) return '';
+  if (!isChinese()) return '';
+  const formatter = getLunarFormatter();
+  if (!formatter) return '';
   try {
-    const parts = lunarFormatter.formatToParts(date);
+    const parts = formatter.formatToParts(date);
     const month = parts.find((part) => part.type === 'month')?.value || '';
     const day = Number(parts.find((part) => part.type === 'day')?.value);
     if (!month || !Number.isInteger(day) || day < 1 || day > 30) return '';
@@ -39,17 +54,18 @@ export function lunarDateText(date: Date): string {
   }
 }
 
-export function solarTermForDate(date: Date): string {
+/** Which of the 24 solar terms falls on the given date, if any. */
+export function solarTermForDate(date: Date): MessageKey | null {
   const year = date.getFullYear();
   const month = date.getMonth();
   const day = date.getDate();
-  for (let index = 0; index < SOLAR_TERM_NAMES.length; index += 1) {
+  for (let index = 0; index < SOLAR_TERM_KEYS.length; index += 1) {
     const term = new Date(31556925974.7 * (year - 1900) + SOLAR_TERM_MINUTES[index] * 60000 + Date.UTC(1900, 0, 6, 2, 5));
     if (term.getUTCFullYear() === year && term.getUTCMonth() === month && term.getUTCDate() === day) {
-      return SOLAR_TERM_NAMES[index];
+      return SOLAR_TERM_KEYS[index];
     }
   }
-  return '';
+  return null;
 }
 
 export interface ClockParts {
@@ -62,26 +78,32 @@ export interface ClockParts {
 
 export function clockParts(date: Date): ClockParts {
   const hour = date.getHours();
-  let greeting = '晚上好';
-  let period = '晚上';
+  let greeting = 'greetingEvening';
+  let period = 'periodEvening';
   if (hour >= 5 && hour < 11) {
-    greeting = '早上好';
-    period = '早上';
+    greeting = 'greetingMorning';
+    period = 'periodMorning';
   } else if (hour >= 11 && hour < 13) {
-    greeting = '中午好';
-    period = '中午';
+    greeting = 'greetingNoon';
+    period = 'periodNoon';
   } else if (hour >= 13 && hour < 18) {
-    greeting = '下午好';
-    period = '下午';
+    greeting = 'greetingAfternoon';
+    period = 'periodAfternoon';
   }
   const lunar = lunarDateText(date);
   const solarTerm = solarTermForDate(date);
+  // Chinese keeps lunar/solar-term detail with a period fallback; English shows
+  // the solar term when present and nothing otherwise, so the clock has no
+  // placeholder line like "Afternoon".
+  const periodLabel = isChinese()
+    ? ([lunar, solarTerm ? t(solarTerm) : ''].filter(Boolean).join(' · ') || t(period as MessageKey))
+    : (solarTerm ? t(solarTerm) : '');
   return {
     time: `${pad(hour)}:${pad(date.getMinutes())}`,
     seconds: pad(date.getSeconds()),
-    greeting,
-    periodLabel: [lunar, solarTerm].filter(Boolean).join(' · ') || period,
-    dateLabel: new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' }).format(date),
+    greeting: t(greeting as MessageKey),
+    periodLabel,
+    dateLabel: new Intl.DateTimeFormat(localeTag(), { month: 'long', day: 'numeric', weekday: 'short' }).format(date),
   };
 }
 
@@ -130,9 +152,9 @@ export function formatUptime(seconds: unknown): string {
   const days = Math.floor(total / 86400);
   const hours = Math.floor((total % 86400) / 3600);
   const minutes = Math.floor((total % 3600) / 60);
-  if (days > 0) return `${days}天 ${hours}小时`;
-  if (hours > 0) return `${hours}小时 ${minutes}分`;
-  return `${minutes}分钟`;
+  if (days > 0) return t('uptimeDays', { days, hours });
+  if (hours > 0) return t('uptimeHours', { hours, minutes });
+  return t('uptimeMinutes', { minutes });
 }
 
 export function appInitial(name?: string, title?: string): string {
@@ -147,17 +169,17 @@ export function appGradient(key?: string): string {
 
 export function sourceLabel(appId?: string): string {
   const id = String(appId || '');
-  if (/bilibili/i.test(id)) return '哔哩哔哩';
+  if (/bilibili/i.test(id)) return t('sourceBilibili');
   if (/spotify/i.test(id)) return 'Spotify';
   if (/msedge/i.test(id)) return 'Edge';
   if (/brave/i.test(id)) return 'Brave';
   if (/vivaldi/i.test(id)) return 'Vivaldi';
   if (/firefox/i.test(id)) return 'Firefox';
-  if (/Music/i.test(id)) return '音乐';
+  if (/Music/i.test(id)) return t('musicSource');
   if (/chrome/i.test(id)) return 'Chrome';
   if (id === 'macOS') return 'macOS';
   if (id.startsWith('org.mpris.MediaPlayer2.')) return id.replace('org.mpris.MediaPlayer2.', '').replace(/[._]/g, ' ');
-  return id.split('.').pop()?.replace(/[._-]/g, ' ') || '媒体';
+  return id.split('.').pop()?.replace(/[._-]/g, ' ') || t('mediaFallback');
 }
 
 export function temperatureUnitLabel(unit: TemperatureUnit): string {

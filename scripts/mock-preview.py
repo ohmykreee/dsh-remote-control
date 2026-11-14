@@ -41,9 +41,10 @@ def ago(seconds: int) -> int:
     return int(time.time() * 1000) - seconds * 1000
 
 
-def demo_payloads() -> list[dict]:
+def demo_payloads(locale: str = "zh") -> list[dict]:
     settings = {
         "theme": "dark",
+        "locale": locale,
         "temperatureUnit": "celsius",
         "pushQuestions": True,
         "navPosition": "left",
@@ -391,7 +392,7 @@ def cover_svg() -> str:
 """
 
 
-def prepare(web_dir: Path, out_dir: Path) -> None:
+def prepare(web_dir: Path, out_dir: Path, locale: str = "zh") -> None:
     if not (web_dir / "index.html").is_file():
         raise SystemExit(f"missing built web page: {web_dir / 'index.html'}")
     if out_dir.exists():
@@ -400,7 +401,7 @@ def prepare(web_dir: Path, out_dir: Path) -> None:
     index = (out_dir / "index.html").read_text(encoding="utf-8")
     injection = (
         "<script>\n"
-        + mock_socket_script(demo_payloads())
+        + mock_socket_script(demo_payloads(locale))
         + "\n</script>\n"
         + '<img src="/slow.png" alt="" aria-hidden="true" style="position:fixed;width:1px;height:1px;opacity:0;pointer-events:none">\n'
     )
@@ -444,11 +445,12 @@ def main() -> int:
     parser.add_argument("--out", default=str(ROOT / ".mock-web"), help="prepared preview directory")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=4173)
+    parser.add_argument("--locale", choices=["zh", "en"], default="zh", help="demo console language")
     args = parser.parse_args()
 
     web_dir = Path(args.web).resolve()
     out_dir = Path(args.out).resolve()
-    prepare(web_dir, out_dir)
+    prepare(web_dir, out_dir, args.locale)
     handler = functools.partial(PreviewHandler, directory=str(out_dir))
     with PreviewServer((args.host, args.port), handler) as server:
         print(f"mock preview: http://{args.host}:{args.port}/?page=home", flush=True)

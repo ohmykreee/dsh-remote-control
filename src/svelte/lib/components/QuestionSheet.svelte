@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app, closeQuestion, submitQuestionAnswer, toast } from '../state.svelte';
   import type { SessionQuestion } from '../types';
+  import { t } from '../i18n.svelte';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Card } from '$lib/components/ui/card/index.js';
@@ -117,11 +118,11 @@
   async function submit(): Promise<void> {
     if (busy) return;
     if (!session?.id || !pending?.requestId) {
-      error = '当前问题已经结束';
+      error = t('questionEnded');
       return;
     }
     if (!complete) {
-      error = '请先回答每一道问题，或选择跳过';
+      error = t('answerEveryQuestion');
       return;
     }
     busy = true;
@@ -132,7 +133,7 @@
         pending.requestId,
         questions.map((question, index) => answerFor(question, index)),
       );
-      toast('已回复');
+      toast(t('answered'));
       closeQuestion();
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -171,10 +172,10 @@
         <div class="min-w-0">
           <p class="eyebrow text-warn">WAITING FOR ANSWER</p>
           <Dialog.Title class="mt-1 truncate text-[24px] font-semibold tracking-[-0.03em]">
-            {session?.title || '会话提问'}
+            {session?.title || t('sessionQuestion')}
           </Dialog.Title>
           <Dialog.Description class="mt-1 text-[14px] leading-relaxed">
-            {questions.length > 1 ? `${questions.length} 个问题` : '选择一项，或填写自定义回复'}
+            {questions.length > 1 ? t('questionCount', { count: questions.length }) : t('chooseOption')}
           </Dialog.Description>
         </div>
       </div>
@@ -184,7 +185,7 @@
         size="icon"
         class="size-11 shrink-0 rounded-[13px] text-muted-foreground hover:bg-secondary hover:text-foreground"
         type="button"
-        aria-label="关闭"
+        aria-label={t('close')}
         disabled={busy}
         onclick={close}
       >
@@ -256,7 +257,7 @@
                       <span class="flex flex-wrap items-center gap-2 text-[16px] leading-snug font-medium text-foreground">
                         {label.text}
                         {#if label.recommended}
-                          <span class="rounded-full bg-success-soft px-2 py-0.5 text-[12px] font-semibold text-success">推荐</span>
+                          <span class="rounded-full bg-success-soft px-2 py-0.5 text-[12px] font-semibold text-success">{t('recommended')}</span>
                         {/if}
                       </span>
                       {#if option.description}
@@ -273,8 +274,8 @@
               <Input
                 type="text"
                 value={drafts[index]?.custom ?? ''}
-                placeholder={question.options?.length ? '其他回答…' : '输入回答…'}
-                aria-label="自定义回复"
+                placeholder={question.options?.length ? t('otherAnswer') : t('typeAnswer')}
+                aria-label={t('customReply')}
                 class="h-12 rounded-[11px] border-border bg-card pl-11 text-[16px] shadow-none placeholder:text-muted-foreground"
                 disabled={busy}
                 oninput={(event) => updateCustom(index, event.currentTarget.value)}
@@ -287,7 +288,7 @@
                   type="button"
                   disabled={busy || !isComplete(index)}
                   onclick={() => void submit()}
-                  aria-label="发送回答"
+                  aria-label={t('sendAnswer')}
                 >
                   <ArrowUp class="size-[20px]" strokeWidth={2} />
                 </Button>
@@ -303,10 +304,10 @@
                 onclick={() => skip(index)}
               >
                 <SkipForward class="size-[18px]" strokeWidth={1.7} />
-                跳过此题
+                {t('skipQuestion')}
               </Button>
               {#if drafts[index]?.skipped}
-                <span class="text-[13px] text-warn">将作为未回答提交</span>
+                <span class="text-[13px] text-warn">{t('skippedNote')}</span>
               {/if}
             </div>
           </Card>
@@ -326,7 +327,7 @@
     {#if needsSubmit}
       <div class="mt-0 flex shrink-0 flex-col gap-2.5 border-t border-border bg-card p-4">
         <p class="text-[13px] text-muted-foreground">
-          {busy ? '正在发送…' : '可多选或填写自定义回复'}
+          {busy ? t('sendingEllipsis') : t('canMultiAnswer')}
         </p>
         <div class="flex w-full gap-2.5">
           <Button
@@ -336,7 +337,7 @@
             disabled={busy}
             onclick={close}
           >
-            取消
+            {t('cancel')}
           </Button>
           <Button
             class="h-12 flex-1 rounded-[13px] bg-primary text-[16px] text-primary-foreground shadow-none hover:bg-primary/90"
@@ -344,7 +345,7 @@
             disabled={busy || !complete}
             onclick={() => void submit()}
           >
-            {busy ? '发送中…' : '发送回答'}
+            {busy ? t('sending') : t('sendAnswer')}
           </Button>
         </div>
       </div>

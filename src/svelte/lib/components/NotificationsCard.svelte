@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app } from '../state.svelte';
   import { appGradient, appInitial, timeAgo } from '../format';
+  import { t } from '../i18n.svelte';
   import {
     Avatar,
     AvatarFallback,
@@ -21,7 +22,7 @@
 </script>
 
 <Panel class="notifications-card flex min-h-0 flex-col p-4">
-  <SectionHeader icon={Bell} eyebrow="NOTIFICATIONS" title="通知" class="mb-3">
+  <SectionHeader icon={Bell} eyebrow="ALERTS" title={t('notifications')} class="mb-3">
     {#snippet children()}
       <Badge
         variant="outline"
@@ -49,11 +50,11 @@
     </div>
   {:else if unavailable}
     <div class="flex min-h-0 flex-1 items-center justify-center">
-      <EmptyState icon={BellOff} title="通知暂不可用" text="稍后再试" />
+      <EmptyState icon={BellOff} title={t('notificationsUnavailable')} text={t('tryLater')} />
     </div>
   {:else if list.length === 0}
     <div class="flex min-h-0 flex-1 items-center justify-center">
-      <EmptyState icon={BellOff} title="暂无通知" text="新的通知会显示在这里" />
+      <EmptyState icon={BellOff} title={t('noNotifications')} text={t('noNotificationsHint')} />
     </div>
   {:else}
     <ScrollArea class="-mx-1 min-h-0 flex-1" scrollbarYClasses="mr-0.5 w-2">
@@ -75,7 +76,7 @@
             <div class="min-w-0 flex-1">
               <div class="flex items-center justify-between gap-3">
                 <span class="truncate text-[14px] font-semibold tracking-[0.03em] text-brand">
-                  {item.appName || '通知'}
+                  {item.appName || t('notificationFallback')}
                 </span>
                 <span class="shrink-0 text-[13px] text-muted-foreground">
                   {timeAgo(item.receivedAt, app.clockNow)}

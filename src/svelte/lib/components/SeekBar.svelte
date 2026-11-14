@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { Progress } from '$lib/components/ui/progress/index.js';
   import { formatDuration } from '../format';
+  import { t } from '../i18n.svelte';
   import { isPlaying, isSeekable, mediaDuration, seekMaximum } from '../media';
   import type { MediaInfo } from '../types';
   import { cn } from '$lib/utils.js';
@@ -218,7 +219,7 @@
       class="seek-hit"
       role="slider"
       tabindex="0"
-      aria-label="播放进度"
+      aria-label={t('playProgress')}
       aria-valuemin={0}
       aria-valuemax={Math.round(max)}
       aria-valuenow={Math.round(position)}
@@ -233,10 +234,10 @@
       </div>
     </div>
   {:else}
-    <div class="flex h-6 items-center" title={!hasTotal ? '进度信息不可用' : hasTimeline ? '当前进度仅展示' : '播放进度'}>
+    <div class="flex h-6 items-center" title={!hasTotal ? t('progressUnavailable') : hasTimeline ? t('progressReadOnly') : t('playProgress')}>
       <Progress
         value={displayPercent}
-        aria-label={hasTotal ? '播放进度' : '进度信息不可用'}
+        aria-label={hasTotal ? t('playProgress') : t('progressUnavailable')}
         class="h-1.5 w-full bg-secondary [&>[data-slot=progress-indicator]]:bg-brand"
       />
     </div>

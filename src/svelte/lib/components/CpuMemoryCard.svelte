@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app } from '../state.svelte';
   import { formatBytes, formatUptime } from '../format';
+  import { t } from '../i18n.svelte';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import Cpu from '@lucide/svelte/icons/cpu';
   import Panel from './Panel.svelte';
@@ -14,16 +15,18 @@
   const cpuUsage = $derived(Number(cpu.usage));
   const cpuPercent = $derived(Number.isFinite(cpuUsage) ? Math.max(0, Math.min(100, cpuUsage)) : 0);
   const cpuModel = $derived(String(cpu.model || '').trim());
-  const cpuHeader = $derived(loaded ? cpuModel || '当前状态' : '正在读取');
+  const cpuHeader = $derived(loaded ? cpuModel || t('currentStatus') : t('sessionLoading'));
 
   const speed = $derived.by(() => {
     const value = Number(cpu.speed);
     return Number.isFinite(value) && value > 0 ? `${(value / 1000).toFixed(2)} GHz` : '—';
   });
   const uptime = $derived(loaded ? formatUptime(cpu.uptime) : '—');
-  const threadChip = $derived(
-    Number.isFinite(Number(cpu.cores)) && Number(cpu.cores) > 0 ? `${cpu.cores} 线程` : '—',
-  );
+  const threadChip = $derived.by(() => {
+    const cores = Number(cpu.cores);
+    if (!Number.isFinite(cores) || cores <= 0) return '—';
+    return cores === 1 ? t('threadCountOne') : t('threadCount', { count: cores });
+  });
 
   const memoryPercent = $derived(Number(memory.percent));
   const percentShown = $derived(
@@ -44,7 +47,7 @@
     <div class="min-w-0">
       <p class="eyebrow">SYSTEM</p>
       <h2 class="mt-0.5 truncate text-[24px] leading-tight font-semibold tracking-[-0.03em] text-foreground">
-        CPU / 内存
+        {t('cpuMemory')}
       </h2>
     </div>
     <p class="ml-auto max-w-[46%] truncate text-right text-[14px] text-muted-foreground" title={cpuModel}>
@@ -68,11 +71,11 @@
         <RadialGauge value={cpuPercent} color="var(--brand)" />
         <div class="grid w-full grid-cols-2 gap-2">
           <div class="fact-tile">
-            <span>当前频率</span>
+            <span>{t('currentFrequency')}</span>
             <b class="numeric">{speed}</b>
           </div>
           <div class="fact-tile">
-            <span>运行时间</span>
+            <span>{t('runningTime')}</span>
             <b class="numeric">{uptime}</b>
           </div>
         </div>
@@ -94,11 +97,11 @@
         <RadialGauge value={percentShown} color="var(--success)" />
         <div class="grid w-full grid-cols-2 gap-2">
           <div class="fact-tile">
-            <span>已用</span>
+            <span>{t('memoryUsed')}</span>
             <b class="numeric">{memoryUsed}</b>
           </div>
           <div class="fact-tile">
-            <span>可用</span>
+            <span>{t('memoryFree')}</span>
             <b class="numeric">{memoryFree}</b>
           </div>
         </div>

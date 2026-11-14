@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app } from '../state.svelte';
   import { formatBytes } from '../format';
+  import { t } from '../i18n.svelte';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import Monitor from '@lucide/svelte/icons/monitor';
   import Panel from './Panel.svelte';
@@ -11,7 +12,11 @@
   const gpu = $derived(data?.gpu || {});
   const gpuModel = $derived(String(gpu.name || '').trim());
   const unavailable = $derived(loaded && gpu.ok === false);
-  const gpuHeader = $derived(!loaded ? '正在读取' : unavailable ? '暂不可用' : gpuModel || '未检测到独立显卡');
+  const gpuHeader = $derived(!loaded
+    ? t('sessionLoading')
+    : unavailable
+      ? t('unavailableShort')
+      : gpuModel || t('noDiscreteGpu'));
 
   const usage = $derived(Number(gpu.utilization));
   const usagePercent = $derived(Number.isFinite(usage) ? Math.max(0, Math.min(100, usage)) : 0);
@@ -48,7 +53,7 @@
     <div class="min-w-0">
       <p class="eyebrow">GRAPHICS</p>
       <h2 class="mt-0.5 truncate text-[24px] leading-tight font-semibold tracking-[-0.03em] text-foreground">
-        显卡 / 显存
+        {t('gpuMemory')}
       </h2>
     </div>
     <p class="ml-auto max-w-[40%] truncate text-right text-[14px] text-muted-foreground" title={gpuModel}>
@@ -63,9 +68,9 @@
         <Badge
           variant="outline"
           class="h-6 max-w-[72%] border-border bg-secondary px-2 text-[11px] font-medium text-muted-foreground"
-          title={driver ? `驱动 ${driver}` : '驱动版本未知'}
+          title={driver ? t('driverValue', { name: driver }) : t('driverUnknown')}
         >
-          <span class="truncate">{driver ? `驱动 ${driver}` : '驱动 —'}</span>
+          <span class="truncate">{driver ? t('driverValue', { name: driver }) : t('driverNone')}</span>
         </Badge>
       </div>
 
@@ -73,11 +78,11 @@
         <RadialGauge value={usagePercent} color="var(--chart-4)" />
         <div class="grid w-full grid-cols-2 gap-2">
           <div class="fact-tile">
-            <span>核心频率</span>
+            <span>{t('coreClock')}</span>
             <b class="numeric">{coreClock}</b>
           </div>
           <div class="fact-tile">
-            <span>显存频率</span>
+            <span>{t('memoryClock')}</span>
             <b class="numeric">{memoryClock}</b>
           </div>
         </div>
@@ -99,11 +104,11 @@
         <RadialGauge value={vramPercent} color="var(--chart-2)" />
         <div class="grid w-full grid-cols-2 gap-2">
           <div class="fact-tile">
-            <span>已用</span>
+            <span>{t('memoryUsed')}</span>
             <b class="numeric">{vramUsed}</b>
           </div>
           <div class="fact-tile">
-            <span>可用</span>
+            <span>{t('memoryFree')}</span>
             <b class="numeric">{vramFree}</b>
           </div>
         </div>

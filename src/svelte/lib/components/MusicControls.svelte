@@ -2,6 +2,7 @@
   import { app, sendAction } from '../state.svelte';
   import type { MediaInfo, MediaPayload } from '../types';
   import { clampVolume, isPlaying } from '../media';
+  import { t } from '../i18n.svelte';
   import { Slider } from '$lib/components/ui/slider/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { cn } from '$lib/utils.js';
@@ -58,9 +59,9 @@
   <div class="flex items-start justify-between gap-4">
     <div class="min-w-0">
       <p class="eyebrow">{media?.album || 'NOW PLAYING'}</p>
-      <h1 class="track-title">{media?.title || '没有播放内容'}</h1>
+      <h1 class="track-title">{media?.title || t('nothingPlaying')}</h1>
       <p class="track-artist">
-        {media ? media.artist || media.albumArtist || '未知艺术家' : '选择一首歌开始播放'}
+        {media ? media.artist || media.albumArtist || t('unknownArtist') : t('chooseSong')}
       </p>
     </div>
 
@@ -73,8 +74,8 @@
           media.liked && 'border-danger/25 bg-danger-soft text-danger hover:bg-danger-soft hover:text-danger',
         )}
         disabled={!media.canSetLiked}
-        title={media.liked ? '取消喜欢' : '喜欢'}
-        aria-label={media.liked ? '取消喜欢' : '喜欢'}
+        title={media.liked ? t('unlike') : t('like')}
+        aria-label={media.liked ? t('unlike') : t('like')}
         onclick={handleLike}
       >
         <Heart class={cn('size-[22px]', media.liked && 'fill-current')} strokeWidth={1.8} />
@@ -90,7 +91,7 @@
       size="icon"
       class="transport-button size-[58px] rounded-full border-border bg-card/50 text-foreground shadow-none backdrop-blur-md hover:bg-secondary"
       type="button"
-      aria-label="上一首"
+      aria-label={t('previousTrack')}
       disabled={previousDisabled}
       onclick={() => sendAction('previous')}
     >
@@ -101,7 +102,7 @@
       size="icon"
       class="play-button size-[72px] rounded-full border border-brand/35 bg-primary text-primary-foreground shadow-none hover:bg-primary/90"
       type="button"
-      aria-label={playing ? '暂停' : '播放'}
+      aria-label={playing ? t('pause') : t('play')}
       onclick={() => sendAction('playpause')}
     >
       {#if playing}
@@ -116,7 +117,7 @@
       size="icon"
       class="transport-button size-[58px] rounded-full border-border bg-card/50 text-foreground shadow-none backdrop-blur-md hover:bg-secondary"
       type="button"
-      aria-label="下一首"
+      aria-label={t('nextTrack')}
       disabled={nextDisabled}
       onclick={() => sendAction('next')}
     >
@@ -130,8 +131,8 @@
       size="icon"
       class="size-12 shrink-0 rounded-[14px] border-border bg-card/50 text-muted-foreground shadow-none backdrop-blur-md hover:bg-secondary hover:text-foreground"
       type="button"
-      aria-label="静音"
-      title="静音"
+      aria-label={t('mute')}
+      title={t('mute')}
       onclick={() => sendAction('mute')}
     >
       {#if volume?.muted}
@@ -146,7 +147,7 @@
       max={100}
       step={1}
       value={volumePercent}
-      aria-label="音量"
+      aria-label={t('volume')}
       class="volume-slider max-w-[280px]"
       onValueChange={handleVolumeInput}
       onValueCommit={handleVolumeCommit}

@@ -1,11 +1,12 @@
 <script lang="ts">
   import type { MediaInfo } from '../types';
+  import { t } from '../i18n.svelte';
   import Music2 from '@lucide/svelte/icons/music-2';
 
   let { media }: { media: MediaInfo | null } = $props();
 
   const thumbnail = $derived(media?.thumbnail || media?.thumbnailUrl || '');
-  const fallbackText = $derived(media ? '正在播放' : '暂无播放内容');
+  const fallbackText = $derived(media ? t('nowPlaying') : t('nothingPlaying'));
   let failed = $state(false);
   const showArt = $derived(Boolean(thumbnail) && !failed);
 
@@ -26,7 +27,7 @@
     <img
       class="cover-art"
       src={thumbnail}
-      alt="专辑封面"
+      alt={t('albumCover')}
       draggable="false"
       referrerpolicy="no-referrer"
       onerror={() => (failed = true)}
