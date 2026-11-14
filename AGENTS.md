@@ -522,7 +522,7 @@ pnpm build:rust
 - 门禁：`jobs.checks` 是 `uses: ./.github/workflows/checks.yml`，检查不过不发布。
 - 构建：只跑 `pnpm build:dsh` 与 `pnpm build:web`；探针是平台相关的本机构建产物，不进 npm 包。
 - 校验：`node scripts/check-npm-package.mjs --tag <tag>` 验证产物、清单策略、版本 / 标签一致和 tarball 内容。
-- 发布：`npm publish --provenance --access public --tag latest|next`（预发布版本走 `next`），认证用仓库 secret `NPM_TOKEN`；`permissions.id-token: write` 是 provenance 的前提。
+- 发布：`npm publish --provenance --access public --tag latest|next`（预发布版本走 `next`），认证用 `npm` environment 的 secret `NPM_TOKEN`（Settings → Environments → npm；环境上还能加 required reviewers 做发布审批）；`permissions.id-token: write` 是 provenance 的前提。
 - npm 政策：scoped 包必须 `publishConfig.access: public`；`publishConfig.registry` 固定 npm 官方源；`publishConfig.provenance: true`；classic automation token 已下线，`NPM_TOKEN` 必须是该包的 granular token（带 2FA bypass）。改用 Trusted Publishing 时，在 npmjs.com 配好发布者并删掉 `NODE_AUTH_TOKEN` 即可。
 - 包内容：编译产物（`index.js` / `client.js` / `lib/` / `web/`）+ 源码（`src/**`、构建脚本、配置、README / INSTALLATION / AGENTS / docs）；`test/`、`.github/`、`native/bin/`、`src/rust/target/` 不进包。
 

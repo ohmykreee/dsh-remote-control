@@ -23,8 +23,10 @@
 #     the `repository` field in package.json to match this GitHub repository;
 #   - authentication is a granular access token with publish permission for
 #     this package and 2FA bypass; npm retired the classic automation tokens.
-#     For a token-free alternative, configure a Trusted Publisher for this
-#     workflow on npmjs.com and drop the NODE_AUTH_TOKEN lines below.
+#     The token is an environment secret of the `npm` environment, not a
+#     repository secret, so it can be scoped and reviewed there. For a
+#     token-free alternative, configure a Trusted Publisher for this workflow on
+#     npmjs.com and drop the NODE_AUTH_TOKEN lines below.
 name: Publish npm
 
 on:
@@ -56,12 +58,19 @@ jobs:
     needs: checks
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Secrets attached to this environment are what reaches npm; the workflow
+    # itself carries no credential. Protection rules (for example required
+    # reviewers) on the environment also gate the release.
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@ohmykreee/dsh-remote-control
     permissions:
       contents: read
       # Required for the npm provenance attestation (`--provenance`).
       id-token: write
     env:
-      # setup-node turns this into the `_authToken` of the runner-local .npmrc.
+      # setup-node turns the `npm` environment secret into the `_authToken` of
+      # the runner-local .npmrc.
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - name: Checkout repo
@@ -124,7 +133,7 @@ jobs:
         run: |
           npm --version
           if [ "${DRY_RUN}" != "true" ] && [ -z "${NODE_AUTH_TOKEN}" ]; then
-            echo "::error::NPM_TOKEN is empty. Add a granular npm token with publish access to @ohmykreee/dsh-remote-control (and 2FA bypass), or run the workflow manually as a dry run."
+            echo "::error::NPM_TOKEN is empty. Add it under Settings > Environments > npm > Secrets with publish access to @ohmykreee/dsh-remote-control (and 2FA bypass), or run the workflow manually as a dry run."
             exit 1
           fi
           args=(--provenance --access public --tag "${{ steps.release.outputs.tag }}")
