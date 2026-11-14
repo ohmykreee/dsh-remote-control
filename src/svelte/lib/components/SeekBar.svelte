@@ -61,6 +61,13 @@
   let lastSentValue = -1;
   let lastSentAt = 0;
   let activePointerId: number | null = null;
+  let lastSnapshotKey = '';
+  let lastSnapshotPosition = -1;
+
+  // A cached/repeated snapshot keeps advancing (the Host projects the
+  // timeline), so a payload position that actually moves backwards means the
+  // player was seeked in its own UI — not a stale snapshot pulling the bar.
+  const BACKWARD_SEEK_EPS = 1;
 
   // Only a live, advancing timeline gets the wave. Pausing, dragging and
   // unavailable timelines (fixed at 100%) fall back to a straight bar.
@@ -124,6 +131,8 @@
       anchor = 0;
       anchorAt = timestamp;
       lastKey = '';
+      lastSnapshotKey = '';
+      lastSnapshotPosition = -1;
       pendingUntil = 0;
       now = timestamp;
       return;
@@ -133,13 +142,18 @@
     const reported = Number(currentMedia.position) || 0;
     const isPlayingNow = isPlaying(currentMedia);
 
-    if (key !== lastKey || dragging) {
-      if (key !== lastKey) {
-        lastKey = key;
-        anchor = clampPosition(reported);
-        anchorAt = timestamp;
-        pendingUntil = 0;
-      }
+    if (key !== lastKey) {
+      lastKey = key;
+      anchor = clampPosition(reported);
+      anchorAt = timestamp;
+      pendingUntil = 0;
+      lastSnapshotKey = key;
+      lastSnapshotPosition = reported;
+      now = timestamp;
+      return;
+    }
+
+    if (dragging) {
       now = timestamp;
       return;
     }
@@ -149,7 +163,27 @@
         pendingUntil = 0;
         anchor = clampPosition(reported);
         anchorAt = timestamp;
+        lastSnapshotKey = key;
+        lastSnapshotPosition = reported;
       }
+      now = timestamp;
+      return;
+    }
+
+    // The player rewound in its own UI (e.g. NetEase's window while the remote
+    // timeline is read-only). The payload itself drops, unlike a repeated
+    // cached snapshot, so follow it instead of letting the local clock run
+    // ahead for the rest of the track.
+    if (
+      isPlayingNow
+      && lastSnapshotKey === key
+      && lastSnapshotPosition >= 0
+      && reported < lastSnapshotPosition - BACKWARD_SEEK_EPS
+    ) {
+      anchor = clampPosition(reported);
+      anchorAt = timestamp;
+      pendingUntil = 0;
+      lastSnapshotPosition = reported;
       now = timestamp;
       return;
     }
@@ -164,6 +198,8 @@
         anchorAt = timestamp;
       }
     }
+    lastSnapshotKey = key;
+    lastSnapshotPosition = reported;
     now = timestamp;
   });
 
