@@ -1,4 +1,14 @@
 import { app } from './state.svelte';
+import {
+  cancelScheduledAlarm,
+  claimScheduledAlarm,
+  playAlarmOnce,
+  primeAudio,
+  scheduleAlarm,
+  setTabAlert,
+  startLoopingAlarm,
+  stopAlarmSound,
+} from './timer-alarm';
 import type { PomodoroSettings } from './types';
 
 /**
@@ -36,14 +46,6 @@ export const pomodoro = $state<PomodoroRuntime>({
 let refs = 0;
 let timer: ReturnType<typeof setInterval> | null = null;
 let durationSignature = '';
-let originalTitle = '';
-let originalIcon = '';
-let alerting = false;
-let audioContext: AudioContext | null = null;
-let scheduled: { endsAt: number; nodes: OscillatorNode[] } | null = null;
-let loopTimer: ReturnType<typeof setTimeout> | null = null;
-let alarmAudio: HTMLAudioElement | null = null;
-let activeChimeNodes: OscillatorNode[] = [];
 
 function settings(): PomodoroSettings {
   return app.pomodoro;
@@ -97,7 +99,7 @@ function stopEngine(): void {
   if (timer) clearInterval(timer);
   timer = null;
   document.removeEventListener('visibilitychange', handleVisibility);
-  cancelScheduled();
+  cancelScheduledAlarm();
   resetRuntime();
 }
 
@@ -147,7 +149,7 @@ export function startPomodoro(): void {
   pomodoro.running = true;
   pomodoro.endsAt = Date.now() + pomodoro.remainingMs;
   stopAlarm();
-  if (!settings().soundPath.trim()) scheduleChime(Math.max(0.06, (pomodoro.endsAt - Date.now()) / 1000), pomodoro.endsAt);
+  if (!settings().soundPath.trim()) scheduleAlarm(Math.max(0.06, (pomodoro.endsAt - Date.now()) / 1000), pomodoro.endsAt);
 }
 
 export function pausePomodoro(): void {
@@ -155,7 +157,7 @@ export function pausePomodoro(): void {
   pomodoro.remainingMs = Math.max(0, pomodoro.endsAt - Date.now());
   pomodoro.running = false;
   pomodoro.endsAt = 0;
-  cancelScheduled();
+  cancelScheduledAlarm();
 }
 
 export function togglePomodoro(): void {
@@ -194,13 +196,12 @@ function finish(): void {
   pomodoro.finished = true;
   pomodoro.alarmActive = false;
   if (finishedPhase === 'focus') pomodoro.rounds += 1;
-  const hasScheduledChime = scheduled !== null && scheduled.endsAt === pomodoro.endsAt;
-  scheduled = null;
+  const hasScheduledChime = claimScheduledAlarm(pomodoro.endsAt);
   if (settings().loopAlarm) {
     pomodoro.alarmActive = true;
-    startLoopingAlarm(hasScheduledChime);
+    startLoopingAlarm(settings().soundPath, hasScheduledChime);
   } else if (!hasScheduledChime) {
-    playAlarm();
+    playAlarmOnce(settings().soundPath);
   }
   setTabAlert(true);
   try {
@@ -210,276 +211,8 @@ function finish(): void {
   }
 }
 
-/* ------------------------------------------------------------------ sound */
-
-function ensureAudio(): AudioContext | null {
-  try {
-    if (!audioContext) {
-      const Ctor = window.AudioContext
-        || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!Ctor) return null;
-      audioContext = new Ctor();
-    }
-    if (audioContext.state === 'suspended') void audioContext.resume();
-    return audioContext;
-  } catch {
-    return null;
-  }
-}
-
-/** Resume the audio context inside the start-button gesture. */
-export function primeAudio(): void {
-  ensureAudio();
-}
-
-/**
- * Schedule a soft major-arpeggio chime. Sine fundamentals plus quiet octave
- * triangles and a low-pass keep it gentle rather than a harsh alarm beep.
- */
-function buildChime(delaySeconds: number): OscillatorNode[] {
-  const context = ensureAudio();
-  if (!context) return [];
-  const now = context.currentTime + Math.max(0.02, delaySeconds);
-  const master = context.createGain();
-  master.gain.value = 0.16;
-  const filter = context.createBiquadFilter();
-  filter.type = 'lowpass';
-  filter.frequency.value = 4200;
-  filter.Q.value = 0.4;
-  filter.connect(master);
-  master.connect(context.destination);
-  const notes = [523.25, 659.25, 783.99, 1046.5];
-  const nodes: OscillatorNode[] = [];
-  const phrase = (offset: number): void => {
-    notes.forEach((frequency, index) => {
-      const at = now + offset + index * 0.22;
-      const gain = context.createGain();
-      gain.gain.setValueAtTime(0.0001, at);
-      gain.gain.exponentialRampToValueAtTime(0.9, at + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, at + 1.05);
-      const fundamental = context.createOscillator();
-      fundamental.type = 'sine';
-      fundamental.frequency.value = frequency;
-      fundamental.connect(gain);
-      const shimmer = context.createOscillator();
-      shimmer.type = 'triangle';
-      shimmer.frequency.value = frequency * 2;
-      const shimmerGain = context.createGain();
-      shimmerGain.gain.value = 0.1;
-      shimmer.connect(shimmerGain);
-      shimmerGain.connect(gain);
-      gain.connect(filter);
-      fundamental.start(at);
-      shimmer.start(at);
-      fundamental.stop(at + 1.1);
-      shimmer.stop(at + 1.1);
-      nodes.push(fundamental, shimmer);
-    });
-  };
-  phrase(0);
-  phrase(1.08);
-  return nodes;
-}
-
-function cancelScheduled(): void {
-  if (!scheduled) return;
-  for (const node of scheduled.nodes) {
-    try {
-      node.stop(0);
-    } catch {
-      /* already stopped */
-    }
-  }
-  scheduled = null;
-}
-
-function stopActiveChime(): void {
-  for (const node of activeChimeNodes) {
-    try {
-      node.stop(0);
-    } catch {
-      /* already stopped */
-    }
-  }
-  activeChimeNodes = [];
-}
-
-/** Start one built-in chime that can be cut off immediately on dismiss. */
-function playChimeNow(): void {
-  stopActiveChime();
-  activeChimeNodes = buildChime(0.02);
-}
-
-function scheduleChime(delaySeconds: number, endsAt: number): void {
-  const nodes = buildChime(delaySeconds);
-  if (nodes.length > 0) scheduled = { endsAt, nodes };
-}
-
-function soundSource(path: string): string {
-  const direct = /^(https?:)?\/\//i.test(path) || /^(data|blob):/i.test(path);
-  return direct ? path : `/api/pomodoro/sound?v=${Date.now()}`;
-}
-
-function playAlarm(): void {
-  const path = settings().soundPath.trim();
-  if (path) {
-    try {
-      const audio = new Audio(soundSource(path));
-      audio.volume = 0.72;
-      let fellBack = false;
-      const fallback = (): void => {
-        if (fellBack) return;
-        fellBack = true;
-        playChimeNow();
-      };
-      audio.addEventListener('error', fallback, { once: true });
-      const playing = audio.play();
-      if (playing && typeof playing.catch === 'function') playing.catch(fallback);
-      setTimeout(() => {
-        try {
-          audio.pause();
-        } catch {
-          /* ignore */
-        }
-      }, 30_000);
-    } catch {
-      playChimeNow();
-    }
-    return;
-  }
-  playChimeNow();
-}
-
-function stopLoopTimer(): void {
-  if (!loopTimer) return;
-  clearTimeout(loopTimer);
-  loopTimer = null;
-}
-
-function startBuiltinLoop(delayMs: number): void {
-  stopLoopTimer();
-  loopTimer = setTimeout(() => {
-    loopTimer = null;
-    if (!pomodoro.alarmActive) return;
-    playChimeNow();
-    startBuiltinLoop(4400);
-  }, Math.max(0, delayMs));
-}
-
-/** Loop the configured audio file until dismissed; false means fall back. */
-function startCustomLoop(path: string): boolean {
-  try {
-    const audio = new Audio(soundSource(path));
-    audio.loop = true;
-    audio.volume = 0.72;
-    alarmAudio = audio;
-    let failed = false;
-    const fallback = (): void => {
-      if (failed || !pomodoro.alarmActive) return;
-      failed = true;
-      if (alarmAudio === audio) alarmAudio = null;
-      startBuiltinLoop(0);
-    };
-    audio.addEventListener('error', fallback, { once: true });
-    const playing = audio.play();
-    if (playing && typeof playing.catch === 'function') playing.catch(fallback);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function startLoopingAlarm(skipFirst: boolean): void {
-  stopLoopTimer();
-  const path = settings().soundPath.trim();
-  if (path && startCustomLoop(path)) return;
-  if (skipFirst) startBuiltinLoop(4400);
-  else {
-    playChimeNow();
-    startBuiltinLoop(4400);
-  }
-}
-
-/** Stop every alarm source and clear the page-tab indicator. */
+/** Stop the alert sound and clear the runtime flag. */
 function stopAlarm(): void {
-  stopLoopTimer();
-  if (alarmAudio) {
-    try {
-      alarmAudio.pause();
-      alarmAudio.currentTime = 0;
-    } catch {
-      /* ignore */
-    }
-    alarmAudio = null;
-  }
-  cancelScheduled();
-  stopActiveChime();
+  stopAlarmSound();
   pomodoro.alarmActive = false;
-  setTabAlert(false);
-}
-
-/* ------------------------------------------------------- page-tab indicator */
-
-function cssVariable(name: string, fallback: string): string {
-  try {
-    const value = getComputedStyle(document.body).getPropertyValue(name).trim();
-    return value || fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function iconLink(): HTMLLinkElement | null {
-  return document.querySelector<HTMLLinkElement>('link[rel="icon"]');
-}
-
-/** A green dot with the same card-colored ring as a session status dot. */
-function dotIcon(base: HTMLImageElement | null): string {
-  const size = 64;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const context = canvas.getContext('2d');
-  if (!context) return '';
-  if (base) context.drawImage(base, 0, 0, size, size);
-  const green = cssVariable('--green', '#45dfb1');
-  const ring = cssVariable('--card', '#0d121d');
-  context.beginPath();
-  context.arc(46, 46, 13, 0, Math.PI * 2);
-  context.fillStyle = ring;
-  context.fill();
-  context.beginPath();
-  context.arc(46, 46, 10, 0, Math.PI * 2);
-  context.fillStyle = green;
-  context.fill();
-  return canvas.toDataURL('image/png');
-}
-
-function paintFavicon(): void {
-  const link = iconLink();
-  if (!link) return;
-  const immediate = dotIcon(null);
-  if (immediate) link.setAttribute('href', immediate);
-  const image = new Image();
-  image.onload = () => {
-    if (!alerting) return;
-    const composed = dotIcon(image);
-    if (composed) link.setAttribute('href', composed);
-  };
-  image.src = '/icon.svg';
-}
-
-export function setTabAlert(active: boolean): void {
-  if (active === alerting) return;
-  alerting = active;
-  const link = iconLink();
-  if (active) {
-    originalTitle = document.title.replace(/^●\s*/, '');
-    originalIcon = link?.getAttribute('href') || '';
-    document.title = `● ${originalTitle}`;
-    paintFavicon();
-    return;
-  }
-  document.title = originalTitle || document.title.replace(/^●\s*/, '');
-  if (link && originalIcon) link.setAttribute('href', originalIcon);
 }

@@ -472,6 +472,47 @@ export const CSS = `
   padding: 10px 0;
 }
 
+/* Countdown presets are a vertical list: one preset per row, the input grows
+ * and the remove action stays on the same line. */
+.drc-preset-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 8px 0;
+}
+
+.drc-preset-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.drc-preset-label {
+  flex: 0 0 auto;
+  min-width: 96px;
+  color: var(--drc-text);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.drc-preset-row .drc-preset-input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.drc-preset-count {
+  color: var(--drc-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
 .drc-field {
   flex: 1 1 190px;
   min-width: 0;

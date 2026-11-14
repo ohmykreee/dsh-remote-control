@@ -6,6 +6,7 @@
   import Panel from './Panel.svelte';
   import WeatherPanel from './WeatherPanel.svelte';
   import PomodoroCard from './PomodoroCard.svelte';
+  import CountdownCard from './CountdownCard.svelte';
   import WeatherIcon from './WeatherIcon.svelte';
 
   const parts = $derived(clockParts(new Date(app.clockNow)));
@@ -50,6 +51,8 @@
 
     {#if app.pomodoro.enabled}
       <PomodoroCard />
+    {:else if app.countdown.enabled}
+      <CountdownCard />
     {/if}
 
     <WeatherPanel {weather} />

@@ -5,6 +5,7 @@ import type {
   AccountData,
   ConsoleSettings,
   ConsoleState,
+  CountdownSettings,
   MediaPayload,
   NavPosition,
   NotificationsData,
@@ -18,6 +19,11 @@ import type {
 } from './types';
 
 const NAV_POSITIONS: readonly NavPosition[] = ['left', 'right', 'top', 'bottom'];
+
+export const COUNTDOWN_PRESET_LIMIT = 5;
+export const COUNTDOWN_MAX_SECONDS = 86_400;
+/** Presets a fresh profile starts with; the user may keep one to five. */
+export const DEFAULT_COUNTDOWN_PRESETS = [60, 300, 600];
 
 export function normalizeNavPosition(value: unknown): NavPosition {
   return NAV_POSITIONS.includes(value as NavPosition) ? (value as NavPosition) : 'left';
@@ -37,6 +43,26 @@ export function normalizePomodoro(input: Partial<PomodoroSettings> | undefined, 
   };
 }
 
+export function normalizeCountdown(
+  input: Partial<CountdownSettings> | undefined,
+  base: CountdownSettings,
+): CountdownSettings {
+  const source = Array.isArray(input?.presets) ? input.presets : [];
+  const fallbackPresets = base.presets.length > 0 ? base.presets : DEFAULT_COUNTDOWN_PRESETS;
+  const presets: number[] = [];
+  for (const entry of source.slice(0, COUNTDOWN_PRESET_LIMIT)) {
+    const seconds = Math.round(Number(entry));
+    if (!Number.isFinite(seconds)) continue;
+    presets.push(Math.max(1, Math.min(COUNTDOWN_MAX_SECONDS, seconds)));
+  }
+  return {
+    enabled: input?.enabled === true,
+    presets: presets.length > 0
+      ? presets
+      : fallbackPresets.slice(0, COUNTDOWN_PRESET_LIMIT),
+  };
+}
+
 /**
  * Shared live state for the mobile console.
  *
@@ -51,6 +77,7 @@ export const app: ConsoleState = $state({
   pushQuestions: false,
   navPosition: 'left',
   pomodoro: { enabled: false, focusMinutes: 25, breakMinutes: 5, soundPath: '', loopAlarm: false },
+  countdown: { enabled: false, presets: [...DEFAULT_COUNTDOWN_PRESETS] },
   balanceDisplay: { showPeakValley: true, spendWindow: 'calendar' },
   pageOrder: [...DEFAULT_ORDER],
   pageEnabled: { home: true, sessions: true, music: true, performance: true },
@@ -193,6 +220,11 @@ export function applySettings(settings: ConsoleSettings | undefined): void {
   app.pushQuestions = settings.pushQuestions === true;
   if (settings.navPosition) app.navPosition = normalizeNavPosition(settings.navPosition);
   if (settings.pomodoro) app.pomodoro = normalizePomodoro(settings.pomodoro, app.pomodoro);
+  if (settings.countdown) app.countdown = normalizeCountdown(settings.countdown, app.countdown);
+  // The Host enforces this too; mirror it so a stale or hand-built snapshot can
+  // never render both timer cards at once.
+  if (app.pomodoro.enabled) app.countdown.enabled = false;
+  else if (app.countdown.enabled) app.pomodoro.enabled = false;
   if (settings.balance) {
     app.balanceDisplay = {
       showPeakValley: settings.balance.showPeakValley !== false,

@@ -11,6 +11,12 @@ export interface PomodoroSettings {
   loopAlarm: boolean;
 }
 
+export interface CountdownSettings {
+  enabled: boolean;
+  /** One to five quick-select durations, in seconds. */
+  presets: number[];
+}
+
 export interface ConsoleSettings {
   theme?: string;
   /** Console language resolved by the Host (`zh` or `en`). */
@@ -20,6 +26,7 @@ export interface ConsoleSettings {
   navPosition?: string;
   balance?: { spendWindow?: string; lowThreshold?: number | null; showPeakValley?: boolean };
   pomodoro?: Partial<PomodoroSettings>;
+  countdown?: Partial<CountdownSettings>;
   pageOrder?: string[];
   pageEnabled?: Partial<Record<PageKey, boolean>>;
 }
@@ -249,6 +256,7 @@ export interface ConsoleState {
   pushQuestions: boolean;
   navPosition: NavPosition;
   pomodoro: PomodoroSettings;
+  countdown: CountdownSettings;
   balanceDisplay: { showPeakValley: boolean; spendWindow: 'calendar' | 'rolling' };
   pageOrder: PageKey[];
   pageEnabled: Record<PageKey, boolean>;

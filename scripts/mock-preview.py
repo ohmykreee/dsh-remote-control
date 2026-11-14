@@ -41,7 +41,7 @@ def ago(seconds: int) -> int:
     return int(time.time() * 1000) - seconds * 1000
 
 
-def demo_payloads(locale: str = "zh") -> list[dict]:
+def demo_payloads(locale: str = "zh", timer: str = "pomodoro") -> list[dict]:
     settings = {
         "theme": "dark",
         "locale": locale,
@@ -51,11 +51,15 @@ def demo_payloads(locale: str = "zh") -> list[dict]:
         "pageOrder": ["home", "sessions", "music", "performance"],
         "pageEnabled": {"home": True, "sessions": True, "music": True, "performance": True},
         "pomodoro": {
-            "enabled": True,
+            "enabled": timer == "pomodoro",
             "focusMinutes": 25,
             "breakMinutes": 5,
             "soundPath": "",
             "loopAlarm": False,
+        },
+        "countdown": {
+            "enabled": timer == "countdown",
+            "presets": [60, 300, 600],
         },
         "balance": {"spendWindow": "week", "lowThreshold": 50, "showPeakValley": True},
     }
@@ -392,7 +396,7 @@ def cover_svg() -> str:
 """
 
 
-def prepare(web_dir: Path, out_dir: Path, locale: str = "zh") -> None:
+def prepare(web_dir: Path, out_dir: Path, locale: str = "zh", timer: str = "pomodoro") -> None:
     if not (web_dir / "index.html").is_file():
         raise SystemExit(f"missing built web page: {web_dir / 'index.html'}")
     if out_dir.exists():
@@ -401,7 +405,7 @@ def prepare(web_dir: Path, out_dir: Path, locale: str = "zh") -> None:
     index = (out_dir / "index.html").read_text(encoding="utf-8")
     injection = (
         "<script>\n"
-        + mock_socket_script(demo_payloads(locale))
+        + mock_socket_script(demo_payloads(locale, timer))
         + "\n</script>\n"
         + '<img src="/slow.png" alt="" aria-hidden="true" style="position:fixed;width:1px;height:1px;opacity:0;pointer-events:none">\n'
     )
@@ -446,14 +450,16 @@ def main() -> int:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=4173)
     parser.add_argument("--locale", choices=["zh", "en"], default="zh", help="demo console language")
+    parser.add_argument("--timer", choices=["pomodoro", "countdown"], default="pomodoro", help="timer card shown on the home page")
     args = parser.parse_args()
 
     web_dir = Path(args.web).resolve()
     out_dir = Path(args.out).resolve()
-    prepare(web_dir, out_dir, args.locale)
+    prepare(web_dir, out_dir, args.locale, args.timer)
     handler = functools.partial(PreviewHandler, directory=str(out_dir))
     with PreviewServer((args.host, args.port), handler) as server:
         print(f"mock preview: http://{args.host}:{args.port}/?page=home", flush=True)
+        print(f"timer:       {args.timer}", flush=True)
         print("question:    ?page=home&sheet=1", flush=True)
         try:
             server.serve_forever()

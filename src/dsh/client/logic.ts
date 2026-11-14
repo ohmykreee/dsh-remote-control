@@ -14,6 +14,14 @@ import { isRecord } from './api.js';
 
 export const PAGE_ORDER: string[] = ['home', 'sessions', 'music', 'performance'];
 
+/** Upper bound for user-configured countdown presets. */
+export const COUNTDOWN_PRESET_LIMIT = 5;
+/** Smallest and largest accepted countdown duration, in seconds. */
+export const COUNTDOWN_MIN_SECONDS = 1;
+export const COUNTDOWN_MAX_SECONDS = 86_400;
+/** Presets a fresh profile starts with; the user may keep one to five. */
+export const DEFAULT_COUNTDOWN_PRESETS: number[] = [60, 300, 600];
+
 export const EMPTY_DRAFT: DraftState = {
   certPath: '',
   keyPath: '',
@@ -25,7 +33,36 @@ export const EMPTY_DRAFT: DraftState = {
   pomodoroFocus: '25',
   pomodoroBreak: '5',
   pomodoroSound: '',
+  countdownPresets: DEFAULT_COUNTDOWN_PRESETS.map(String),
 };
+
+/** Parse one countdown preset input; null means the slot is not configured. */
+export function parseCountdownPreset(value: unknown, fallback: number | null = null): number | null {
+  const raw = typeof value === 'string' ? value.trim() : value;
+  if (raw === '' || raw === null || raw === undefined) return fallback;
+  const seconds = Math.round(Number(raw));
+  if (!Number.isFinite(seconds)) return fallback;
+  return Math.max(COUNTDOWN_MIN_SECONDS, Math.min(COUNTDOWN_MAX_SECONDS, seconds));
+}
+
+/**
+ * Normalize a preset list to one to five durations. Blank or invalid slots are
+ * dropped so a two- or three-preset configuration stays exactly that long.
+ */
+export function normalizeCountdownPresets(value: unknown): number[] {
+  const input: unknown[] = Array.isArray(value) ? value : [];
+  const presets: number[] = [];
+  for (const entry of input.slice(0, COUNTDOWN_PRESET_LIMIT)) {
+    const seconds = parseCountdownPreset(entry);
+    if (seconds !== null) presets.push(seconds);
+  }
+  return presets.length > 0 ? presets : [...DEFAULT_COUNTDOWN_PRESETS];
+}
+
+/** Editable draft rows for the countdown preset list. */
+export function createCountdownDraft(value: unknown): string[] {
+  return normalizeCountdownPresets(value).map(String);
+}
 
 /** Fill missing page keys and drop duplicates/unknown values. */
 export function normalizePageOrder(input: unknown): string[] {
@@ -62,6 +99,7 @@ export function createDraft(settings: RemoteSettings): DraftState {
     pomodoroFocus: String(settings.pomodoro?.focusMinutes ?? 25),
     pomodoroBreak: String(settings.pomodoro?.breakMinutes ?? 5),
     pomodoroSound: settings.pomodoro?.soundPath ?? '',
+    countdownPresets: createCountdownDraft(settings.countdown?.presets),
   };
 }
 
@@ -88,6 +126,7 @@ export function buildSettingsView(base: RemoteSettings, staged: StagedSettings):
     notifications: { ...(base.notifications ?? {}), ...(staged.notifications ?? {}) },
     tls: { ...(base.tls ?? {}), ...(staged.tls ?? {}) },
     pomodoro: { ...(base.pomodoro ?? {}), ...(staged.pomodoro ?? {}) },
+    countdown: { ...(base.countdown ?? {}), ...(staged.countdown ?? {}) },
     pageEnabled: { ...(base.pageEnabled ?? {}), ...(staged.pageEnabled ?? {}) },
   };
 }
@@ -125,6 +164,10 @@ export function buildSavePatch(input: SavePatchInput): SavePatch {
       breakMinutes: Number(draft.pomodoroBreak) || 5,
       soundPath: draft.pomodoroSound,
       loopAlarm: Boolean(settings.pomodoro?.loopAlarm),
+    },
+    countdown: {
+      enabled: Boolean(settings.countdown?.enabled),
+      presets: normalizeCountdownPresets(draft.countdownPresets),
     },
     pageOrder: [...order],
     pageEnabled: settings.pageEnabled,

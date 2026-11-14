@@ -111,6 +111,12 @@ export interface PomodoroSettings {
   loopAlarm?: boolean;
 }
 
+export interface CountdownSettings {
+  enabled?: boolean;
+  /** One to five quick-select durations, in seconds. */
+  presets?: number[];
+}
+
 /** Settings object from `/api/settings`; every section is optional on the wire. */
 export interface RemoteSettings {
   tokenEnabled: boolean;
@@ -123,6 +129,7 @@ export interface RemoteSettings {
   temperatureUnit: string;
   navPosition?: string;
   pomodoro?: PomodoroSettings;
+  countdown?: CountdownSettings;
   pageOrder?: string[];
   pageEnabled?: Record<string, boolean>;
   weather?: WeatherSettings;
@@ -215,6 +222,8 @@ export interface DraftState {
   pomodoroFocus: string;
   pomodoroBreak: string;
   pomodoroSound: string;
+  /** Editable preset rows; one to five entries before save. */
+  countdownPresets: string[];
 }
 
 /** Nested patch accumulated until the user presses "save settings". */
@@ -225,6 +234,7 @@ export interface StagedSettings {
   language?: string;
   navPosition?: string;
   pomodoro?: PomodoroSettings;
+  countdown?: CountdownSettings;
   pageOrder?: string[];
   pageEnabled?: Record<string, boolean>;
   tls?: TlsSettings;
@@ -242,6 +252,7 @@ export interface SavePatch {
   language: string;
   navPosition: string;
   pomodoro: { enabled: boolean; focusMinutes: number; breakMinutes: number; soundPath: string; loopAlarm: boolean };
+  countdown: { enabled: boolean; presets: number[] };
   pageOrder: string[];
   pageEnabled?: Record<string, boolean>;
   tls: { enabled: boolean; certPath: string; keyPath: string };

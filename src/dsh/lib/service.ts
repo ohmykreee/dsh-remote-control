@@ -156,6 +156,10 @@ export interface RemoteSettingsPayload {
     soundPath: string;
     loopAlarm: boolean;
   };
+  countdown: {
+    enabled: boolean;
+    presets: number[];
+  };
   pageOrder: string[];
   pageEnabled: Record<string, boolean>;
 }
@@ -604,6 +608,10 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
       navPosition: settings().navPosition,
       balance: { ...settings().balance },
       pomodoro: { ...settings().pomodoro },
+      countdown: {
+        enabled: settings().countdown.enabled,
+        presets: [...settings().countdown.presets],
+      },
       pageOrder: [...settings().pageOrder],
       pageEnabled: { ...settings().pageEnabled },
     };
@@ -676,11 +684,12 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
   }
 
   /**
-   * Stream the configured pomodoro sound file to an authorized console tab.
+   * Stream the configured timer alert sound to an authorized console tab.
    *
-   * The console never learns host filesystem paths; it only asks this route for
-   * the currently configured file. Remote URLs are configured on the phone
-   * side and played directly, so this route is only for local files.
+   * Both the pomodoro and the countdown use this file. The console never learns
+   * host filesystem paths; it only asks this route for the currently configured
+   * file. Remote URLs are configured on the phone side and played directly, so
+   * this route is only for local files.
    */
   async function servePomodoroSound(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const configured = settings().pomodoro.soundPath.trim();

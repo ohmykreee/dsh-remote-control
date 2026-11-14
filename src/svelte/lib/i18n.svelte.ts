@@ -243,6 +243,13 @@ export const zh = {
   resetPomodoro: '重置番茄钟',
   reset: '重置',
 
+  // Countdown
+  countdown: '倒计时',
+  countdownFinished: '时间到',
+  confirmEnd: '确认结束',
+  resetCountdown: '重置倒计时',
+  countdownPresets: '倒计时预设',
+
   // Question sheet
   sessionQuestion: '会话提问',
   questionCount: '{count} 个问题',
@@ -496,6 +503,13 @@ export const en: Record<MessageKey, string> = {
   roundCount: '{count}',
   resetPomodoro: 'Reset pomodoro',
   reset: 'Reset',
+
+  // Countdown
+  countdown: 'Countdown',
+  countdownFinished: 'Time is up',
+  confirmEnd: 'Confirm end',
+  resetCountdown: 'Reset countdown',
+  countdownPresets: 'Countdown presets',
 
   // Question sheet
   sessionQuestion: 'Session question',

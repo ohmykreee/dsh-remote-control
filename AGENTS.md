@@ -160,6 +160,7 @@ scripts/build-dsh.mjs     编译 src/dsh，写 index.js / client.js / lib/，并
 scripts/build-web.mjs     以编程方式调用 Vite，输出 web/
 scripts/build-rust.mjs    编译 src/rust，产物写 native/bin/
 scripts/mock-preview.py   开发用：从 web/ 生成带假 WebSocket 的演示页并本地服务
+scripts/browser-shot.mjs  开发用：playwright-core + 本机 Edge/Chrome 截图（可先启动 mock-preview）
 src/dsh/index.ts          Host 入口（inject / apply）
 src/dsh/client/index.ts   DSH 侧边栏入口（inject / apply / slot 注册）
 src/dsh/client/types.ts   Host/Client 线格式与 PanelApi 契约
@@ -171,7 +172,7 @@ src/dsh/client/ui.ts      React 原语（Toggle/Seg/Btn/Field/Row/StatusRow）
 src/dsh/client/styles.ts  DSH 设置页风格 CSS（仅使用 --dsw-* 令牌）
 src/dsh/client/icons.ts   侧边栏与菜单图标
 src/dsh/client/panel.ts   面板状态机、动作、拖拽与外壳
-src/dsh/client/sections/  连接/偏好/番茄钟/天气/余额/通知/映射/系统各节
+src/dsh/client/sections/  连接/偏好/番茄钟与倒计时/天气/余额/通知/映射/系统各节
 src/dsh/lib/service.ts    HTTP/WebSocket、配对、设置、推送、静态资源
 src/dsh/lib/ws.ts         最小 RFC6455 WebSocket 服务
 src/dsh/lib/settings.ts   设置持久化、校验、令牌轮换
@@ -197,6 +198,11 @@ src/svelte/lib/components/ui/ shadcn-svelte 组件（Button/Card/Badge/Slider/Di
 src/svelte/lib/components/RadialGauge.svelte 性能占用率圆环
 src/svelte/lib/components/SeekBar.svelte 自实现拖动轨道 + shadcn Progress 的本地媒体时间轴
 src/svelte/lib/components/WeatherIcon.svelte Lucide 天气图标映射
+src/svelte/lib/components/PomodoroCard.svelte 番茄钟卡片（专注/休息阶段、循环响铃）
+src/svelte/lib/components/CountdownCard.svelte 倒计时卡片（1–5 个预设、结束必须确认）
+src/svelte/lib/countdown.svelte.ts 倒计时运行时（预设、绝对结束时间、确认结束）
+src/svelte/lib/pomodoro.svelte.ts 番茄钟运行时（阶段、轮次、宿主浏览器计时）
+src/svelte/lib/timer-alarm.ts 番茄钟/倒计时共用的提示音与标签页提示点
 src/svelte/styles/        全局设计令牌与 Tailwind/shadcn 基础样式
 src/rust/src/cli.rs       命令行解析与 JSON 信封
 src/rust/src/daemon.rs    常驻模式：stdin/stdout 按行请求/响应
@@ -207,7 +213,7 @@ src/rust/src/notifications/ 通知读取/监视
 src/rust/src/volume/      音量
 src/rust/src/location/    定位
 src/rust/tests/cli.rs     CLI 端到端测试
-test/                     Node 集成测试（9 个 .mjs）
+test/                     Node 集成测试（10 个 .mjs）
 .mock-web/                开发用：mock-preview.py 生成的预览目录（gitignore）
 static/                   Vite 公共资源（图标、manifest、字体许可）
 docs/screenshots/         手机端截图（仅图片）
@@ -226,7 +232,7 @@ docs/screenshots/         手机端截图（仅图片）
 
 - 数据目录：`DSH_PROFILE_DIR/remote-control`（优先）或 `DSH_HOME/remote-control`，否则 `~/.dsh/remote-control`；
 - 文件：`settings.json`（原子写：临时文件 + rename）；
-- 当前 schema 版本 `1`，字段包括 token、允许网卡、主题、插件语言（`language` / `dshLocale`）、温度单位、天气、余额、通知、TLS、导航位置、番茄钟、页面顺序/开关；
+- 当前 schema 版本 `1`，字段包括 token、允许网卡、主题、插件语言（`language` / `dshLocale`）、温度单位、天气、余额、通知、TLS、导航位置、番茄钟与倒计时（互斥，倒计时 1–5 个秒级预设，默认 3 个）、页面顺序/开关；
 - `normalize()` 对每个字段做白名单/范围校验，缺失时回落到默认值；
 - `update(patch)` 做浅合并 + 嵌套对象合并，`save()` 重写整个文件；
 - 令牌 24 字节随机 `base64url`；`rotateToken()` 轮换后由 service 断开所有设备。
@@ -322,8 +328,8 @@ docs/screenshots/         手机端截图（仅图片）
 - 入口：`src/svelte/index.html` → `src/svelte/main.ts` → `App.svelte`。
 - Vite `root = src/svelte`，`publicDir = static`，`build.outDir = web`，`assetsDir = assets`，`emptyOutDir = true`，`target = es2022`。
 - 技术栈：Svelte 5 runes + Vite 8 + Tailwind CSS v4 + shadcn-svelte（bits-ui）+ Lucide。图标一律使用 Lucide，不新增手绘 SVG 图标路径。
-- 页面：`HomePage`、`SessionsPage`、`MusicPage`、`PerformancePage`；导航 `Rail`；业务组件包括时钟、天气、通知、余额、消费、CPU/内存、GPU、温度、番茄钟、会话列表、统计、问题对话框（`QuestionSheet`，shadcn Dialog 居中弹出）、Toast 等。
-- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`pomodoro.svelte.ts` 计时/提示音；`billing.svelte.ts` 峰谷与节假日；`i18n.svelte.ts` 提供 `t()`、`localeTag()` 与响应式当前语言；`format.ts` / `weather.ts` / `pages.ts` 为纯工具。媒体进度在 `SeekBar.svelte` 内用 100 ms 本地时钟推进。
+- 页面：`HomePage`、`SessionsPage`、`MusicPage`、`PerformancePage`；导航 `Rail`；业务组件包括时钟、天气、通知、余额、消费、CPU/内存、GPU、温度、番茄钟/倒计时、会话列表、统计、问题对话框（`QuestionSheet`，shadcn Dialog 居中弹出）、Toast 等。
+- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`pomodoro.svelte.ts` / `countdown.svelte.ts` 分别持有两种计时，共用 `timer-alarm.ts` 的提示音与标签页提示点；`billing.svelte.ts` 峰谷与节假日；`i18n.svelte.ts` 提供 `t()`、`localeTag()` 与响应式当前语言；`format.ts` / `weather.ts` / `pages.ts` 为纯工具。媒体进度在 `SeekBar.svelte` 内用 100 ms 本地时钟推进。
 - 语言：`applySettings()` 从 `settings.locale` 调用 `setLocale()`；所有组件与 `format.ts` / `weather.ts` 通过 `t()` 取文案，日期/星期格式化使用 `localeTag()`，因此语言切换无需刷新页面。`zh` 为基准字典，`en` 必须以 `Record<keyof typeof zh, string>` 覆盖全部 key，漏译会编译失败。
 - 视觉：`Panel` 包装 shadcn Card 作为统一容器；按钮、Badge、Slider、Dialog、ScrollArea 等优先用 `$lib/components/ui`；只在组件原有 class 上做样式覆盖。无 hover 过渡/缩放。
 - 性能页占用率使用 `RadialGauge`（圆环，不是横向条）；右侧温度保留大号最高温度与热区背景列表。
@@ -337,7 +343,7 @@ docs/screenshots/         手机端截图（仅图片）
 ## DSH 侧边栏（React）
 
 - `src/dsh/client` 用 `React.createElement`（`h`）而不是 JSX；模块由 DSH loader 提供 React。
-- 入口 `src/dsh/client/index.ts` 向 DSH 注册设置页（slot），菜单包含：连接、偏好设置、番茄钟设置、天气设置、余额显示、通知设置、软件映射、系统信息。
+- 入口 `src/dsh/client/index.ts` 向 DSH 注册设置页（slot），菜单包含：连接、偏好设置、番茄钟/倒计时、天气设置、余额显示、通知设置、软件映射、系统信息。
 - 所有设置先进入 `DraftState`，点“保存设置”才 `POST /api/settings` 一次性提交；应用改名、主题同步、令牌轮换、断开设备是即时请求。
 - 偏好设置的第一个设置组是 **插件语言**（跟随 DSH / 简体中文 / English）；保存后 `hydrate()` 调用 `setPluginLanguage()` 立即重绘面板，Host 同时把解析后的 `locale` 推给手机端。
 - 主题：`theme = dsh` 时跟随 DSH 的 `dshTheme`，由 `/api/theme` 同步；也可固定 light/dark。语言同理：`ctx.locale` 的当前 id 由 `apply()` 同步到 `/api/locale`，供手机端“跟随 DSH”使用。
@@ -571,14 +577,18 @@ Node 侧 `media-enrich.ts` 会再次校验 `provider === 'system'`、时间轴�
 ### 本地检查
 
 ```powershell
-# 截图预览（生成带演示数据的页面，可用 ?page=...&sheet=1 打开问询；--locale en 预览英文界面）
+# 手动截图预览（生成带演示数据的页面，可用 ?page=...&sheet=1 打开问询；--locale en 预览英文界面）
 python scripts/mock-preview.py --web web --port 4173
+
+# 无头截图（自动启动 mock preview；--timer countdown|pomodoro、--locale en、--click/--settle）
+pnpm shot -- --timer countdown --out .mock-web/countdown.png
 
 pnpm check                      # tsc（Host + 浏览器端）+ svelte-check
 pnpm build                      # src/dsh + src/svelte
-pnpm test                       # 下面 9 个 Node 测试
+pnpm test                       # 下面 10 个 Node 测试
 node test/smoke.mjs
 node test/i18n.mjs
+node test/countdown.mjs
 node test/media-progress.mjs
 node test/probe-bridge.mjs
 node test/probe-daemon.mjs
@@ -596,6 +606,7 @@ pnpm build:rust
 
 - `smoke.mjs`：临时 `DSH_PROFILE_DIR` 启动服务，检查令牌页面、`/assets/`、图片 CSP（data/blob/http/https）、WebSocket welcome/overview，确认旧 HTTP overview 路由不存在；
 - `i18n.mjs`：插件语言精确匹配/英语回退、`dshLocale` 校验与持久化、Host 中英字典 key 对齐与占位符；
+- `countdown.mjs`：倒计时预设默认 3 个、可保存 1–5 个、秒级范围与空槽过滤、番茄钟互斥及重新加载后的互斥、公开设置深拷贝；
 - `media-progress.mjs`：进度平滑与 seek 规则；
 - `probe-bridge.mjs`：探针缺失时媒体/音量/运行时能力返回错误状态，且没有静默回退；
 - `probe-daemon.mjs`：真实二进制 daemon 的 version/performance/volume 请求、并发请求、关闭后重启与禁用开关，以及 `dsh-probe` 版本/平台后端能力；
@@ -603,6 +614,15 @@ pnpm build:rust
 - `notification-watch.mjs`：假探针验证 Linux 流式监视逐行解析；
 - `app-mapping.mjs`：默认名称/自动推导、来源记录、改名/恢复默认、持久化、旧缓存迁移；
 - `questions.mjs`：推送问询开关、会话快照问题内容、远程回答 WebSocket 往返、关闭后剥离与拒绝。
+
+### 浏览器截图
+
+`scripts/browser-shot.mjs`（`pnpm shot`）用 `playwright-core` 驱动本机已安装的 Edge/Chrome，不下载 Playwright 浏览器：
+
+- 默认流程：启动 `mock-preview.py`（随机端口）→ 打开 `?page=home` → 等待字体与 WebSocket 快照 → 截图到 `.mock-web/<page>-<timer>-<locale>.png`；
+- 常用参数：`--timer countdown|pomodoro`、`--locale zh|en`、`--width` / `--height`、`--out`、`--click <selector>`、`--settle <ms>`、`--url <已运行地址>`；
+- 浏览器查找顺序：`--browser` / `DSH_BROWSER_PATH` / 常见 Chrome/Edge 路径，最后回退到 Playwright channel；
+- 仅用于本地验证，不进入 CI；输出目录 `.mock-web/` 已在 gitignore 中。
 
 ### CI
 
@@ -641,6 +661,7 @@ pnpm build:rust
 - 无系统 API、无 vendor 私有接口、无 UI Automation 时，`media read` 返回 `ok: true, available: true, media: null`（空媒体）；Node 清空媒体卡，不伪造占位信息。
 - 网易云 CDP 优先使用客户端 store 与内部 audio progress 流；重启/刷新后 webpack require 缓存丢失时，自动回退到当前播放条 DOM（标题、歌手、封面 URL、进度、时长、播放状态）。红心优先发送客户端自带 Ctrl+L 快捷键（CDP `Input.dispatchKeyEvent`），只有按键分发本身失败时才回退到可见红心按钮。
 - 会话页只读；媒体和音量可写；开启「推送问询」后才能远程回答用户问题。
+- 番茄钟和倒计时都在手机浏览器标签页里运行，共用提示音；刷新/关闭页面会丢失当前计时。倒计时结束必须点「确认结束」才停止响铃，重置和预设选择在此期间不可用。
 - 「推送问询」默认关闭；只支持 DSH 正常的用户问题（`ask_user_question`），工具审批仍需在 DSH 中处理。远程回答后 DSH 自己的提问卡片可能需要手动关闭。
 - 手机端布局优先保证 1280×800 横屏；竖屏使用紧凑降级布局。触控目标至少 44 px，字体按小屏可读性放大；一次滑动手势最多翻一页。
 - 构建产物不入库、不发布 npm；安装必须从 GitHub 源码构建后用 `link:` 注册。

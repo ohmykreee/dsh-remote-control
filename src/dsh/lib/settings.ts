@@ -86,6 +86,21 @@ export interface PomodoroSettings {
   loopAlarm: boolean;
 }
 
+/** Browser-side countdown configuration; the console runs the timer itself. */
+export interface CountdownSettings {
+  enabled: boolean;
+  /** Quick-select durations in seconds; one to {@link COUNTDOWN_PRESET_LIMIT} entries. */
+  presets: number[];
+}
+
+/** Upper bound for user-configured countdown presets. */
+export const COUNTDOWN_PRESET_LIMIT = 5;
+/** Smallest and largest accepted countdown duration, in seconds. */
+export const COUNTDOWN_MIN_SECONDS = 1;
+export const COUNTDOWN_MAX_SECONDS = 24 * 60 * 60;
+/** Presets a fresh profile starts with; the user may keep one to five. */
+export const DEFAULT_COUNTDOWN_PRESETS: readonly number[] = [60, 300, 600];
+
 export interface RemoteControlSettings {
   version: number;
   token: string;
@@ -105,6 +120,7 @@ export interface RemoteControlSettings {
   tls: TlsSettings;
   navPosition: NavPosition;
   pomodoro: PomodoroSettings;
+  countdown: CountdownSettings;
   pageOrder: PageKey[];
   pageEnabled: Record<PageKey, boolean>;
   updatedAt: number;
@@ -126,6 +142,7 @@ export interface PublicSettings {
   tls: TlsSettings;
   navPosition: NavPosition;
   pomodoro: PomodoroSettings;
+  countdown: CountdownSettings;
   pageOrder: PageKey[];
   pageEnabled: Record<PageKey, boolean>;
   updatedAt: number;
@@ -200,6 +217,10 @@ export function defaultSettings(): RemoteControlSettings {
       soundPath: '',
       loopAlarm: false,
     },
+    countdown: {
+      enabled: false,
+      presets: [...DEFAULT_COUNTDOWN_PRESETS],
+    },
     pageOrder: ['home', 'sessions', 'music', 'performance'],
     pageEnabled: { home: true, sessions: true, music: true, performance: true },
     updatedAt: now,
@@ -211,6 +232,24 @@ function normalizeStringArray(value: unknown): string[] {
   return [...new Set(value.filter((item): item is string => typeof item === 'string' && item.length > 0).slice(0, 100))];
 }
 
+/**
+ * Keep one to five preset durations, dropping blank/invalid slots so a user
+ * who saved two or three presets keeps exactly that many. A missing or fully
+ * empty list falls back to the defaults instead of leaving the countdown with
+ * nothing to select.
+ */
+function normalizeCountdownPresets(value: unknown): number[] {
+  if (!Array.isArray(value)) return [...DEFAULT_COUNTDOWN_PRESETS];
+  const presets: number[] = [];
+  for (const entry of value.slice(0, COUNTDOWN_PRESET_LIMIT)) {
+    if (entry === null || entry === undefined || entry === '') continue;
+    const seconds = Math.round(Number(entry));
+    if (!Number.isFinite(seconds)) continue;
+    presets.push(Math.max(COUNTDOWN_MIN_SECONDS, Math.min(COUNTDOWN_MAX_SECONDS, seconds)));
+  }
+  return presets.length > 0 ? presets : [...DEFAULT_COUNTDOWN_PRESETS];
+}
+
 function normalize(raw: unknown): RemoteControlSettings {
   const base = defaultSettings();
   const input: JsonRecord = isRecord(raw) ? raw : {};
@@ -219,6 +258,7 @@ function normalize(raw: unknown): RemoteControlSettings {
   const notifications: JsonRecord = isRecord(input.notifications) ? input.notifications : {};
   const tls: JsonRecord = isRecord(input.tls) ? input.tls : {};
   const pomodoro: JsonRecord = isRecord(input.pomodoro) ? input.pomodoro : {};
+  const countdown: JsonRecord = isRecord(input.countdown) ? input.countdown : {};
   const latitudeInput = weather.latitude;
   const longitudeInput = weather.longitude;
   const latitude = latitudeInput === null || latitudeInput === undefined || latitudeInput === '' ? NaN : Number(latitudeInput);
@@ -249,6 +289,13 @@ function normalize(raw: unknown): RemoteControlSettings {
     soundPath: typeof pomodoro.soundPath === 'string' ? pomodoro.soundPath.slice(0, 2048) : '',
     loopAlarm: pomodoro.loopAlarm === true,
   };
+  const countdownSettings: CountdownSettings = {
+    enabled: countdown.enabled === true,
+    presets: normalizeCountdownPresets(countdown.presets),
+  };
+  // Only one timer may be enabled; a hand-edited file that turns both on keeps
+  // the pomodoro so existing profiles never change behavior silently.
+  if (pomodoroSettings.enabled) countdownSettings.enabled = false;
   const requestedOrder = Array.isArray(input.pageOrder)
     ? input.pageOrder.filter((key): key is PageKey => typeof key === 'string' && (PAGE_KEYS as readonly string[]).includes(key))
     : [];
@@ -302,6 +349,7 @@ function normalize(raw: unknown): RemoteControlSettings {
     },
     navPosition,
     pomodoro: pomodoroSettings,
+    countdown: countdownSettings,
     pageOrder: normalizedOrder,
     pageEnabled,
     updatedAt: Number.isFinite(Number(input.updatedAt)) ? Number(input.updatedAt) : Date.now(),
@@ -342,7 +390,17 @@ export function createSettingsStore(): SettingsStore {
       },
       tls: { ...current.tls, ...(isRecord(source.tls) ? source.tls : {}) },
       pomodoro: { ...current.pomodoro, ...(isRecord(source.pomodoro) ? source.pomodoro : {}) },
+      countdown: { ...current.countdown, ...(isRecord(source.countdown) ? source.countdown : {}) },
     };
+    // Respect whichever timer the patch turns on, even when the caller sends
+    // only one side of the pair; normalize() is the final authority.
+    const pomodoroPatch = isRecord(source.pomodoro) ? source.pomodoro : {};
+    const countdownPatch = isRecord(source.countdown) ? source.countdown : {};
+    if (pomodoroPatch.enabled === true && countdownPatch.enabled !== true) {
+      next.countdown = { ...(isRecord(next.countdown) ? next.countdown : {}), enabled: false };
+    } else if (countdownPatch.enabled === true && pomodoroPatch.enabled !== true) {
+      next.pomodoro = { ...(isRecord(next.pomodoro) ? next.pomodoro : {}), enabled: false };
+    }
     return save(next);
   }
 
@@ -378,6 +436,7 @@ export function createSettingsStore(): SettingsStore {
       tls: { ...current.tls },
       navPosition: current.navPosition,
       pomodoro: { ...current.pomodoro },
+      countdown: { ...current.countdown, presets: [...current.countdown.presets] },
       pageOrder: [...current.pageOrder],
       pageEnabled: { ...current.pageEnabled },
       updatedAt: current.updatedAt,

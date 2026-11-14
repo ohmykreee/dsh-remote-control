@@ -19,8 +19,9 @@
     "build:web": "node scripts/build-web.mjs",
     "build:rust": "node scripts/build-rust.mjs",
     "preview": "vite preview",
+    "shot": "node scripts/browser-shot.mjs",
     "check": "tsc -p tsconfig.dsh.json --noEmit && tsc -p tsconfig.dsh-client.json --noEmit && svelte-check --tsconfig ./tsconfig.json",
-    "test": "node test/smoke.mjs && node test/i18n.mjs && node test/media-progress.mjs && node test/probe-bridge.mjs && node test/probe-daemon.mjs && node test/notifications.mjs && node test/notification-watch.mjs && node test/app-mapping.mjs && node test/questions.mjs",
+    "test": "node test/smoke.mjs && node test/i18n.mjs && node test/countdown.mjs && node test/media-progress.mjs && node test/probe-bridge.mjs && node test/probe-daemon.mjs && node test/notifications.mjs && node test/notification-watch.mjs && node test/app-mapping.mjs && node test/questions.mjs",
     "postinstall": "node scripts/build-dsh.mjs && node scripts/build-web.mjs && node scripts/build-rust.mjs --optional"
   },
   "files": [
@@ -80,6 +81,7 @@
     "@tailwindcss/vite": "^4.3.5",
     "bits-ui": "^2.20.0",
     "cn": "^0.5.2",
+    "playwright-core": "^1.65.0",
     "shadcn-svelte": "^1.8.1",
     "svelte-check": "^4.7.8",
     "tailwind-variants": "^3.3.0",
