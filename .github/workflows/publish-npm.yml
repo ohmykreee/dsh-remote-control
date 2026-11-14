@@ -1,0 +1,135 @@
+# npm release for @ohmykreee/dsh-remote-control.
+#
+# Trigger: push a version tag (for example `git tag v1.0.2 && git push origin
+# v1.0.2`). A manual run only rehearses the release unless the dry-run toggle is
+# cleared, so a mis-click cannot publish.
+#
+# The gate is checks.yml itself, reused through `workflow_call`: the release
+# reuses the exact job that branch pushes run, so a tag can never skip the
+# TypeScript, Svelte or Rust checks.
+#
+# Only the Host half (src/dsh -> index.js + lib/) and the phone console
+# (src/svelte -> web/) are rebuilt here. The Rust probe is a per-platform
+# binary: it stays out of the tarball, and consumers who need media, volume,
+# notifications, GPU/thermal or system location build it from the published
+# sources themselves (INSTALLATION.md).
+#
+# npm policy this job follows:
+#   - the package is scoped, so it publishes with `access: public` from
+#     publishConfig instead of a flag-only override;
+#   - `publishConfig.registry` pins the official registry, so a mirror can never
+#     receive a release by accident;
+#   - provenance is requested (`--provenance`, `id-token: write`), which needs
+#     the `repository` field in package.json to match this GitHub repository;
+#   - authentication is a granular access token with publish permission for
+#     this package and 2FA bypass; npm retired the classic automation tokens.
+#     For a token-free alternative, configure a Trusted Publisher for this
+#     workflow on npmjs.com and drop the NODE_AUTH_TOKEN lines below.
+name: Publish npm
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Build and verify the tarball without uploading it
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-npm-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    name: checks
+    # Same reusable gate as a branch push. Nothing publishes unless it passes.
+    uses: ./.github/workflows/checks.yml
+
+  publish:
+    name: publish ${{ github.ref_name }}
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # Required for the npm provenance attestation (`--provenance`).
+      id-token: write
+    env:
+      # setup-node turns this into the `_authToken` of the runner-local .npmrc.
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 12.8.1
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          # Exact version, matching local development and checks.yml.
+          node-version: 26.7.0
+          registry-url: https://registry.npmjs.org
+          # Reuse the pnpm store across runs; the key follows pnpm-lock.yaml.
+          cache: pnpm
+
+      # No install scripts run here or for consumers: the package deliberately
+      # declares none, because pnpm blocks dependency build scripts and DSH
+      # reports that as a failed install that has to be approved and retried.
+      - name: Install dependencies
+        run: pnpm ci
+
+      - name: Build the Host and the phone console
+        run: |
+          pnpm build:dsh
+          pnpm build:web
+
+      # Fails on a missing artifact, a private manifest, a declared install
+      # script, a cordis.patch.yml / package name mismatch, a version drift
+      # between package.json, the Host constant and the Rust crate, a tag that
+      # does not match the version, and a tarball that omits or leaks files.
+      - name: Verify the package
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            node scripts/check-npm-package.mjs --tag "${GITHUB_REF_NAME}"
+          else
+            node scripts/check-npm-package.mjs
+          fi
+
+      - name: Resolve the dist-tag
+        id: release
+        run: |
+          version=$(node -p "require('./package.json').version")
+          case "$version" in
+            # Prereleases never take over `latest` from a released build.
+            *-*) tag=next ;;
+            *) tag=latest ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version $version -> dist-tag $tag"
+
+      - name: Publish to npm
+        env:
+          # Manual runs default to a rehearsal; only a tag push always uploads.
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
+        run: |
+          npm --version
+          if [ "${DRY_RUN}" != "true" ] && [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "::error::NPM_TOKEN is empty. Add a granular npm token with publish access to @ohmykreee/dsh-remote-control (and 2FA bypass), or run the workflow manually as a dry run."
+            exit 1
+          fi
+          args=(--provenance --access public --tag "${{ steps.release.outputs.tag }}")
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "Dry run: trying the tarball and the provenance rules without uploading."
+            args+=(--dry-run)
+          fi
+          npm publish "${args[@]}"

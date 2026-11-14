@@ -41,7 +41,8 @@ coverage/
 
 # compiled plugin runtime: produced by scripts/build-dsh.mjs from src/dsh.
 # These files are required at runtime but never committed; run `pnpm build`
-# (or `pnpm install`, whose postinstall compiles them) before loading the plugin.
+# (or `pnpm build:dsh`) before loading the plugin. The package declares no
+# install scripts, so nothing is compiled on `pnpm install`.
 /index.js
 /client.js
 /lib/
@@ -54,5 +55,5 @@ native/bin/
 # workspace-local scratch directory passed to the sidecar as DSH_RC_TMPDIR
 .probe-tmp/
 
-# generated frontend output: installers compile it in postinstall
+# generated frontend output: produced by scripts/build-web.mjs (`pnpm build:web`)
 web/

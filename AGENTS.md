@@ -6,7 +6,7 @@
 
 1. 这是 **DSH bundle 插件**，不是普通 npm 包；仓库只提交源码，运行产物必须本机构建。
 2. `index.js`、`client.js`、`lib/`、`web/`、`native/bin/` 都是生成物，不要手改，也不要提交。
-3. 不发布 npm 包。不要添加发布步骤，也不要在文档里引导 `github:` 或仓库 URL 直接安装。
+3. npm 包只由 `.github/workflows/publish-npm.yml` 在推版本标签时发布；不要在本机手工 `npm publish`，不要在清单里加安装脚本（`preinstall` / `install` / `postinstall` / `prepare`），也不要在文档里引导 `github:` 或仓库 URL 直接安装。
 4. Rust 探针是唯一的 OS 探测层。Node 侧不再引入 PowerShell / C# / playerctl / osascript 回退，探针缺失必须是显式错误状态。
 5. 用户可见文案必须进对应的 i18n 字典，不写死中文。
 
@@ -14,9 +14,9 @@
 
 | 文件 | 负责内容 |
 |---|---|
-| `README.md` | 中文用户文档：功能、界面、截图、三步安装摘要 |
+| `README.md` | 中文用户文档：功能、界面、截图、安装摘要（优先引导用户让 agent 代装并构建本机组件，手动安装指向 `INSTALLATION.md`） |
 | `docs/README.en.md` | 英文用户文档，与 `README.md` 内容同步 |
-| `INSTALLATION.md` | 唯一的完整安装指南：前置条件、构建、`link:` 注册、Rust 探针、更新、卸载、故障恢复 |
+| `INSTALLATION.md` | 唯一的完整安装指南：npm 安装与源码安装、前置条件、构建、`link:` 注册、Rust 探针、更新、卸载、故障恢复 |
 | `AGENTS.md`（本文件） | 架构、DSH 集成契约、协议、Rust 探针、媒体适配层、构建、测试、CI |
 
 维护约定：
@@ -40,7 +40,7 @@
 
 ## 项目形态
 
-- 名称 `dsh-remote-control`，版本 `1.0.1`，`"private": true`，MIT。
+- 名称 `@ohmykreee/dsh-remote-control`，版本 `1.0.2`，MIT；npm 包由 CI 发布，bundle 行的 `name` 与 `client.js` 的工厂 id 都必须等于这个包名。
 - 运行形态：DSH Desktop / `dsh web` 的 Host 进程内加载的 bundle 插件。
 - 一个进程里同时存在四层：
   1. **Host**：`src/dsh`（TypeScript，ESM），编译为 `index.js` + `lib/`；
@@ -71,6 +71,8 @@ Host 与浏览器端（侧边栏）通过 DSH 自带 `webServer` 的环回路由
 | `locale/` | 插件元信息（`en.json` / `zh.json`） |
 | `cordis.patch.yml` | bundle patch：把 `remote-control` 插入 profile 插件树 |
 | `scripts/build-{dsh,web,rust}.mjs` | Host / 手机端 / 探针构建 |
+| `scripts/check-npm-package.mjs` | 发布前校验：清单策略、构建产物、版本 / 标签一致、tarball 内容 |
+| `.github/workflows/` | `checks.yml`（类型检查 + 测试；分支推送 / 手动 / 可复用）、`publish-npm.yml`（推标签发布 npm） |
 | `scripts/mock-preview.py` / `browser-shot.mjs` | 本地演示页与无头验证 |
 | `scripts/screenshot-device.sh` / `screenshot-compose.py` | 实机整屏采集与对角/分组合成 |
 | `src/dsh/index.ts` | Host 入口（`inject` / `apply`） |
@@ -90,6 +92,8 @@ Host 与浏览器端（侧边栏）通过 DSH 自带 `webServer` 的环回路由
 
 ```json
 {
+  "name": "@ohmykreee/dsh-remote-control",
+  "publishConfig": { "access": "public", "provenance": true, "registry": "https://registry.npmjs.org/" },
   "main": "./index.js",
   "exports": {
     ".": "./index.js",
@@ -108,12 +112,14 @@ Host 与浏览器端（侧边栏）通过 DSH 自带 `webServer` 的环回路由
 }
 ```
 
-`cordis.patch.yml` 只做一件事：把 `remote-control` 条目插入 profile 的插件树。
+清单不写 `"private": true`，也不声明任何安装脚本；`access` / `provenance` / `registry` 属于 npm 发布策略，由 `scripts/check-npm-package.mjs` 在发布前校验。
+
+`cordis.patch.yml` 只做一件事：把 `remote-control` 条目插入 profile 的插件树。`name` 必须是完整包名，DSH 用它在 profile 里解析到这个包。
 
 ```yaml
 - insert:
     - id: remote-control
-      name: dsh-remote-control
+      name: '@ohmykreee/dsh-remote-control'
 ```
 
 ### Host 入口
@@ -148,14 +154,14 @@ Host 与浏览器端（侧边栏）通过 DSH 自带 `webServer` 的环回路由
 
 ```js
 window.__ModuleLoader__.load({
-  id: 'dsh-remote-control',
+  id: '@ohmykreee/dsh-remote-control',
   factory(require) {
     /* 内部模块表 + 相对 require 解析，最后返回 client/index.js 的 exports */
   },
 });
 ```
 
-客户端源码仍然只产出一个 `client.js`；`require('react')` 由 DSH 模块加载器提供（裸模块名交给外层 `require`，相对路径由内部模块表解析）。不要改成 ESM `import`，也不要手改生成物。
+`id` 由 `build-dsh.mjs` 从 `package.json` 的 `name` 读入（DSH 用包名解析浏览器入口），不要改成手写常量。客户端源码仍然只产出一个 `client.js`；`require('react')` 由 DSH 模块加载器提供（裸模块名交给外层 `require`，相对路径由内部模块表解析）。不要改成 ESM `import`，也不要手改生成物。
 
 ### 本地化
 
@@ -287,7 +293,7 @@ window.__ModuleLoader__.load({
 ### 架构与二进制
 
 - 唯一 OS 探测层：媒体、音量、性能 / GPU / 温度、通知、定位。Node 不保留 PowerShell / C# / playerctl / osascript 回退。
-- 源码 `src/rust`（crate `dsh-probe`，版本 `1.0.1`）。每个功能目录（`media/`、`perf/`、`notifications/`、`volume/`、`location/`）都按同一方式分层：`mod.rs` 只做命令行、JSON 外形和平台模块选择；`windows.rs` / `linux.rs` / `macos.rs` 各自实现完整平台逻辑。缺失能力由平台文件返回明确错误，不在 `mod.rs` 里写 `cfg` 分支。
+- 源码 `src/rust`（crate `dsh-probe`，版本 `1.0.2`）。每个功能目录（`media/`、`perf/`、`notifications/`、`volume/`、`location/`）都按同一方式分层：`mod.rs` 只做命令行、JSON 外形和平台模块选择；`windows.rs` / `linux.rs` / `macos.rs` 各自实现完整平台逻辑。缺失能力由平台文件返回明确错误，不在 `mod.rs` 里写 `cfg` 分支。
 - 媒体层在平台层之上做 vendor 调度：平台文件识别应用后调用 `vendor::resolve`，命中 vendor 进入对应客户端逻辑，未命中才回到系统 API。
 - 产物：`native/bin/<platform>-<arch>/dsh-probe[.exe]`，例如 `win32-x64`、`linux-x64`、`darwin-arm64`。
 - `src/dsh/lib/probe.ts` 按 `process.platform` / `process.arch` 定位，`DSH_RC_PROBE` 可覆盖；找不到时所有调用返回明确的「不可用」错误。
@@ -337,7 +343,7 @@ dsh-probe location request [--open-settings]    # 申请定位权限（Windows �
 | `DSH_RC_DISABLE_RUST_PROBE` | `1` 强制标记探针不可用（测试用） |
 | `DSH_RC_TMPDIR` | 覆盖只读 SQLite 副本的临时目录 |
 | `DSH_RC_VCVARS` | 覆盖 Windows 构建的 `vcvars64.bat` 路径 |
-| `DSH_RC_SKIP_RUST_BUILD` | `1` 跳过 `pnpm install` 中的探针构建 |
+| `DSH_RC_SKIP_RUST_BUILD` | `1` 跳过 `build-rust.mjs`（探针构建） |
 | `DSH_RC_NETEASE_CDP_PORT` | 网易云远程调试端口（默认 `2015`） |
 | `DSH_REMOTE_CONTROL_PORT` | 覆盖 LAN 控制台端口（默认 `38765`） |
 
@@ -410,15 +416,17 @@ Node 侧 `PublicMedia` 同步暴露 `provider` / `providerDetail`，并将 `time
 
 ## 构建与产物
 
-### postinstall
+### 构建入口
 
-`pnpm install` 在源码根目录执行：
+`package.json` 不声明任何安装脚本（`preinstall` / `install` / `postinstall` / `prepare`）。DSH 用 pnpm 安装组合包，pnpm 默认拦下依赖的构建脚本，而 DSH 会把 `Ignored build scripts` 当作失败安装（`build-blocked`，要求批准后重试）：发布清单里只要有一个安装脚本，用户的一次性安装就会卡住。因此构建一律显式执行：
 
-1. `node scripts/build-dsh.mjs`
-2. `node scripts/build-web.mjs`
-3. `node scripts/build-rust.mjs --optional`
+```powershell
+pnpm install
+pnpm build       # src/dsh + src/svelte
+pnpm build:rust  # 可选：原生探针
+```
 
-顺序不能反：`build-dsh` 先清理旧的 `index.js`、`client.js`、`lib/`、`.build/`，避免半旧产物。
+`pnpm build` 的顺序是 `build-dsh` → `build-web`，不能反：`build-dsh` 先清理旧的 `index.js`、`client.js`、`lib/`、`.build/`，避免半旧产物。
 
 ### build-dsh
 
@@ -500,16 +508,27 @@ pnpm build:rust
 
 ### CI
 
-`.github/workflows/checks.yml`，仅在 `push` 时运行，单个 Ubuntu job：
+`.github/workflows/checks.yml`：单个 Ubuntu job，分支推送、手动触发、以及被 `publish-npm.yml` 通过 `workflow_call` 复用时都跑同一套检查。
 
 - 固定 Node `26.7.0`、pnpm `12.8.1`、Rust `1.99.1`（含 rustfmt）；
 - 缓存 cargo registry（key 为 `src/rust/Cargo.lock` 哈希）；
-- 步骤：`pnpm ci`（`DSH_RC_SKIP_RUST_BUILD=1`）→ `pnpm check` → `pnpm build` → `pnpm test` → `node scripts/build-rust.mjs` → `cargo fmt --all -- --check` → `cargo check --all-targets` → `cargo test --all-targets`；
+- 步骤：`pnpm ci` → `pnpm check` → `pnpm build` → `pnpm test` → `node scripts/build-rust.mjs` → `cargo fmt --all -- --check` → `cargo check --all-targets` → `cargo test --all-targets`；
+- `push` 只监听分支（`branches: ['**']`）；标签由发布流程负责，避免同一个标签把门禁跑两遍；
 - Windows / macOS 行为仍以本地验证为准；macOS 目前没有 CI。
+
+`.github/workflows/publish-npm.yml`：把 npm 包发到 `@ohmykreee/dsh-remote-control`。
+
+- 触发：推 `v*` 标签；`workflow_dispatch` 手动运行默认 dry run（`inputs.dry-run`），取消勾选才会真正上传。
+- 门禁：`jobs.checks` 是 `uses: ./.github/workflows/checks.yml`，检查不过不发布。
+- 构建：只跑 `pnpm build:dsh` 与 `pnpm build:web`；探针是平台相关的本机构建产物，不进 npm 包。
+- 校验：`node scripts/check-npm-package.mjs --tag <tag>` 验证产物、清单策略、版本 / 标签一致和 tarball 内容。
+- 发布：`npm publish --provenance --access public --tag latest|next`（预发布版本走 `next`），认证用仓库 secret `NPM_TOKEN`；`permissions.id-token: write` 是 provenance 的前提。
+- npm 政策：scoped 包必须 `publishConfig.access: public`；`publishConfig.registry` 固定 npm 官方源；`publishConfig.provenance: true`；classic automation token 已下线，`NPM_TOKEN` 必须是该包的 granular token（带 2FA bypass）。改用 Trusted Publishing 时，在 npmjs.com 配好发布者并删掉 `NODE_AUTH_TOKEN` 即可。
+- 包内容：编译产物（`index.js` / `client.js` / `lib/` / `web/`）+ 源码（`src/**`、构建脚本、配置、README / INSTALLATION / AGENTS / docs）；`test/`、`.github/`、`native/bin/`、`src/rust/target/` 不进包。
 
 ## 已知限制
 
-面向用户的限制见 [`README.md`](README.md#已知限制)。实现上还要记住：探针必须在目标机构建，缺失时显式报「探针不可用」；Windows 定位受低完整性限制；私有层与 UIA / AX 永远不授予 seek，网易云 CDP 也不授予 seek；CDP 依赖页面 webpack runtime，刷新后可能回退到播放条 DOM；番茄钟 / 倒计时只在手机浏览器运行。
+面向用户的限制见 [`README.md`](README.md#已知限制)。实现上还要记住：探针必须在目标机构建，缺失时显式报「探针不可用」；npm 包里没有探针二进制，从 npm 安装的用户开箱只有 CPU / 内存兜底与「探针不可用」状态，完整功能要按 [`INSTALLATION.md`](INSTALLATION.md) 自行编译探针；Windows 定位受低完整性限制；私有层与 UIA / AX 永远不授予 seek，网易云 CDP 也不授予 seek；CDP 依赖页面 webpack runtime，刷新后可能回退到播放条 DOM；番茄钟 / 倒计时只在手机浏览器运行。
 
 ## 开发约定
 

@@ -11,7 +11,7 @@
   <p>
     <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat&logo=deepseek&logoColor=white" alt="Powered by dsh"></a>
     <a href="https://github.com/ohmykreee/dsh-remote-control/actions/workflows/checks.yml"><img src="https://github.com/ohmykreee/dsh-remote-control/actions/workflows/checks.yml/badge.svg" alt="Checks"></a>
-    <img src="https://img.shields.io/badge/version-v1.0.1-4D6BFE?style=flat" alt="v1.0.1">
+    <a href="https://www.npmjs.com/package/@ohmykreee/dsh-remote-control"><img src="https://img.shields.io/npm/v/@ohmykreee/dsh-remote-control?style=flat&color=4D6BFE" alt="npm"></a>
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-4D6BFE?style=flat" alt="Windows / Linux / macOS">
     <a href="../LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat" alt="MIT License"></a>
   </p>
@@ -61,24 +61,13 @@ Four pages, each with one job:
 
 ## Install
 
-This project is not published on npm. Build it from source and register it with DSH:
+**Recommended: let the DSH agent install it.** Start a new DSH session and send it this line:
 
-Requirements: DSH, Node.js `>= 22`, pnpm, git.
+> Install the `@ohmykreee/dsh-remote-control` plugin. Once it is installed, read its README.md and INSTALLATION.md first, then follow them to build the local component that media, volume, notifications, performance and location need.
 
-```bash
-git clone https://github.com/ohmykreee/dsh-remote-control.git
-cd dsh-remote-control
-pnpm install
-```
+The agent installs the plugin, reads both documents, builds the component and tells you to restart DSH; if build tools are missing it says which ones.
 
-```bash
-# DSH Desktop; use --profile web for dsh web
-dsh plugin --profile desktop add "link:/path/to/dsh-remote-control"
-```
-
-On Windows prefer forward slashes, for example `link:D:/path/to/dsh-remote-control`. Restart DSH after registering; the **Remote control** panel appears in the sidebar.
-
-See [`INSTALLATION.md`](../INSTALLATION.md) for prerequisites, updates, uninstall and recovery.
+**To install manually**, start with [`INSTALLATION.md`](../INSTALLATION.md): npm install, source install, component build, updates and troubleshooting all live there.
 
 ## Connecting
 
@@ -184,7 +173,7 @@ Turn on **Push inquiries** and sessions waiting for an answer gain an **Answer**
 
 ## Known limitations
 
-- Some system features rely on components built during installation. If those components are unavailable, media, volume, notifications, GPU and temperature show unavailable; CPU / memory still work.
+- Media, volume, notifications, GPU / temperature and system location need one component built on your own computer. Until it is built those features show unavailable; CPU / memory still work.
 - Windows location needs system privacy permission; if it is denied you may need to enable it in system settings.
 - Only players that support seek allow dragging the progress bar; some players show progress only or offer no transport controls.
 - NetEase Cloud Music's like state and exact progress require an optional feature; they may be briefly unavailable after a page refresh.

@@ -11,8 +11,8 @@
  *   node scripts/build-rust.mjs --debug     debug build
  *   node scripts/build-rust.mjs --target x86_64-unknown-linux-gnu
  *   node scripts/build-rust.mjs --skip-build  only copy an existing artifact
- *   node scripts/build-rust.mjs --optional    used by postinstall: warn and
- *                                             succeed when Rust is unavailable
+ *   node scripts/build-rust.mjs --optional    warn and succeed when Rust is
+ *                                             unavailable
  */
 
 import { execFileSync } from 'node:child_process';

@@ -11,13 +11,14 @@
  * API/state helpers, primitives, sections, panel) and concatenated here into
  * one module table. `client.js` is wrapped in the DSH browser module-loading
  * contract: a classic script that registers a lazy factory with
- * `window.__ModuleLoader__`, whose `require` provides the shared `react` module.
+ * `window.__ModuleLoader__`, whose id is the package name and whose `require`
+ * provides the shared `react` module.
  * The Host half is emitted as native ESM, matching `"type": "module"`.
  *
  * The emitted files are local build artifacts. They are gitignored and were
- * removed from git with `git rm`: run `pnpm build` (or `pnpm install`, whose
- * postinstall runs this script) before loading the plugin. Terser minifies the
- * Host ESM output and the client factory after compilation.
+ * removed from git with `git rm`: run `pnpm build` (whose first step this
+ * script is) before loading the plugin. Terser minifies the Host ESM output
+ * and the client factory after compilation.
  */
 
 import {
@@ -151,9 +152,13 @@ function writeClientBundle() {
     return `${JSON.stringify(id)}: function (module, exports, require) {\n${body}\n}`;
   });
 
+  // DSH registers the browser factory under the package name, so the id is read
+  // from the manifest instead of being spelled out here.
+  const packageName = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).name;
+
   const wrapped = [
     "window.__ModuleLoader__.load({",
-    "  id: 'dsh-remote-control',",
+    `  id: ${JSON.stringify(packageName)},`,
     '  factory(require) {',
     '    var __modules = {',
     factoryModules.join(',\n'),

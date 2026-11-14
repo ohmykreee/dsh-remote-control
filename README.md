@@ -11,7 +11,7 @@
   <p>
     <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat&logo=deepseek&logoColor=white" alt="由 dsh 驱动"></a>
     <a href="https://github.com/ohmykreee/dsh-remote-control/actions/workflows/checks.yml"><img src="https://github.com/ohmykreee/dsh-remote-control/actions/workflows/checks.yml/badge.svg" alt="Checks"></a>
-    <img src="https://img.shields.io/badge/version-v1.0.1-4D6BFE?style=flat" alt="v1.0.1">
+    <a href="https://www.npmjs.com/package/@ohmykreee/dsh-remote-control"><img src="https://img.shields.io/npm/v/@ohmykreee/dsh-remote-control?style=flat&color=4D6BFE" alt="npm"></a>
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-4D6BFE?style=flat" alt="Windows / Linux / macOS">
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat" alt="MIT 许可证"></a>
   </p>
@@ -61,24 +61,13 @@
 
 ## 安装
 
-本项目不发布 npm 包，请从源码构建并注册到 DSH：
+**推荐：让 DSH 里的 agent 代装。** 打开一个新的 DSH 会话，把下面这句发给它：
 
-前置：DSH、Node.js `>= 22`、pnpm、git。
+> 安装 `@ohmykreee/dsh-remote-control` 插件；装好以后先读它包里的 README.md 与 INSTALLATION.md，再按里面的说明把媒体、音量、通知、性能与定位需要的本机组件构建好。
 
-```bash
-git clone https://github.com/ohmykreee/dsh-remote-control.git
-cd dsh-remote-control
-pnpm install
-```
+agent 会装好插件、读文档、构建本机组件，再提示你重启 DSH；缺少构建工具时它会说明缺什么。
 
-```bash
-# DSH Desktop；dsh web 用 --profile web
-dsh plugin --profile desktop add "link:/path/to/dsh-remote-control"
-```
-
-Windows 的路径建议用正斜杠，例如 `link:D:/path/to/dsh-remote-control`。注册后重启 DSH，侧边栏会出现 **远程控制台**。
-
-完整的前置条件、更新、卸载与故障恢复见 [`INSTALLATION.md`](INSTALLATION.md)。
+**手动安装**：先读 [`INSTALLATION.md`](INSTALLATION.md)，npm 安装、源码安装、组件构建、更新与排障都在那里。
 
 ## 连接
 
@@ -184,7 +173,7 @@ Windows 的路径建议用正斜杠，例如 `link:D:/path/to/dsh-remote-control
 
 ## 已知限制
 
-- 部分系统功能需要安装时一并构建的组件；组件不可用时，媒体、音量、通知、GPU 与温度会显示不可用，CPU / 内存仍可查看。
+- 媒体、音量、通知、GPU / 温度与系统定位需要在你自己的电脑上构建一次；未构建时这些功能显示不可用，CPU / 内存仍可查看。
 - Windows 定位需要系统隐私授权；授权被拒绝时可能需要在系统设置中手动开启。
 - 只有支持定位的播放器才能拖动进度；部分播放器只能显示进度或全部控制。
 - 网易云音乐的红心与精确进度需要额外开启可选功能；页面刷新后可能暂时读取不到，稍后恢复。
