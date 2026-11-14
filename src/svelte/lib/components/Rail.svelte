@@ -18,6 +18,7 @@
     activeKey,
     questionCount = 0,
     errorCount = 0,
+    timerAlert = false,
     onNavigate,
     onFullscreen,
     onRefresh,
@@ -26,6 +27,8 @@
     activeKey: PageKey;
     questionCount?: number;
     errorCount?: number;
+    /** Pomodoro or countdown is ringing; mirrors the page-tab indicator. */
+    timerAlert?: boolean;
     onNavigate: (key: PageKey) => void;
     onFullscreen: () => void;
     onRefresh: () => void;
@@ -66,6 +69,9 @@
             class:is-error={errorCount > 0}
             aria-label={errorCount > 0 ? t('errorSessions') : t('pendingQuestions')}
           ></span>
+        {/if}
+        {#if key === 'home' && timerAlert}
+          <span class="rail-badge is-timer" aria-label={t('timerAlert')}></span>
         {/if}
       </Button>
     {/each}
@@ -164,6 +170,10 @@
 
   .rail-badge.is-error {
     background: var(--danger);
+  }
+
+  .rail-badge.is-timer {
+    background: var(--success);
   }
 
   .rail-bottom {

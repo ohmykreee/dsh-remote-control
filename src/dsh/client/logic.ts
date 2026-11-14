@@ -1,6 +1,7 @@
 /** Pure state helpers shared by the panel and its section renderers. */
 
 import type {
+  CountdownPresetDraft,
   DraftState,
   LocationResult,
   RemoteApp,
@@ -22,6 +23,11 @@ export const COUNTDOWN_MAX_SECONDS = 86_400;
 /** Presets a fresh profile starts with; the user may keep one to five. */
 export const DEFAULT_COUNTDOWN_PRESETS: number[] = [60, 300, 600];
 
+/** Pomodoro duration bounds, mirrored from the Host normalizer for the UI. */
+export const POMODORO_MIN_MINUTES = 0.1;
+export const POMODORO_MAX_FOCUS_MINUTES = 180;
+export const POMODORO_MAX_BREAK_MINUTES = 120;
+
 export const EMPTY_DRAFT: DraftState = {
   certPath: '',
   keyPath: '',
@@ -33,7 +39,7 @@ export const EMPTY_DRAFT: DraftState = {
   pomodoroFocus: '25',
   pomodoroBreak: '5',
   pomodoroSound: '',
-  countdownPresets: DEFAULT_COUNTDOWN_PRESETS.map(String),
+  countdownPresets: createCountdownDraft(DEFAULT_COUNTDOWN_PRESETS),
 };
 
 /** Parse one countdown preset input; null means the slot is not configured. */
@@ -45,23 +51,85 @@ export function parseCountdownPreset(value: unknown, fallback: number | null = n
   return Math.max(COUNTDOWN_MIN_SECONDS, Math.min(COUNTDOWN_MAX_SECONDS, seconds));
 }
 
+function isPresetDraft(value: unknown): value is CountdownPresetDraft {
+  return isRecord(value) && typeof value.minutes === 'string' && typeof value.seconds === 'string';
+}
+
+/** Parse one minute/second preset row; null means the row is empty. */
+export function presetDraftToSeconds(preset: CountdownPresetDraft): number | null {
+  const minutesText = preset.minutes.trim();
+  const secondsText = preset.seconds.trim();
+  if (minutesText === '' && secondsText === '') return null;
+  const minutes = Number(minutesText || 0);
+  const seconds = Number(secondsText || 0);
+  if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) return null;
+  const total = Math.round(minutes * 60 + seconds);
+  return Math.max(COUNTDOWN_MIN_SECONDS, Math.min(COUNTDOWN_MAX_SECONDS, total));
+}
+
+/**
+ * Keep a minute field to digits with at most two decimal places. The raw text
+ * is preserved otherwise, so "2", "2.5" and "2.55" all keep their own shape.
+ */
+export function sanitizeMinuteInput(value: string): string {
+  const cleaned = value.replace(/[^\d.]/g, '');
+  const dot = cleaned.indexOf('.');
+  if (dot < 0) return cleaned;
+  const whole = cleaned.slice(0, dot);
+  const fraction = cleaned.slice(dot + 1).replace(/\./g, '').slice(0, 2);
+  return `${whole}.${fraction}`;
+}
+
+/**
+ * Clamp a minute field on blur. In-range text stays exactly as typed; anything
+ * outside the bounds (or unparsable) is capped to the nearest limit.
+ */
+export function capMinuteInput(value: string, min: number, max: number): string {
+  const text = value.trim();
+  if (text === '') return '';
+  const minutes = Number(text);
+  if (!Number.isFinite(minutes)) return '';
+  if (minutes >= min && minutes <= max) return value;
+  return String(Math.max(min, Math.min(max, minutes)));
+}
+
+/**
+ * Clamp one countdown preset row on blur: total seconds are capped to the
+ * supported range and whole minutes are carried out of the seconds field.
+ */
+export function capPresetDraft(preset: CountdownPresetDraft): CountdownPresetDraft {
+  const minutesText = preset.minutes.trim();
+  const secondsText = preset.seconds.trim();
+  if (minutesText === '' && secondsText === '') return preset;
+  const minutes = Number(minutesText || 0);
+  const seconds = Number(secondsText || 0);
+  if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) return preset;
+  const total = Math.round(minutes * 60 + seconds);
+  const capped = Math.max(COUNTDOWN_MIN_SECONDS, Math.min(COUNTDOWN_MAX_SECONDS, total));
+  return { minutes: String(Math.floor(capped / 60)), seconds: String(capped % 60) };
+}
+
 /**
  * Normalize a preset list to one to five durations. Blank or invalid slots are
  * dropped so a two- or three-preset configuration stays exactly that long.
+ * Entries may be raw seconds from settings or minute/second drafts from the UI.
  */
 export function normalizeCountdownPresets(value: unknown): number[] {
   const input: unknown[] = Array.isArray(value) ? value : [];
   const presets: number[] = [];
   for (const entry of input.slice(0, COUNTDOWN_PRESET_LIMIT)) {
-    const seconds = parseCountdownPreset(entry);
+    const seconds = isPresetDraft(entry) ? presetDraftToSeconds(entry) : parseCountdownPreset(entry);
     if (seconds !== null) presets.push(seconds);
   }
   return presets.length > 0 ? presets : [...DEFAULT_COUNTDOWN_PRESETS];
 }
 
-/** Editable draft rows for the countdown preset list. */
-export function createCountdownDraft(value: unknown): string[] {
-  return normalizeCountdownPresets(value).map(String);
+/** Editable minute/second rows for the countdown preset list. */
+export function createCountdownDraft(value: unknown): CountdownPresetDraft[] {
+  return normalizeCountdownPresets(value).map((seconds) => ({
+    minutes: String(Math.floor(seconds / 60)),
+    seconds: String(seconds % 60),
+  }));
 }
 
 /** Fill missing page keys and drop duplicates/unknown values. */
@@ -141,6 +209,14 @@ export interface SavePatchInput {
   order: string[];
 }
 
+/** Minutes are posted as typed; empty or invalid fields keep their default. */
+function minutesOr(value: string, fallback: number): number {
+  const text = value.trim();
+  if (text === '') return fallback;
+  const minutes = Number(text);
+  return Number.isFinite(minutes) ? minutes : fallback;
+}
+
 /** Build the single batch body posted by "save settings". */
 export function buildSavePatch(input: SavePatchInput): SavePatch {
   const { data, settings, draft, selectedInterfaces, selectedApps, notificationApps, order } = input;
@@ -160,8 +236,8 @@ export function buildSavePatch(input: SavePatchInput): SavePatch {
     navPosition: settings.navPosition ?? 'left',
     pomodoro: {
       enabled: Boolean(settings.pomodoro?.enabled),
-      focusMinutes: Number(draft.pomodoroFocus) || 25,
-      breakMinutes: Number(draft.pomodoroBreak) || 5,
+      focusMinutes: minutesOr(draft.pomodoroFocus, 25),
+      breakMinutes: minutesOr(draft.pomodoroBreak, 5),
       soundPath: draft.pomodoroSound,
       loopAlarm: Boolean(settings.pomodoro?.loopAlarm),
     },

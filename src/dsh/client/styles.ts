@@ -500,10 +500,29 @@ export const CSS = `
   white-space: nowrap;
 }
 
-.drc-preset-row .drc-preset-input {
+/* Countdown presets read as "x 分 y 秒": two compact fields with unit labels. */
+.drc-preset-duration {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   flex: 1 1 auto;
-  width: auto;
   min-width: 0;
+}
+
+.drc-preset-row .drc-preset-part {
+  flex: 0 1 92px;
+  width: 92px;
+  min-width: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.drc-preset-unit {
+  flex: 0 0 auto;
+  color: var(--drc-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
 }
 
 .drc-preset-count {

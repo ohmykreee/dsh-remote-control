@@ -79,7 +79,9 @@ export interface TlsSettings {
 /** Browser-side tomato timer configuration; only the console runs the timer. */
 export interface PomodoroSettings {
   enabled: boolean;
+  /** Focus length in minutes; two decimal places are allowed. */
   focusMinutes: number;
+  /** Break length in minutes; two decimal places are allowed. */
   breakMinutes: number;
   soundPath: string;
   /** Keep ringing until the console user explicitly dismisses the alarm. */
@@ -98,6 +100,10 @@ export const COUNTDOWN_PRESET_LIMIT = 5;
 /** Smallest and largest accepted countdown duration, in seconds. */
 export const COUNTDOWN_MIN_SECONDS = 1;
 export const COUNTDOWN_MAX_SECONDS = 24 * 60 * 60;
+/** Smallest and largest accepted pomodoro duration, in minutes. */
+export const POMODORO_MIN_MINUTES = 0.1;
+export const POMODORO_MAX_FOCUS_MINUTES = 180;
+export const POMODORO_MAX_BREAK_MINUTES = 120;
 /** Presets a fresh profile starts with; the user may keep one to five. */
 export const DEFAULT_COUNTDOWN_PRESETS: readonly number[] = [60, 300, 600];
 
@@ -250,6 +256,13 @@ function normalizeCountdownPresets(value: unknown): number[] {
   return presets.length > 0 ? presets : [...DEFAULT_COUNTDOWN_PRESETS];
 }
 
+/** Round a minute value to two decimals and clamp it to the accepted range. */
+function normalizeMinutes(value: unknown, min: number, max: number, fallback: number): number {
+  const minutes = Number(value);
+  if (!Number.isFinite(minutes)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(minutes * 100) / 100));
+}
+
 function normalize(raw: unknown): RemoteControlSettings {
   const base = defaultSettings();
   const input: JsonRecord = isRecord(raw) ? raw : {};
@@ -280,12 +293,10 @@ function normalize(raw: unknown): RemoteControlSettings {
   const navPosition: NavPosition = oneOf(navPositionInput, ['left', 'right', 'top', 'bottom'] as const)
     ? navPositionInput
     : 'left';
-  const focusMinutes = Math.round(Number(pomodoro.focusMinutes));
-  const breakMinutes = Math.round(Number(pomodoro.breakMinutes));
   const pomodoroSettings: PomodoroSettings = {
     enabled: pomodoro.enabled === true,
-    focusMinutes: Number.isFinite(focusMinutes) ? Math.max(1, Math.min(180, focusMinutes)) : 25,
-    breakMinutes: Number.isFinite(breakMinutes) ? Math.max(1, Math.min(120, breakMinutes)) : 5,
+    focusMinutes: normalizeMinutes(pomodoro.focusMinutes, POMODORO_MIN_MINUTES, POMODORO_MAX_FOCUS_MINUTES, 25),
+    breakMinutes: normalizeMinutes(pomodoro.breakMinutes, POMODORO_MIN_MINUTES, POMODORO_MAX_BREAK_MINUTES, 5),
     soundPath: typeof pomodoro.soundPath === 'string' ? pomodoro.soundPath.slice(0, 2048) : '',
     loopAlarm: pomodoro.loopAlarm === true,
   };

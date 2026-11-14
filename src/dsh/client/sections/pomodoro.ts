@@ -2,8 +2,33 @@
 
 import type * as React from 'react';
 import { Btn, Field, Row, Toggle, groupHead, h, sectionHead } from '../ui.js';
-import { COUNTDOWN_PRESET_LIMIT } from '../logic.js';
+import {
+  COUNTDOWN_PRESET_LIMIT,
+  POMODORO_MAX_BREAK_MINUTES,
+  POMODORO_MAX_FOCUS_MINUTES,
+  POMODORO_MIN_MINUTES,
+  capMinuteInput,
+  capPresetDraft,
+  sanitizeMinuteInput,
+} from '../logic.js';
 import type { PanelApi, StagedSettings } from '../types.js';
+
+/** Minute fields accept up to two decimals and cap to the limits on blur. */
+function minuteField(
+  label: string,
+  value: string,
+  max: number,
+  onChange: (value: string) => void,
+): React.ReactElement {
+  return h(Field, {
+    label,
+    value,
+    placeholder: '25',
+    inputMode: 'decimal',
+    onChange: (next) => onChange(sanitizeMinuteInput(next)),
+    onBlur: () => onChange(capMinuteInput(value, POMODORO_MIN_MINUTES, max)),
+  });
+}
 
 function pomodoroGroup(api: PanelApi): React.ReactElement {
   const { t, settings, draft, setDraft, stage } = api;
@@ -20,9 +45,10 @@ function pomodoroGroup(api: PanelApi): React.ReactElement {
       }),
     ),
     h('div', { className: 'drc-divider' }),
+    groupHead(t('pomodoroDurations'), t('pomodoroDurationHint')),
     h('div', { className: 'drc-fields' },
-      h(Field, { label: t('pomodoroFocus'), value: draft.pomodoroFocus, placeholder: '25', inputMode: 'numeric', onChange: (value) => setDraft((current) => ({ ...current, pomodoroFocus: value })) }),
-      h(Field, { label: t('pomodoroBreak'), value: draft.pomodoroBreak, placeholder: '5', inputMode: 'numeric', onChange: (value) => setDraft((current) => ({ ...current, pomodoroBreak: value })) }),
+      minuteField(t('pomodoroFocus'), draft.pomodoroFocus, POMODORO_MAX_FOCUS_MINUTES, (value) => setDraft((current) => ({ ...current, pomodoroFocus: value }))),
+      minuteField(t('pomodoroBreak'), draft.pomodoroBreak, POMODORO_MAX_BREAK_MINUTES, (value) => setDraft((current) => ({ ...current, pomodoroBreak: value }))),
     ),
     h('div', { className: 'drc-divider' }),
     h(Row, { title: t('pomodoroLoop'), description: t('pomodoroLoopHint') },
@@ -39,12 +65,24 @@ function countdownGroup(api: PanelApi): React.ReactElement {
   const { t, settings, draft, setDraft, stage } = api;
   const presets = draft.countdownPresets;
 
-  const updatePreset = (index: number, value: string): void => {
-    setDraft((current) => {
-      const next = [...current.countdownPresets];
-      next[index] = value;
-      return { ...current, countdownPresets: next };
-    });
+  const updatePreset = (index: number, part: 'minutes' | 'seconds', value: string): void => {
+    setDraft((current) => ({
+      ...current,
+      countdownPresets: current.countdownPresets.map((preset, position) => position === index
+        ? { ...preset, [part]: value.replace(/[^\d]/g, '') }
+        : preset),
+    }));
+  };
+
+  /**
+   * Cap a preset row on blur: seconds carry into minutes and the total stays
+   * inside the supported 1–86400 second range.
+   */
+  const capPreset = (index: number): void => {
+    setDraft((current) => ({
+      ...current,
+      countdownPresets: current.countdownPresets.map((preset, position) => position === index ? capPresetDraft(preset) : preset),
+    }));
   };
 
   const removePreset = (index: number): void => {
@@ -60,7 +98,7 @@ function countdownGroup(api: PanelApi): React.ReactElement {
   const addPreset = (): void => {
     setDraft((current) => current.countdownPresets.length >= COUNTDOWN_PRESET_LIMIT
       ? current
-      : { ...current, countdownPresets: [...current.countdownPresets, ''] });
+      : { ...current, countdownPresets: [...current.countdownPresets, { minutes: '', seconds: '' }] });
   };
 
   return h('div', { className: 'drc-group' },
@@ -77,19 +115,34 @@ function countdownGroup(api: PanelApi): React.ReactElement {
     ),
     h('div', { className: 'drc-divider' }),
     groupHead(t('countdownPresets'), t('countdownHint')),
-    h('div', { className: 'drc-list' }, presets.map((value, index) => h('div', {
+    h('div', { className: 'drc-list' }, presets.map((preset, index) => h('div', {
       className: 'drc-preset-row',
       key: `preset-${index}`,
     },
     h('label', { className: 'drc-preset-main' },
       h('span', { className: 'drc-preset-label' }, t(`countdownPreset${index + 1}`)),
-      h('input', {
-        className: 'drc-map-input drc-preset-input',
-        value,
-        placeholder: t('countdownPresetPlaceholder'),
-        inputMode: 'numeric',
-        onChange: (event: React.ChangeEvent<HTMLInputElement>) => updatePreset(index, event.target.value),
-      }),
+      h('span', { className: 'drc-preset-duration' },
+        h('input', {
+          className: 'drc-map-input drc-preset-part',
+          value: preset.minutes,
+          placeholder: '0',
+          inputMode: 'numeric',
+          'aria-label': `${t(`countdownPreset${index + 1}`)} ${t('durationMinutes')}`,
+          onChange: (event: React.ChangeEvent<HTMLInputElement>) => updatePreset(index, 'minutes', event.target.value),
+          onBlur: () => capPreset(index),
+        }),
+        h('span', { className: 'drc-preset-unit' }, t('durationMinutes')),
+        h('input', {
+          className: 'drc-map-input drc-preset-part',
+          value: preset.seconds,
+          placeholder: '0',
+          inputMode: 'numeric',
+          'aria-label': `${t(`countdownPreset${index + 1}`)} ${t('durationSeconds')}`,
+          onChange: (event: React.ChangeEvent<HTMLInputElement>) => updatePreset(index, 'seconds', event.target.value),
+          onBlur: () => capPreset(index),
+        }),
+        h('span', { className: 'drc-preset-unit' }, t('durationSeconds')),
+      ),
     ),
     h(Btn, {
       small: true,

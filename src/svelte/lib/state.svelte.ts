@@ -31,8 +31,8 @@ export function normalizeNavPosition(value: unknown): NavPosition {
 
 export function normalizePomodoro(input: Partial<PomodoroSettings> | undefined, base: PomodoroSettings): PomodoroSettings {
   const minutes = (value: unknown, fallback: number, max: number): number => {
-    const number = Math.round(Number(value));
-    return Number.isFinite(number) ? Math.max(1, Math.min(max, number)) : fallback;
+    const number = Number(value);
+    return Number.isFinite(number) ? Math.max(0.1, Math.min(max, Math.round(number * 100) / 100)) : fallback;
   };
   return {
     enabled: input?.enabled === true,

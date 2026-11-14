@@ -276,6 +276,18 @@ export function shutdownProbeDaemon(): void {
   dropDaemon();
 }
 
+/**
+ * Test seam: forget the cached sidecar path and daemon state so one process can
+ * exercise the missing, one-shot and daemon paths against different binaries.
+ */
+export function resetProbeCache(): void {
+  dropDaemon();
+  cachedInfo = null;
+  failureUntil = 0;
+  lastFailure = null;
+  daemonDisabledUntil = 0;
+}
+
 /** One-shot fallback used when the daemon is disabled or unsupported. */
 async function runProbeOnce(args: string[], timeout: number, info: ProbeInfo): Promise<JsonRecord> {
   const scratch = scratchDirectory();

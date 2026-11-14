@@ -210,6 +210,12 @@ export interface SettingsPayload {
   info?: RemoteInfo;
 }
 
+/** One editable countdown preset, split into its minute and second fields. */
+export interface CountdownPresetDraft {
+  minutes: string;
+  seconds: string;
+}
+
 /** Editable copies of the settings text fields. */
 export interface DraftState {
   certPath: string;
@@ -223,7 +229,7 @@ export interface DraftState {
   pomodoroBreak: string;
   pomodoroSound: string;
   /** Editable preset rows; one to five entries before save. */
-  countdownPresets: string[];
+  countdownPresets: CountdownPresetDraft[];
 }
 
 /** Nested patch accumulated until the user presses "save settings". */

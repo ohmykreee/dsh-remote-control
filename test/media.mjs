@@ -1,5 +1,19 @@
 import assert from 'node:assert/strict';
-import { createMediaEnrichment } from '../lib/media-enrich.js';
+import { existsSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/**
+ * Media pipeline and the Rust probe bridge.
+ *
+ * Covers timeline enrichment / seek rules, the explicit missing-probe state,
+ * and the daemon transport when a native binary is available.
+ */
+
+/* ------------------------------------------------------- media enrichment */
+
+const { createMediaEnrichment } = await import('../lib/media-enrich.js');
 
 const enrichment = createMediaEnrichment();
 const t0 = Date.now();
@@ -142,4 +156,122 @@ const m = await sample({
 assert.equal(m.canSeek, false);
 assert.equal(m.timelineSource, 'accessibility');
 
-console.log('media progress ok');
+/* --------------------------------------------------------- missing probe */
+
+// Resolve the probe to a path that cannot exist so this test exercises the
+// "not built" failure state in lib/probe.js.
+process.env.DSH_RC_PROBE = path.join(os.tmpdir(), 'dsh-rc-missing-probe-binary');
+delete process.env.DSH_RC_DISABLE_RUST_PROBE;
+
+const { probeInfo, probeStatus, runProbe, resetProbeCache, shutdownProbeDaemon } = await import('../lib/probe.js');
+
+const info = probeInfo();
+assert.equal(info.available, false);
+assert.match(String(info.error), /native probe not built/);
+assert.equal(probeStatus().available, false);
+assert.match(String(probeStatus().error), /native probe not built/);
+
+await assert.rejects(() => runProbe(['version']), /native probe not built|native probe unavailable/);
+
+// Runtime diagnostics must report the missing probe without fabricating a
+// version, while the Node.js half stays available.
+const { readNodeCapability, readProbeCapability } = await import('../lib/runtime.js');
+const probeCapability = await readProbeCapability();
+assert.equal(probeCapability.available, false);
+assert.equal(probeCapability.ok, false);
+assert.equal(probeCapability.version, null);
+assert.equal(probeCapability.backends, null);
+assert.match(String(probeCapability.error), /native probe not built/);
+const nodeCapability = readNodeCapability();
+assert.equal(nodeCapability.ok, true);
+assert.match(nodeCapability.version, /^v\d+/);
+assert.ok(nodeCapability.memory.rss > 0);
+assert.ok(nodeCapability.uptimeSeconds >= 0);
+
+// A missing sidecar must fail cleanly: no JavaScript fallback adapter exists.
+const { createProbeMediaAdapter } = await import('../lib/probe-adapter.js');
+const adapter = createProbeMediaAdapter({ label: 'test' });
+const state = await adapter.getState();
+assert.equal(state.media.ok, false);
+assert.equal(state.media.available, false);
+assert.equal(state.media.media, null);
+assert.equal(state.media.backend, 'rust');
+assert.match(String(state.media.error), /native probe not built/);
+assert.equal(state.volume.ok, false);
+assert.equal(state.volume.available, false);
+assert.equal(state.volume.backend, 'rust');
+await assert.rejects(() => adapter.control('playpause'), /native probe not built|native probe unavailable/);
+await assert.rejects(() => adapter.control('like'), /不支持修改红心|native probe not built|native probe unavailable/);
+
+/* ---------------------------------------------------------- daemon bridge */
+
+const BINARY = process.platform === 'win32' ? 'dsh-probe.exe' : 'dsh-probe';
+const binary = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  'native',
+  'bin',
+  `${process.platform}-${process.arch}`,
+  BINARY,
+);
+
+if (!existsSync(binary)) {
+  console.log('media: timeline and missing probe OK; daemon skipped (native probe not built)');
+} else {
+  // Resolve the freshly built binary in a clean cache, then exercise the daemon.
+  process.env.DSH_RC_PROBE = binary;
+  delete process.env.DSH_RC_DISABLE_RUST_PROBE;
+  delete process.env.DSH_RC_DISABLE_PROBE_DAEMON;
+  resetProbeCache();
+
+  assert.equal(probeInfo().available, true);
+  assert.equal(probeInfo().binary, path.resolve(binary));
+
+  try {
+    const version = await runProbe(['version']);
+    assert.equal(version.ok, true);
+    assert.equal(version.name, 'dsh-probe');
+
+    const capability = await readProbeCapability();
+    assert.equal(capability.ok, true);
+    assert.equal(typeof capability.version, 'string');
+    assert.ok(capability.version.length > 0);
+    assert.equal(typeof capability.backends?.media, 'string');
+    assert.ok(String(capability.backends?.media).length > 0);
+
+    // The second sample must reuse the daemon's sysinfo baseline; only its shape
+    // is asserted here because timing belongs to the benchmark, not this test.
+    const first = await runProbe(['performance'], { timeout: 20_000 });
+    assert.equal(first.ok, true);
+    assert.equal(typeof first.cpu?.usage, 'number');
+    assert.equal(typeof first.memory?.total, 'number');
+
+    const second = await runProbe(['performance'], { timeout: 20_000 });
+    assert.equal(second.ok, true);
+    assert.equal(typeof second.cpu?.usage, 'number');
+
+    const [volume, again] = await Promise.all([
+      runProbe(['volume', 'read']),
+      runProbe(['version']),
+    ]);
+    assert.equal(typeof volume.ok, 'boolean');
+    assert.equal(again.name, 'dsh-probe');
+
+    shutdownProbeDaemon();
+
+    // A shutdown must not poison the bridge: the next call starts a new daemon.
+    const afterShutdown = await runProbe(['version']);
+    assert.equal(afterShutdown.name, 'dsh-probe');
+    shutdownProbeDaemon();
+
+    // The explicit one-shot switch still works (used for diagnosis/fallback).
+    process.env.DSH_RC_DISABLE_PROBE_DAEMON = '1';
+    const oneShot = await runProbe(['version']);
+    assert.equal(oneShot.name, 'dsh-probe');
+    delete process.env.DSH_RC_DISABLE_PROBE_DAEMON;
+    shutdownProbeDaemon();
+  } finally {
+    shutdownProbeDaemon();
+  }
+  console.log('media: timeline, missing probe, and daemon bridge OK');
+}

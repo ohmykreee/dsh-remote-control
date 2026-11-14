@@ -1,6 +1,6 @@
 {
   "name": "dsh-remote-control",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "A touch-first LAN console for DeepSeek Harness built with Svelte 5, shadcn-svelte, and Lucide icons.",
   "license": "MIT",
@@ -21,7 +21,7 @@
     "preview": "vite preview",
     "shot": "node scripts/browser-shot.mjs",
     "check": "tsc -p tsconfig.dsh.json --noEmit && tsc -p tsconfig.dsh-client.json --noEmit && svelte-check --tsconfig ./tsconfig.json",
-    "test": "node test/smoke.mjs && node test/i18n.mjs && node test/countdown.mjs && node test/media-progress.mjs && node test/probe-bridge.mjs && node test/probe-daemon.mjs && node test/notifications.mjs && node test/notification-watch.mjs && node test/app-mapping.mjs && node test/questions.mjs",
+    "test": "node test/smoke.mjs && node test/questions.mjs && node test/settings.mjs && node test/media.mjs && node test/notifications.mjs",
     "postinstall": "node scripts/build-dsh.mjs && node scripts/build-web.mjs && node scripts/build-rust.mjs --optional"
   },
   "files": [

@@ -26,9 +26,21 @@
 - 媒体适配层的完整设计只维护在本文件，不再单独建文档。
 - 新增文档文件时同步 `package.json` 的 `files`。
 
+## UI 文案规范
+
+面向终端用户的文字（侧边栏、手机端、README、错误与提示）只回答「这是什么、能做什么、怎么做、有什么限制」，不解释实现方式。
+
+- 只写用户看得见的结果和能做的操作；不写代码路径、模块名、协议名、运行时、数据库、缓存、轮询、归一化、探测、CDP / SMTC / MPRIS / WebSocket / Node.js / Rust 等实现细节。
+- 配置项可以写用户需要提供的内容（证书文件、端口、城市、音频文件），但不要解释内部如何处理。
+- 提示语尽量一句话；范围和限制只在会影响用户决策时出现，不在 README 里展开机制。
+- 错误信息要告诉用户下一步能做什么，不要只抛内部错误名或后端状态。
+- 诊断 / 系统信息页可以展示排障需要的版本、路径与平台信息；这些是诊断数据，不是功能说明。
+- 新增或修改文案时同步三份字典（侧边栏、Host、手机端），并重新构建对应产物。
+- README 只写功能、安装摘要、使用方式、平台支持与已知限制；架构、协议、构建细节放 `AGENTS.md` 与 `INSTALLATION.md`。
+
 ## 项目形态
 
-- 名称 `dsh-remote-control`，版本 `1.0.0`，`"private": true`，MIT。
+- 名称 `dsh-remote-control`，版本 `1.0.1`，`"private": true`，MIT。
 - 运行形态：DSH Desktop / `dsh web` 的 Host 进程内加载的 bundle 插件。
 - 一个进程里同时存在四层：
   1. **Host**：`src/dsh`（TypeScript，ESM），编译为 `index.js` + `lib/`；
@@ -66,7 +78,7 @@ Host 与浏览器端（侧边栏）通过 DSH 自带 `webServer` 的环回路由
 | `src/dsh/lib/` | Host 逻辑：`service` `settings` `sessions` `account` `weather` `media-enrich` `probe*` `notifications` `app-mapping` `i18n` |
 | `src/svelte/` | 手机端（Svelte 5 + Tailwind v4，`lib/components/` 为页面与卡片） |
 | `src/rust/src/` | 探针：`media/`（catalog + 平台 + vendor）、`perf/`、`notifications/`、`volume/`、`location/` |
-| `test/` | 10 个 Node 集成测试 |
+| `test/` | 5 个按功能分组的 Node 集成测试 |
 | `static/` | Vite 公共资源（图标、manifest、字体许可） |
 | `docs/` | 英文 README 与截图 |
 
@@ -159,7 +171,7 @@ window.__ModuleLoader__.load({
 
 - `service.start()`：读取设置、创建适配器、启动 LAN HTTP/HTTPS、启动 WebSocket hub、启动推送循环；`dispose()` 关闭服务器、hub、适配器和定时器。`index.ts` 用 `ctx.effect()` 绑定，DSH 卸载 / 重载插件时自动清理。
 - 数据目录：`DSH_PROFILE_DIR/remote-control`（优先）或 `DSH_HOME/remote-control`，否则 `~/.dsh/remote-control`；文件为 `settings.json`（临时文件 + rename 原子写）。
-- 当前 schema 版本 `1`，字段包括 token、允许网卡、主题、插件语言（`language` / `dshLocale`）、温度单位、天气、余额、通知、TLS、导航位置、番茄钟与倒计时（互斥，倒计时 1–5 个秒级预设）、页面顺序 / 开关。
+- 当前 schema 版本 `1`，字段包括 token、允许网卡、主题、插件语言（`language` / `dshLocale`）、温度单位、天气、余额、通知、TLS、导航位置、番茄钟与倒计时（互斥，番茄钟分钟允许两位小数、计时四舍五入到秒，倒计时 1–5 个按分/秒填写的预设）、页面顺序 / 开关。
 - `normalize()` 对每个字段做白名单 / 范围校验，缺失时回落默认值；`update(patch)` 浅合并 + 嵌套对象合并；令牌 24 字节随机 `base64url`，`rotateToken()` 后由 service 断开所有设备。
 - 设置对象不含 token；`/api/info`（以及 `/api/settings` 的 `info`）会带配对 URL 和二维码路径，token 只出现在 URL query 中（客户端另存为 cookie）。
 
@@ -249,7 +261,7 @@ window.__ModuleLoader__.load({
 - Vite `root = src/svelte`，`publicDir = static`，`build.outDir = web`，`assetsDir = assets`，`emptyOutDir = true`，`target = es2022`。
 - 技术栈：Svelte 5 runes + Vite 8 + Tailwind CSS v4 + shadcn-svelte（bits-ui）+ Lucide。图标一律使用 Lucide。
 - 页面：`HomePage`、`SessionsPage`、`MusicPage`、`PerformancePage`；导航 `Rail`；业务组件包括时钟、天气、通知、余额、消费、CPU/内存、GPU、温度、计时、会话列表、问询对话框（`QuestionSheet`）、Toast 等。
-- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`pomodoro.svelte.ts` / `countdown.svelte.ts` 各自持有计时并共用 `timer-alarm.ts`；`billing.svelte.ts` 负责峰谷与节假日；`format.ts` / `weather.ts` / `pages.ts` 为纯工具。
+- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`pomodoro.svelte.ts` / `countdown.svelte.ts` 各自持有计时并共用 `timer-alarm.svelte.ts`（页面标题 / favicon 提示与 `tabAlert` 响应式状态，主页 tab 复用它显示绿色提示点）；`billing.svelte.ts` 负责峰谷与节假日；`format.ts` / `weather.ts` / `pages.ts` 为纯工具。
 - i18n：`applySettings()` 从 `settings.locale` 调 `setLocale()`；所有组件和 `format.ts` / `weather.ts` 通过 `t()` 取文案，日期格式化使用 `localeTag()`，切换语言无需刷新。`zh` 为基准字典。
 - 视觉：`Panel` 包装 shadcn Card 作为统一容器；按钮、Badge、Slider、Dialog、ScrollArea 优先用 `$lib/components/ui`；只在组件原有 class 上覆盖样式，无 hover 过渡 / 缩放。
 - 性能页占用率使用 `RadialGauge` 圆环；右侧温度保留大号最高温度与热区背景列表。
@@ -275,7 +287,7 @@ window.__ModuleLoader__.load({
 ### 架构与二进制
 
 - 唯一 OS 探测层：媒体、音量、性能 / GPU / 温度、通知、定位。Node 不保留 PowerShell / C# / playerctl / osascript 回退。
-- 源码 `src/rust`（crate `dsh-probe`，版本 `1.0.0`）。每个功能目录（`media/`、`perf/`、`notifications/`、`volume/`、`location/`）都按同一方式分层：`mod.rs` 只做命令行、JSON 外形和平台模块选择；`windows.rs` / `linux.rs` / `macos.rs` 各自实现完整平台逻辑。缺失能力由平台文件返回明确错误，不在 `mod.rs` 里写 `cfg` 分支。
+- 源码 `src/rust`（crate `dsh-probe`，版本 `1.0.1`）。每个功能目录（`media/`、`perf/`、`notifications/`、`volume/`、`location/`）都按同一方式分层：`mod.rs` 只做命令行、JSON 外形和平台模块选择；`windows.rs` / `linux.rs` / `macos.rs` 各自实现完整平台逻辑。缺失能力由平台文件返回明确错误，不在 `mod.rs` 里写 `cfg` 分支。
 - 媒体层在平台层之上做 vendor 调度：平台文件识别应用后调用 `vendor::resolve`，命中 vendor 进入对应客户端逻辑，未命中才回到系统 API。
 - 产物：`native/bin/<platform>-<arch>/dsh-probe[.exe]`，例如 `win32-x64`、`linux-x64`、`darwin-arm64`。
 - `src/dsh/lib/probe.ts` 按 `process.platform` / `process.arch` 定位，`DSH_RC_PROBE` 可覆盖；找不到时所有调用返回明确的「不可用」错误。
@@ -442,7 +454,7 @@ pnpm shot -- --timer countdown --out .mock-web/countdown.png
 
 pnpm check                      # tsc（Host + 浏览器端）+ svelte-check
 pnpm build                      # src/dsh + src/svelte
-pnpm test                       # 下面 10 个 Node 测试
+pnpm test                       # 下面 5 个按功能分组的 Node 测试
 cargo fmt --manifest-path src/rust/Cargo.toml -- --check
 cargo test --manifest-path src/rust/Cargo.toml
 cargo check --manifest-path src/rust/Cargo.toml --features macos-check
@@ -451,11 +463,13 @@ pnpm build:rust
 
 ### 测试覆盖
 
+一个测试文件对应一类功能，新增断言优先并入已有文件，不要再按单个特性拆新脚本。
+
 - `smoke.mjs`：临时 `DSH_PROFILE_DIR` 启动服务；令牌页面、`/assets/`、图片 CSP、WebSocket welcome/overview；旧 HTTP overview 路由不存在。
-- `i18n.mjs` / `countdown.mjs`：语言精确匹配与回退、`dshLocale` 持久化、Host 字典对齐；倒计时预设、秒级范围、番茄钟互斥、公开设置深拷贝。
-- `media-progress.mjs` / `probe-bridge.mjs` / `probe-daemon.mjs`：进度平滑与 seek；探针缺失显式报错；真实 daemon 的并发、重启、禁用与平台能力。
-- `notifications.mjs` / `notification-watch.mjs` / `app-mapping.mjs`：字段归一化与数量限制、Linux 流式监视、名称推导与旧缓存迁移。
 - `questions.mjs`：推送问询开关、远程回答往返、关闭后剥离与拒绝。
+- `settings.mjs`：语言精确匹配与回退、`dshLocale` 持久化、Host 字典对齐；倒计时预设与秒级范围、番茄钟两位小数、互斥、公开设置深拷贝。
+- `media.mjs`：进度平滑与 seek 规则；探针缺失显式报错；真实 daemon 的并发、重启、禁用与平台能力。探针路径缓存在同一进程内切换时用 `resetProbeCache()`（测试专用）。
+- `notifications.mjs`：通知字段归一化与数量限制、应用名称推导与旧缓存迁移、Linux 流式监视。
 
 ### 文档截图
 

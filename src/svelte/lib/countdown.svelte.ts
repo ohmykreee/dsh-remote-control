@@ -6,7 +6,7 @@ import {
   setTabAlert,
   startLoopingAlarm,
   stopAlarmSound,
-} from './timer-alarm';
+} from './timer-alarm.svelte';
 import { app } from './state.svelte';
 import type { CountdownSettings } from './types';
 

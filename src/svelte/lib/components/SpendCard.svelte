@@ -2,7 +2,6 @@
   import { app } from '../state.svelte';
   import { formatMoney } from '../format';
   import { t } from '../i18n.svelte';
-  import { Badge } from '$lib/components/ui/badge/index.js';
   import ChartColumn from '@lucide/svelte/icons/chart-column';
   import Panel from './Panel.svelte';
   import SectionHeader from './SectionHeader.svelte';
@@ -28,16 +27,7 @@
   </div>
 
   <div class="relative z-10">
-    <SectionHeader icon={ChartColumn} eyebrow="SPEND" title={t('usage')}>
-      {#snippet children()}
-        <Badge
-          variant="outline"
-          class="h-8 border-border bg-secondary px-3 text-[14px] font-medium text-muted-foreground"
-        >
-          {t('last7DaysShort')}
-        </Badge>
-      {/snippet}
-    </SectionHeader>
+    <SectionHeader icon={ChartColumn} eyebrow="SPEND" title={t('usage')} />
 
     <div class="spend-values mt-3 grid grid-cols-2 gap-3">
       <div>

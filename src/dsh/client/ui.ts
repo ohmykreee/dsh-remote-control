@@ -35,6 +35,7 @@ export interface FieldProps {
   label: string;
   value: string | number;
   onChange: (value: string) => void;
+  onBlur?: React.FocusEventHandler<HTMLInputElement>;
   placeholder?: string;
   inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
   disabled?: boolean;
@@ -84,7 +85,7 @@ export function Btn({ children, onClick, primary = false, danger = false, disabl
   return h('button', { type: 'button', className: classes.join(' '), onClick, disabled, title }, children);
 }
 
-export function Field({ label, value, onChange, placeholder, inputMode, disabled = false }: FieldProps): React.ReactElement {
+export function Field({ label, value, onChange, onBlur, placeholder, inputMode, disabled = false }: FieldProps): React.ReactElement {
   return h('label', { className: 'drc-field' },
     h('span', null, label),
     h('input', {
@@ -92,6 +93,7 @@ export function Field({ label, value, onChange, placeholder, inputMode, disabled
       placeholder,
       inputMode,
       disabled,
+      onBlur,
       onChange: (event: React.ChangeEvent<HTMLInputElement>) => onChange(event.target.value),
     }),
   );

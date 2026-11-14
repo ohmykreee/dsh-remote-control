@@ -6,6 +6,7 @@
   import { pageLabel, t } from './lib/i18n.svelte';
   import type { PageKey } from './lib/types';
   import { refreshLive } from './lib/ws';
+  import { tabAlert } from './lib/timer-alarm.svelte';
   import HomePage from './lib/components/HomePage.svelte';
   import MusicPage from './lib/components/MusicPage.svelte';
   import PerformancePage from './lib/components/PerformancePage.svelte';
@@ -243,6 +244,7 @@
     activeKey={app.activeKey}
     {questionCount}
     {errorCount}
+    timerAlert={tabAlert.active}
     onNavigate={goTo}
     onFullscreen={toggleFullscreen}
     onRefresh={handleRefresh}

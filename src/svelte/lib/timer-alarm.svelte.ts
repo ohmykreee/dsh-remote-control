@@ -17,6 +17,9 @@ let alerting = false;
 let originalTitle = '';
 let originalIcon = '';
 
+/** Reactive mirror of the page-tab alert, consumed by the console rail. */
+export const tabAlert = $state({ active: false });
+
 /* ------------------------------------------------------------------ sound */
 
 function ensureAudio(): AudioContext | null {
@@ -302,6 +305,7 @@ function paintFavicon(): void {
 export function setTabAlert(active: boolean): void {
   if (active === alerting) return;
   alerting = active;
+  tabAlert.active = active;
   const link = iconLink();
   if (active) {
     originalTitle = document.title.replace(/^●\s*/, '');

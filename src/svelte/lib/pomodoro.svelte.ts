@@ -8,7 +8,7 @@ import {
   setTabAlert,
   startLoopingAlarm,
   stopAlarmSound,
-} from './timer-alarm';
+} from './timer-alarm.svelte';
 import type { PomodoroSettings } from './types';
 
 /**
@@ -53,7 +53,12 @@ function settings(): PomodoroSettings {
 
 export function phaseDurationMs(phase: PomodoroPhase = pomodoro.phase, value: PomodoroSettings = settings()): number {
   const minutes = phase === 'focus' ? value.focusMinutes : value.breakMinutes;
-  return Math.max(1, Math.min(180, Math.round(Number(minutes) || 25))) * 60_000;
+  const limit = phase === 'focus' ? 180 : 120;
+  const fallback = phase === 'focus' ? 25 : 5;
+  const raw = Number(minutes);
+  const safe = Number.isFinite(raw) ? Math.max(0.1, Math.min(limit, raw)) : fallback;
+  // Fractional minutes are allowed in settings; the timer works in whole seconds.
+  return Math.max(1, Math.round(safe * 60)) * 1000;
 }
 
 export function formatRemaining(ms: number): string {

@@ -26,6 +26,7 @@ export const zh = {
   fullscreenExit: '退出全屏',
   errorSessions: '有错误会话',
   pendingQuestions: '有待回答问题',
+  timerAlert: '计时器已到时',
 
   // Pages
   pageHome: '首页',
@@ -223,7 +224,6 @@ export const zh = {
   offpeak: '低谷',
   belowThreshold: '低于提醒线 {amount}',
   usage: '消费',
-  last7DaysShort: '近 7 日',
   todaySpend: '今日',
   thisWeek: '本周',
   last7Days: '最近 7 天',
@@ -287,6 +287,7 @@ export const en: Record<MessageKey, string> = {
   fullscreenExit: 'Exit fullscreen',
   errorSessions: 'Sessions with errors',
   pendingQuestions: 'Questions waiting',
+  timerAlert: 'Timer has finished',
 
   // Pages
   pageHome: 'Home',
@@ -484,7 +485,6 @@ export const en: Record<MessageKey, string> = {
   offpeak: 'Off-peak',
   belowThreshold: 'Below alert line {amount}',
   usage: 'Usage',
-  last7DaysShort: 'Last 7 days',
   todaySpend: 'Today',
   thisWeek: 'This week',
   last7Days: 'Last 7 days',
