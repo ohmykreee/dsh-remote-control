@@ -4,7 +4,8 @@
 //! JSON from stdout. Native OS APIs are used per platform:
 //!   * Windows: WinRT SMTC, Core Audio (WASAPI endpoint), Win32 power info
 //!   * Linux:   MPRIS over D-Bus (zbus), wpctl/pactl/amixer, /proc + sysfs
-//!   * macOS:   nowplaying-cli/osascript (source only, untested)
+//!   * macOS:   MediaRemote (runtime-loaded) / AppleScript, osascript volume,
+//!              host_statistics + sysctl, Notification Center SQLite
 //!
 //! WASM is deliberately not used: WinRT, Core Audio, D-Bus and IOKit are not
 //! reachable from a WebAssembly sandbox.

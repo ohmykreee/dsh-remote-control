@@ -1,7 +1,7 @@
 //! Cross-platform media application catalog.
 //!
 //! The probe talks to one system media interface per platform (SMTC on Windows,
-//! MPRIS on Linux, MediaRemote/`nowplaying-cli` on macOS). A few desktop
+//! MPRIS on Linux, MediaRemote on macOS). A few desktop
 //! players do not expose a complete system session, so the probe also knows how
 //! to recognise their process/window identity and, as a last resort, read their
 //! accessibility tree.

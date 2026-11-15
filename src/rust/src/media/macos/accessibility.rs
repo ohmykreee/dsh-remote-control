@@ -1,8 +1,8 @@
 //! macOS accessibility tier.
 //!
-//! MediaRemote (`nowplaying-cli`) is the system interface and normally provides
-//! a complete timeline. When it cannot identify a track (notably Cider, an
-//! Apple Music client), UI scripting through `System Events` is the last resort.
+//! MediaRemote is the system interface and normally provides a complete
+//! timeline. When it cannot identify a track (notably Cider, an Apple Music
+//! client), UI scripting through `System Events` is the last resort.
 //! It reads a `MM:SS | MM:SS` label only: it never sends a transport action and
 //! never grants seek.
 //!

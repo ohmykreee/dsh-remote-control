@@ -1,5 +1,7 @@
-//! CPU/memory sampler shared by all platforms (sysinfo), plus GPU/temperature
-//! best-effort data from the platform module.
+//! CPU/memory sampler, plus GPU/temperature best-effort data from the platform
+//! module. Windows and Linux use the shared `sysinfo` sampler; macOS uses
+//! `host_statistics`/`sysctl` directly so the probe does not link
+//! CoreFoundation/IOKit.
 
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -22,6 +24,7 @@ mod platform;
 #[path = "macos.rs"]
 mod macos_preview;
 
+#[cfg(not(target_os = "macos"))]
 mod common;
 
 #[derive(Debug, Clone, Serialize, Default)]

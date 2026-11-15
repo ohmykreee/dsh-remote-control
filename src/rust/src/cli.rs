@@ -151,7 +151,7 @@ pub fn platform_perf_backend() -> &'static str {
     }
     #[cfg(target_os = "macos")]
     {
-        "macos-sysinfo"
+        "macos-sysctl"
     }
     #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {

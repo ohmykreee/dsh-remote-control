@@ -1,4 +1,4 @@
-//! macOS location (source only, untested).
+//! macOS location (preliminarily tested on macOS 26).
 //!
 //! CoreLocation only grants authorization to an application bundle that ships
 //! `NSLocationUsageDescription` (and is signed/notarized). A child sidecar

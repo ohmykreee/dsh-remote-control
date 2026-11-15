@@ -1,11 +1,10 @@
 //! macOS notification probe: read the Notification Center database.
 //!
-//! Source only: this module is type-checked with `--features macos-check` but has
-//! not been run on macOS. Notification Center stores a binary property list per
-//! record; it is parsed in-process (no `plutil`/AppleScript fallback).
-//!
-//! Reading the database requires Full Disk Access for the DSH host. When access
-//! is denied the probe returns a clear error instead of partial/fake data.
+//! Preliminarily tested on macOS 26. Notification Center stores a binary
+//! property list per record; it is parsed in-process (no `plutil`/AppleScript
+//! fallback). Reading the database requires Full Disk Access for the DSH host.
+//! When access is denied the probe returns a clear error instead of
+//! partial/fake data.
 
 use std::path::PathBuf;
 
@@ -28,6 +27,8 @@ pub fn watch(_limit: usize) -> CliResult {
 const APP_LABELS: &[(&str, &str)] = &[
     ("com.apple.Music", "音乐"),
     ("com.apple.iTunes", "音乐"),
+    ("com.apple.scripteditor2", "脚本编辑器"),
+    ("com.apple.finder", "访达"),
     ("com.spotify.client", "Spotify"),
     ("com.tencent.xinWeChat", "微信"),
     ("com.tencent.qq", "QQ"),
@@ -71,6 +72,15 @@ fn value_bytes(value: ValueRef<'_>) -> Option<Vec<u8>> {
     }
 }
 
+fn value_i64(value: ValueRef<'_>) -> Option<i64> {
+    match value {
+        ValueRef::Integer(number) => Some(number),
+        ValueRef::Real(number) => Some(number as i64),
+        ValueRef::Text(bytes) => String::from_utf8_lossy(bytes).trim().parse().ok(),
+        _ => None,
+    }
+}
+
 fn tables(connection: &Connection) -> Vec<String> {
     let Ok(mut statement) =
         connection.prepare("select name from sqlite_master where type = 'table'")
@@ -101,10 +111,7 @@ fn pick_column<'a>(columns: &'a [String], predicate: impl Fn(&str) -> bool) -> O
         .map(String::as_str)
 }
 
-fn app_name(app_key: &str, app_table_names: &std::collections::HashMap<String, String>) -> String {
-    if let Some(name) = app_table_names.get(app_key) {
-        return name.clone();
-    }
+fn app_name(app_key: &str) -> String {
     if let Some((_, label)) = APP_LABELS.iter().find(|(key, _)| *key == app_key) {
         return (*label).to_string();
     }
@@ -114,6 +121,56 @@ fn app_name(app_key: &str, app_table_names: &std::collections::HashMap<String, S
         .next_back()
         .unwrap_or("macOS")
         .to_string()
+}
+
+/// macOS 26 stores `record.app_id` as an integer that references
+/// `app.app_id`; the bundle identifier lives in `app.identifier`. Resolve the
+/// map once per read so notifications expose a stable bundle id instead of the
+/// numeric rowid.
+fn app_identifiers(
+    connection: &Connection,
+    table_names: &[String],
+) -> std::collections::HashMap<i64, String> {
+    let mut identifiers = std::collections::HashMap::new();
+    let Some(app_table) = table_names
+        .iter()
+        .find(|name| name.eq_ignore_ascii_case("app"))
+    else {
+        return identifiers;
+    };
+    let app_columns = columns(connection, app_table);
+    let id_column = pick_column(&app_columns, |name| {
+        name == "app_id" || name == "appid" || name.ends_with("_id")
+    });
+    let identifier_column = pick_column(&app_columns, |name| {
+        name.contains("identifier") || name.contains("bundle")
+    });
+    let (Some(id_column), Some(identifier_column)) = (id_column, identifier_column) else {
+        return identifiers;
+    };
+    let sql = format!(
+        "select {}, {} from {}",
+        quote(id_column),
+        quote(identifier_column),
+        quote(app_table)
+    );
+    let Ok(mut statement) = connection.prepare(&sql) else {
+        return identifiers;
+    };
+    let Ok(rows) = statement.query_map([], |row| {
+        Ok((
+            value_i64(row.get_ref(0)?),
+            value_string(row.get_ref(1)?).unwrap_or_default(),
+        ))
+    }) else {
+        return identifiers;
+    };
+    for (id, identifier) in rows.flatten() {
+        if let (Some(id), false) = (id, identifier.is_empty()) {
+            identifiers.insert(id, identifier);
+        }
+    }
+    identifiers
 }
 
 fn pick_string(dictionary: &Dictionary, keys: &[&str]) -> String {
@@ -163,12 +220,13 @@ fn apple_time_to_ms(value: ValueRef<'_>) -> Option<i64> {
     if !number.is_finite() || number <= 0.0 {
         return None;
     }
-    let seconds = if number > 10_000_000_000.0 {
-        number / 1000.0
-    } else {
-        number
-    };
-    Some(((seconds + 978_307_200.0) * 1000.0).round() as i64)
+    // Notification Center stores seconds since the 2001 Apple epoch. Some
+    // rows/tools write UNIX milliseconds instead; those are already absolute
+    // and must not get the 2001 offset added again.
+    if number > 10_000_000_000.0 {
+        return Some(number.round() as i64);
+    }
+    Some(((number + 978_307_200.0) * 1000.0).round() as i64)
 }
 
 pub fn read(limit: usize) -> SnapshotResult {
@@ -204,33 +262,48 @@ pub fn read(limit: usize) -> SnapshotResult {
     .or_else(|| pick_column(&record_columns, |name| name.contains("data")))
     .ok_or_else(|| "Notification Center payload column not found".to_string())?
     .to_string();
-    let app_column = pick_column(&record_columns, |name| {
-        (name.contains("app") && (name.contains("id") || name.contains("bundle")))
+    let app_ref_column = pick_column(&record_columns, |name| {
+        name == "app_id"
+            || (name.contains("app") && (name.contains("id") || name.contains("bundle")))
             || name.contains("bundle")
     })
     .map(str::to_string);
-    let date_column = pick_column(&record_columns, |name| {
-        name.contains("deliver") || name.contains("date") || name.contains("time")
+    // Prefer the time the notification was delivered; `request_date` is often
+    // NULL and is only a fallback for rows written before delivery.
+    let delivered_column =
+        pick_column(&record_columns, |name| name.contains("deliver")).map(str::to_string);
+    let request_column = pick_column(&record_columns, |name| {
+        name.contains("request") && name.contains("date")
+    })
+    .map(str::to_string);
+    let record_id_column = pick_column(&record_columns, |name| {
+        name == "rec_id" || name == "record_id" || name == "id"
     })
     .map(str::to_string);
 
+    let quoted_or = |column: Option<&str>, fallback: &str| {
+        column.map(quote).unwrap_or_else(|| fallback.to_string())
+    };
     let mut select = format!("{} as payload", quote(&data_column));
     select.push_str(&format!(
-        ", {} as appId",
-        app_column
-            .as_deref()
-            .map(quote)
-            .unwrap_or_else(|| "''".to_string())
+        ", {} as recId",
+        quoted_or(record_id_column.as_deref(), "rowid")
+    ));
+    select.push_str(&format!(
+        ", {} as appRef",
+        quoted_or(app_ref_column.as_deref(), "NULL")
     ));
     select.push_str(&format!(
         ", {} as deliveredAt",
-        date_column
-            .as_deref()
-            .map(quote)
-            .unwrap_or_else(|| "0".to_string())
+        quoted_or(delivered_column.as_deref(), "NULL")
     ));
-    let order = date_column
+    select.push_str(&format!(
+        ", {} as requestedAt",
+        quoted_or(request_column.as_deref(), "NULL")
+    ));
+    let order = delivered_column
         .as_deref()
+        .or(request_column.as_deref())
         .map(quote)
         .unwrap_or_else(|| "rowid".to_string());
     let sql = format!(
@@ -245,51 +318,19 @@ pub fn read(limit: usize) -> SnapshotResult {
         .query_map([fetch], |row| {
             Ok((
                 value_bytes(row.get_ref(0)?).unwrap_or_default(),
-                value_string(row.get_ref(1)?).unwrap_or_default(),
-                apple_time_to_ms(row.get_ref(2)?),
+                value_i64(row.get_ref(1)?),
+                value_string(row.get_ref(2)?).unwrap_or_default(),
+                apple_time_to_ms(row.get_ref(3)?),
+                apple_time_to_ms(row.get_ref(4)?),
             ))
         })
         .map_err(|error| format!("notification query failed: {error}"))?;
 
-    let mut app_table_names = std::collections::HashMap::new();
-    if let Some(app_table) = table_names
-        .iter()
-        .find(|name| name.eq_ignore_ascii_case("app"))
-    {
-        let app_columns = columns(&connection, app_table);
-        let id_column = pick_column(&app_columns, |name| {
-            name.contains("identifier") || name.contains("bundle")
-        });
-        let name_column = pick_column(&app_columns, |name| {
-            name.contains("name") || name.contains("display")
-        });
-        if let (Some(id_column), Some(name_column)) = (id_column, name_column) {
-            let sql = format!(
-                "select {}, {} from {}",
-                quote(id_column),
-                quote(name_column),
-                quote(app_table)
-            );
-            if let Ok(mut app_statement) = connection.prepare(&sql) {
-                if let Ok(app_rows) = app_statement.query_map([], |row| {
-                    Ok((
-                        value_string(row.get_ref(0)?).unwrap_or_default(),
-                        value_string(row.get_ref(1)?).unwrap_or_default(),
-                    ))
-                }) {
-                    for (key, name) in app_rows.flatten() {
-                        if !key.is_empty() && !name.is_empty() {
-                            app_table_names.insert(key, name);
-                        }
-                    }
-                }
-            }
-        }
-    }
+    let app_identifiers = app_identifiers(&connection, &table_names);
 
     let now = util::now_ms();
     let mut notifications = Vec::new();
-    for (payload, app_id, delivered_at) in rows.flatten() {
+    for (payload, rec_id, app_ref, delivered_at, requested_at) in rows.flatten() {
         if payload.is_empty() {
             continue;
         }
@@ -299,12 +340,17 @@ pub fn read(limit: usize) -> SnapshotResult {
         if title.is_empty() && body.is_empty() && subtitle.is_empty() {
             continue;
         }
-        let app_key = if app_id.trim().is_empty() {
+        let app_key = if app_ref.trim().is_empty() {
             "macOS".to_string()
+        } else if let Ok(row_id) = app_ref.trim().parse::<i64>() {
+            app_identifiers
+                .get(&row_id)
+                .cloned()
+                .unwrap_or_else(|| "macOS".to_string())
         } else {
-            app_id.trim().to_string()
+            app_ref.trim().to_string()
         };
-        let app_name = app_name(&app_key, &app_table_names);
+        let app_name = app_name(&app_key);
         let title = if title.is_empty() {
             app_name.clone()
         } else {
@@ -315,9 +361,12 @@ pub fn read(limit: usize) -> SnapshotResult {
             .filter(|part| !part.is_empty())
             .collect::<Vec<_>>()
             .join("  ");
-        let received_at = delivered_at.unwrap_or(now);
+        let received_at = delivered_at.or(requested_at).unwrap_or(now);
         notifications.push(NotificationItem {
-            id: format!("{received_at}-{}", notifications.len()),
+            id: match rec_id {
+                Some(rec_id) => format!("macos-{rec_id}"),
+                None => format!("macos-{received_at}-{}", notifications.len()),
+            },
             app_key,
             app_name,
             title: truncate(&title, 160),
@@ -346,9 +395,9 @@ mod tests {
 
     #[test]
     fn converts_apple_epoch_times() {
-        // 2024-01-01T00:00:00Z is 726_537_600 seconds after the 2001 epoch.
+        // 2024-01-01T00:00:00Z is 725_760_000 seconds after the 2001 epoch.
         assert_eq!(
-            apple_time_to_ms(ValueRef::Real(726_537_600.0)),
+            apple_time_to_ms(ValueRef::Real(725_760_000.0)),
             Some(1_704_067_200_000)
         );
         // Millisecond values are detected and normalized.
@@ -375,8 +424,7 @@ mod tests {
 
     #[test]
     fn derives_app_names() {
-        let names = std::collections::HashMap::new();
-        assert_eq!(app_name("com.apple.Music", &names), "音乐");
-        assert_eq!(app_name("com.example.SomeApp", &names), "SomeApp");
+        assert_eq!(app_name("com.apple.Music"), "音乐");
+        assert_eq!(app_name("com.example.SomeApp"), "SomeApp");
     }
 }

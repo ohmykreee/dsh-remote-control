@@ -1,12 +1,13 @@
 //! macOS media probe.
 //!
 //! MediaRemote's private framework is not linkable without entitlements, so the
-//! sidecar uses the same two public routes as the JavaScript adapter:
-//!   1. `nowplaying-cli` when installed (system-wide Now Playing, artwork).
-//!   2. AppleScript against Music/Spotify as a fallback (no artwork).
-//!
-//! This module is source-only: it is compiled and type-checked with
-//! `cargo check --features macos-check` but has not been run on macOS.
+//! sidecar resolves it at runtime (see `mediaremote.rs`). No helper tool needs
+//! to be installed for the common case. AppleScript against Music/Spotify is a
+//! fallback for systems where the private controller class is unavailable, and
+//! Cider's private title file covers that client.
+
+use std::path::Path;
+use std::time::Duration;
 
 use super::catalog::{self, Tier};
 use super::{Media, ReadOptions};
@@ -14,10 +15,24 @@ use crate::util;
 
 #[path = "macos/accessibility.rs"]
 mod accessibility;
+#[path = "macos/mediaremote.rs"]
+mod mediaremote;
 
-pub const BACKEND: &str = "macos-nowplaying";
+pub const BACKEND: &str = "macos-mediaremote";
 
 const MAX_ARTWORK_BYTES: usize = 8 * 1024 * 1024;
+const NOWPLAYING_TIMEOUT: Duration = Duration::from_millis(6000);
+const APPLESCRIPT_TIMEOUT: Duration = Duration::from_millis(3000);
+const NOWPLAYING_PROPERTIES: [&str; 8] = [
+    "title",
+    "artist",
+    "album",
+    "duration",
+    "elapsedTime",
+    "playbackRate",
+    "artworkData",
+    "artworkMIMEType",
+];
 
 fn nowplaying_cli() -> Option<std::path::PathBuf> {
     util::find_executable("nowplaying-cli")
@@ -38,52 +53,31 @@ fn playing_app_id() -> Option<&'static str> {
     None
 }
 
-fn parse_key_values(text: &str) -> std::collections::HashMap<String, String> {
-    let mut values = std::collections::HashMap::new();
-    for line in text.lines() {
-        if let Some((key, value)) = line.split_once('=') {
-            let key = key.trim();
-            if !key.is_empty() {
-                values.insert(key.to_string(), value.trim().to_string());
-            }
-        }
-    }
-    values
+/// nowplaying-cli prints one raw value per requested property, in argv order,
+/// with the literal `null` for missing values. A positional parser is the only
+/// stable format across versions (the keys are not echoed).
+fn nowplaying_value(output: &str, index: usize) -> String {
+    output
+        .lines()
+        .nth(index)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "null")
+        .unwrap_or_default()
+        .to_string()
 }
 
-fn read_nowplaying(path: &std::path::Path) -> Result<Option<Media>, String> {
-    let output = util::run_path_command(
-        path,
-        &[
-            "get",
-            "title",
-            "artist",
-            "album",
-            "duration",
-            "elapsedTime",
-            "playbackRate",
-            "artworkData",
-            "artworkMIMEType",
-        ],
-    )?;
-    let values = parse_key_values(&output);
-    let title = values.get("title").cloned().unwrap_or_default();
-    let artist = values.get("artist").cloned().unwrap_or_default();
+fn read_nowplaying(path: &Path) -> Result<Option<Media>, String> {
+    let program = path.to_string_lossy().into_owned();
+    let output =
+        util::command_output_timeout(&program, &NOWPLAYING_PROPERTIES, NOWPLAYING_TIMEOUT)?;
+    let title = nowplaying_value(&output, 0);
+    let artist = nowplaying_value(&output, 1);
     if title.trim().is_empty() && artist.trim().is_empty() {
         return Ok(None);
     }
-    let duration = values
-        .get("duration")
-        .and_then(|value| value.parse::<f64>().ok())
-        .unwrap_or(0.0);
-    let position = values
-        .get("elapsedTime")
-        .and_then(|value| value.parse::<f64>().ok())
-        .unwrap_or(0.0);
-    let rate = values
-        .get("playbackRate")
-        .and_then(|value| value.parse::<f64>().ok())
-        .unwrap_or(0.0);
+    let duration = nowplaying_value(&output, 3).parse::<f64>().unwrap_or(0.0);
+    let position = nowplaying_value(&output, 4).parse::<f64>().unwrap_or(0.0);
+    let rate = nowplaying_value(&output, 5).parse::<f64>().unwrap_or(0.0);
 
     let mut media = Media::new("macOS");
     media.provider_detail = "nowplaying".to_string();
@@ -93,7 +87,7 @@ fn read_nowplaying(path: &std::path::Path) -> Result<Option<Media>, String> {
         title
     };
     media.artist = artist;
-    media.album = values.get("album").cloned().unwrap_or_default();
+    media.album = nowplaying_value(&output, 2);
     media.playback_status = if rate > 0.0 { "Playing" } else { "Paused" }.to_string();
     media.position = position.max(0.0);
     media.start_time = 0.0;
@@ -106,37 +100,36 @@ fn read_nowplaying(path: &std::path::Path) -> Result<Option<Media>, String> {
     media.can_previous = true;
     media.can_seek = catalog::seek_allowed(Tier::System, duration > 0.0, false);
 
-    if let Some(data) = values.get("artworkData") {
-        if !data.is_empty() && data.len() < MAX_ARTWORK_BYTES {
-            let mime = values
-                .get("artworkMIMEType")
-                .filter(|value| !value.is_empty())
-                .cloned()
-                .unwrap_or_else(|| "image/jpeg".to_string());
-            media.thumbnail = Some(format!(
-                "data:{mime};base64,{}",
-                data.replace(char::is_whitespace, "")
-            ));
-            media.thumbnail_type = Some(mime);
-        }
+    let data = nowplaying_value(&output, 6);
+    if !data.is_empty() && data.len() < MAX_ARTWORK_BYTES {
+        let mime = nowplaying_value(&output, 7);
+        let mime = if mime.is_empty() {
+            "image/jpeg".to_string()
+        } else {
+            mime
+        };
+        media.thumbnail = Some(format!(
+            "data:{mime};base64,{}",
+            data.replace(char::is_whitespace, "")
+        ));
+        media.thumbnail_type = Some(mime);
     }
     Ok(Some(media))
 }
 
 fn applescript(script: &str) -> Result<String, String> {
-    util::command_output("/usr/bin/osascript", &["-e", script])
+    util::command_output_timeout("/usr/bin/osascript", &["-e", script], APPLESCRIPT_TIMEOUT)
 }
 
-/// AppleScript fallback: query Music first, then Spotify. Returns `None` when
-/// neither app is running or neither is playing something.
-fn read_applescript() -> Result<Option<Media>, String> {
-    let script = r#"
-set out to ""
-tell application "System Events"
-    set musicRunning to (exists process "Music")
-    set spotifyRunning to (exists process "Spotify")
-end tell
-if musicRunning then
+fn app_running(name: &str) -> bool {
+    util::command_output("/usr/bin/pgrep", &["-x", name]).is_ok()
+}
+
+/// Only query applications that `pgrep` already sees. `System Events` is
+/// deliberately avoided: its first automation request opens a TCC prompt and
+/// blocks until the user answers, which would stall the probe every poll.
+const MUSIC_SCRIPT: &str = r#"
+if out is "" then
     tell application "Music"
         try
             set st to player state as string
@@ -146,7 +139,10 @@ if musicRunning then
         end try
     end tell
 end if
-if out is "" and spotifyRunning then
+"#;
+
+const SPOTIFY_SCRIPT: &str = r#"
+if out is "" then
     tell application "Spotify"
         try
             set st to player state as string
@@ -156,9 +152,26 @@ if out is "" and spotifyRunning then
         end try
     end tell
 end if
-return out
 "#;
-    let output = applescript(script)?;
+
+/// AppleScript fallback for macOS versions without the private
+/// `MRNowPlayingController` class (or without MediaRemote access).
+fn read_applescript() -> Result<Option<Media>, String> {
+    let music = app_running("Music");
+    let spotify = app_running("Spotify");
+    if !music && !spotify {
+        return Ok(None);
+    }
+    let mut script = String::from("set out to \"\"\n");
+    if music {
+        script.push_str(MUSIC_SCRIPT);
+    }
+    if spotify {
+        script.push_str(SPOTIFY_SCRIPT);
+    }
+    script.push_str("return out\n");
+
+    let output = applescript(&script)?;
     let output = output.trim();
     if output.is_empty() {
         return Ok(None);
@@ -222,15 +235,54 @@ pub(crate) fn system_valid(media: &Media) -> bool {
         && media.can_seek
 }
 
+fn media_from_mediaremote(reading: mediaremote::Reading) -> Media {
+    let mut media = Media::new(reading.app_id);
+    media.provider_detail = "mediaremote".to_string();
+    media.title = if reading.title.trim().is_empty() {
+        "未命名媒体".to_string()
+    } else {
+        reading.title
+    };
+    media.artist = reading.artist;
+    media.album = reading.album;
+    media.playback_status = match reading.playback_state {
+        1 => "Playing",
+        2 => "Paused",
+        3 => "Stopped",
+        _ if reading.playback_rate > 0.0 => "Playing",
+        _ if reading.duration > 0.0 => "Paused",
+        _ => "Stopped",
+    }
+    .to_string();
+    media.position = reading.position.max(0.0);
+    media.start_time = 0.0;
+    media.end_time = reading.duration.max(0.0);
+    media.min_seek_time = 0.0;
+    media.max_seek_time = reading.duration.max(0.0);
+    media.last_updated_at = util::now_ms();
+    media.can_play_pause = true;
+    media.can_next = true;
+    media.can_previous = true;
+    media.can_seek = catalog::seek_allowed(Tier::System, reading.duration > 0.0, false);
+    media
+}
+
 pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
-    let mut media = if let Some(path) = nowplaying_cli() {
+    let has_mediaremote = mediaremote::available();
+    let mut media = if has_mediaremote {
+        // The private controller is the primary source on macOS 15.4+ and needs
+        // no external helper. `nowplaying-cli` stays as a fallback for older
+        // systems where the class does not exist.
+        mediaremote::read().map(media_from_mediaremote)
+    } else if let Some(path) = nowplaying_cli() {
         read_nowplaying(&path).unwrap_or(None)
     } else {
         None
     };
-    if media.is_none() {
-        // If the system route failed, try AppleScript before the private
-        // Cider title, then return an empty reading.
+    if media.is_none() && !has_mediaremote {
+        // AppleScript is only the fallback for older macOS: on current macOS
+        // the first automation request can block on a TCC prompt, and there is
+        // no reason to pay that cost when MediaRemote already answered.
         media = read_applescript().unwrap_or(None);
     }
     if media.is_none() {
@@ -298,11 +350,15 @@ pub fn read_all(options: &ReadOptions) -> Result<Vec<Media>, String> {
 }
 
 fn accessibility_process(app_id: &str) -> Option<&'static str> {
-    match app_id.to_lowercase().as_str() {
-        "cider" => Some("Cider"),
-        "music" | "applemusic" | "com.apple.music" => Some("Music"),
-        "spotify" => Some("Spotify"),
-        _ => None,
+    let id = app_id.to_lowercase();
+    if id.contains("cider") {
+        Some("Cider")
+    } else if id.contains("music") {
+        Some("Music")
+    } else if id.contains("spotify") {
+        Some("Spotify")
+    } else {
+        None
     }
 }
 
@@ -317,6 +373,9 @@ pub fn control(action: &str, position: f64, options: &ReadOptions) -> Result<(),
         if current.provider_detail.contains("cdp") {
             return crate::media::vendor::netease::cdp_control(action, position);
         }
+    }
+    if mediaremote::available() {
+        return mediaremote::control(action, position);
     }
     if let Some(path) = nowplaying_cli() {
         let args: Vec<String> = match action {
@@ -361,10 +420,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_nowplaying_output() {
-        let values = parse_key_values("title = Song\nartist = Artist\nduration = 120.5\n");
-        assert_eq!(values.get("title").map(String::as_str), Some("Song"));
-        assert_eq!(values.get("artist").map(String::as_str), Some("Artist"));
-        assert_eq!(values.get("duration").map(String::as_str), Some("120.5"));
+    fn parses_nowplaying_output_by_position() {
+        let output = "Song\nArtist\nAlbum\n120.5\n42.25\n1\nnull\nnull";
+        assert_eq!(nowplaying_value(output, 0), "Song");
+        assert_eq!(nowplaying_value(output, 3), "120.5");
+        assert_eq!(nowplaying_value(output, 6), "");
+        assert_eq!(nowplaying_value("null\nnull\n", 1), "");
     }
 }

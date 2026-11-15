@@ -3,7 +3,8 @@
 //! * Windows: the notification center SQLite database (`wpndatabase.db`).
 //! * Linux: the session D-Bus `org.freedesktop.Notifications` traffic, observed
 //!   through `org.freedesktop.DBus.Monitoring.BecomeMonitor` (zbus).
-//! * macOS: the Notification Center SQLite database (source only, untested).
+//! * macOS: the Notification Center SQLite database (preliminarily tested on
+//!   macOS 26).
 //!
 //! `notifications` returns a snapshot; `notifications watch` streams a JSON line
 //! per update (Linux only) so the Node service does not need an external

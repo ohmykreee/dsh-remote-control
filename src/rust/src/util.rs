@@ -218,12 +218,28 @@ pub fn copy_sqlite_database(source: &Path, target: &Path) -> Result<(), String> 
     Ok(())
 }
 
-/// Look up an executable on `PATH` without spawning a shell.
+/// Look up an executable on `PATH` without spawning a shell. macOS also checks
+/// the two Homebrew prefixes because a GUI-launched DSH host usually does not
+/// inherit the shell `PATH` that contains `/opt/homebrew/bin`.
 pub fn find_executable(name: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|directory| directory.join(name))
-        .find(|candidate| candidate.is_file())
+    if let Some(path) = std::env::var_os("PATH") {
+        if let Some(found) = std::env::split_paths(&path)
+            .map(|directory| directory.join(name))
+            .find(|candidate| candidate.is_file())
+        {
+            return Some(found);
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        for directory in ["/opt/homebrew/bin", "/usr/local/bin"] {
+            let candidate = Path::new(directory).join(name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
 }
 
 /// Run a command and return trimmed stdout, or a readable error.

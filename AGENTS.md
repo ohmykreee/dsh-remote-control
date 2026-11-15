@@ -47,7 +47,7 @@
   2. **DSH 侧边栏**：`src/dsh/client`（React，无 JSX），编译后合并为单个 `client.js`；
   3. **手机端**：`src/svelte`（Svelte 5 + Vite），编译为 `web/`；
   4. **原生探针**：`src/rust`（Cargo），编译为 `native/bin/<platform>-<arch>/dsh-probe[.exe]`。
-- 目标平台：Windows（完整）、Linux（完整）、macOS（源码级，未实测）；手机端为现代浏览器。
+- 目标平台：Windows（完整）、Linux（完整）、macOS（已在 macOS 26 上进行初步测试）；手机端为现代浏览器。
 - Node 要求 `>= 22`；CI 固定 Node `26.7.0`、pnpm `12.8.1`、Rust `1.99.1`。
 
 ## 运行拓扑
@@ -295,6 +295,7 @@ window.__ModuleLoader__.load({
 - 唯一 OS 探测层：媒体、音量、性能 / GPU / 温度、通知、定位。Node 不保留 PowerShell / C# / playerctl / osascript 回退。
 - 源码 `src/rust`（crate `dsh-probe`，版本 `1.0.4`）。每个功能目录（`media/`、`perf/`、`notifications/`、`volume/`、`location/`）都按同一方式分层：`mod.rs` 只做命令行、JSON 外形和平台模块选择；`windows.rs` / `linux.rs` / `macos.rs` 各自实现完整平台逻辑。缺失能力由平台文件返回明确错误，不在 `mod.rs` 里写 `cfg` 分支。
 - 媒体层在平台层之上做 vendor 调度：平台文件识别应用后调用 `vendor::resolve`，命中 vendor 进入对应客户端逻辑，未命中才回到系统 API。
+- macOS 性能采样使用 `libc` + `mach2` 的 `host_statistics`（CPU tick）与 `sysctl`（内存 / 频率），不链接 CoreFoundation / IOKit，因此构建 macOS 探针不需要完整 Xcode SDK（Command Line Tools 即可）。
 - 产物：`native/bin/<platform>-<arch>/dsh-probe[.exe]`，例如 `win32-x64`、`linux-x64`、`darwin-arm64`。
 - `src/dsh/lib/probe.ts` 按 `process.platform` / `process.arch` 定位，`DSH_RC_PROBE` 可覆盖；找不到时所有调用返回明确的「不可用」错误。
 - 每条命令输出一行 JSON；探针内部错误返回 `{"ok":false,...}` 且退出码 0（便于 Node 读取），参数错误退出码 2。
@@ -351,13 +352,13 @@ dsh-probe location request [--open-settings]    # 申请定位权限（Windows �
 
 | 能力 | Windows | Linux | macOS |
 |---|---|---|---|
-| 媒体读取 / 控制 | vendor-first → 未命中时 WinRT SMTC；UIA 仅只读兜底 | vendor-first；网易云 MPRIS+CDP，其他 MPRIS | vendor-first；`nowplaying-cli` / AppleScript |
-| 封面 | SMTC `Thumbnail` → data URL；网易云 SMTC 或 CDP URL | `file://` / `data:` 直接读取；HTTP(S) 由 Node 下载 | `nowplaying-cli` artwork |
-| 音量 | Core Audio | `wpctl` → `pactl` → `amixer` | `osascript`（未测试） |
-| CPU / 内存 / 频率 | sysinfo + PDH + 注册表 | sysinfo + `/proc` + cpufreq | sysinfo + `sysctl`（未测试） |
+| 媒体读取 / 控制 | vendor-first → 未命中时 WinRT SMTC；UIA 仅只读兜底 | vendor-first；网易云 MPRIS+CDP，其他 MPRIS | vendor-first；MediaRemote（`MRNowPlayingController`）/ AppleScript |
+| 封面 | SMTC `Thumbnail` → data URL；网易云 SMTC 或 CDP URL | `file://` / `data:` 直接读取；HTTP(S) 由 Node 下载 | MediaRemote 不返回封面；`nowplaying-cli` 兜底时可取 artwork |
+| 音量 | Core Audio | `wpctl` → `pactl` → `amixer` | `osascript`（已在 macOS 26 上进行初步测试） |
+| CPU / 内存 / 频率 | sysinfo + PDH + 注册表 | sysinfo + `/proc` + cpufreq | `host_statistics` + `sysctl`（已在 macOS 26 上进行初步测试） |
 | GPU / 温度 | DXGI + PDH + WDDM D3DKMT + 磁盘温度 | `nvidia-smi` 或 AMD sysfs + hwmon | 不实现 |
-| 通知 | 通知中心 SQLite | `org.freedesktop.Notifications` D-Bus 监视（zbus） | 通知中心 SQLite（未测试） |
-| 位置 | WinRT Geolocation | GeoClue2 | 回退 IP |
+| 通知 | 通知中心 SQLite | `org.freedesktop.Notifications` D-Bus 监视（zbus） | 通知中心 SQLite（已在 macOS 26 上进行初步测试） |
+| 位置 | WinRT Geolocation | GeoClue2 | 回退 IP（CoreLocation 需应用包，探针明确报不可用） |
 
 ### Windows 低完整性
 
@@ -385,6 +386,7 @@ Windows 只允许 Medium 完整性及以上的进程访问定位。插件目录�
 - `src/rust/src/media/catalog.rs`：应用识别、进程 / AUMID 映射、进度文本解析、`SmtcPolicy` 和 seek 策略。
 - `src/rust/src/media/windows/`：SMTC、窗口 / 进程枚举、Core Audio 会话状态、UI Automation 文本树扫描。
 - `src/rust/src/media/linux.rs` / `macos.rs`：MPRIS / MediaRemote 系统接口及平台相关的无障碍兜底。通用 UIA/AX 扫描留在平台层。
+- `src/rust/src/media/macos/mediaremote.rs`：通过 `dlopen` + Objective-C runtime 调用私有 MediaRemote（`MRNowPlayingController`），不链接 Apple 框架，也不需要外部 `nowplaying-cli`。
 
 ### Seek 规则
 
@@ -404,15 +406,15 @@ Node 侧 `media-enrich.ts` 会再次校验 `provider === 'system'`、时间轴�
 
 | 客户端 | Windows | Linux | macOS |
 |---|---|---|---|
-| 网易云音乐 | 完整系统会话优先（元数据 / 封面 / 状态 / 进度 / 控制 / seek）；不完整时 CDP 补进度 / 红心，系统缺失时 CDP 全量，否则窗口标题 + UIA | 完整 MPRIS 优先；不完整时 CDP 补进度 / 红心，MPRIS 缺失时 CDP 全量 | 完整 `nowplaying-cli` / AppleScript 优先；不完整时 CDP 补进度 / 红心，系统源缺失时 CDP 全量 |
-| QQ 音乐 | SMTC（需真实位置）→ 窗口标题 | MPRIS | `nowplaying-cli` / AppleScript |
-| 酷狗 / 酷我 | SMTC（需真实位置）→ 窗口标题（滚动标题修正） | MPRIS | `nowplaying-cli` / AppleScript |
-| 汽水音乐 | SMTC（需真实位置） | MPRIS | `nowplaying-cli` / AppleScript |
-| 全民 K 歌 | SMTC（需真实位置）→ 窗口标题 + UIA 进度 | MPRIS | `nowplaying-cli` |
-| Spotify | SMTC（可信）→ 窗口标题 | MPRIS | `nowplaying-cli` → AppleScript |
-| Apple Music | SMTC（可信）→ Cider `title.txt` | MPRIS | `nowplaying-cli` → AppleScript → Cider → AX 进度 |
-| YouTube Music | SMTC（可信，含浏览器桥接） | MPRIS | `nowplaying-cli` / AppleScript |
-| 其他应用 / 浏览器 | SMTC | MPRIS | `nowplaying-cli` / AppleScript |
+| 网易云音乐 | 完整系统会话优先（元数据 / 封面 / 状态 / 进度 / 控制 / seek）；不完整时 CDP 补进度 / 红心，系统缺失时 CDP 全量，否则窗口标题 + UIA | 完整 MPRIS 优先；不完整时 CDP 补进度 / 红心，MPRIS 缺失时 CDP 全量 | 完整 MediaRemote / AppleScript 优先；不完整时 CDP 补进度 / 红心，系统源缺失时 CDP 全量 |
+| QQ 音乐 | SMTC（需真实位置）→ 窗口标题 | MPRIS | MediaRemote / AppleScript |
+| 酷狗 / 酷我 | SMTC（需真实位置）→ 窗口标题（滚动标题修正） | MPRIS | MediaRemote / AppleScript |
+| 汽水音乐 | SMTC（需真实位置） | MPRIS | MediaRemote / AppleScript |
+| 全民 K 歌 | SMTC（需真实位置）→ 窗口标题 + UIA 进度 | MPRIS | MediaRemote |
+| Spotify | SMTC（可信）→ 窗口标题 | MPRIS | MediaRemote → AppleScript |
+| Apple Music | SMTC（可信）→ Cider `title.txt` | MPRIS | MediaRemote → AppleScript → Cider → AX 进度 |
+| YouTube Music | SMTC（可信，含浏览器桥接） | MPRIS | MediaRemote / AppleScript |
+| 其他应用 / 浏览器 | SMTC | MPRIS | MediaRemote / AppleScript |
 
 「SMTC（需真实位置）」表示只有会话真的报告了位置时才当作完整系统会话；否则保留可用的 SMTC 元数据，改用私有窗口标题和 UIA 补进度，避免「进度条停在 0 却可以拖动」。
 
@@ -518,7 +520,7 @@ pnpm build:rust
 - 缓存 cargo registry（key 为 `src/rust/Cargo.lock` 哈希）；
 - 步骤：`pnpm ci` → `pnpm check` → `pnpm build` → `pnpm test` → `node scripts/build-rust.mjs` → `cargo fmt --all -- --check` → `cargo check --all-targets` → `cargo test --all-targets`；
 - `push` 只监听分支（`branches: ['**']`）；标签由发布流程负责，避免同一个标签把门禁跑两遍；
-- Windows / macOS 行为仍以本地验证为准；macOS 目前没有 CI。
+- Windows / macOS 行为仍以本地验证为准；macOS 已在 macOS 26 上进行初步测试，目前没有 CI。
 
 `.github/workflows/publish-npm.yml`：把 npm 包发到 `@ohmykreee/dsh-remote-control`。
 

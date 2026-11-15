@@ -158,7 +158,11 @@ fn collapse_repeated_title(title: &str) -> String {
 /// Options shared by read and control commands.
 #[derive(Debug, Clone, Default)]
 pub struct ReadOptions {
+    /// Windows/Linux only; the macOS MediaRemote session has no per-read app
+    /// filter, so the field is intentionally unread there.
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     pub app_id: Option<String>,
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     pub player: Option<String>,
     pub thumbnail: bool,
 }

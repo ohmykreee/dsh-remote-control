@@ -189,7 +189,7 @@ source "$HOME/.cargo/env"
 node scripts/build-rust.mjs
 ```
 
-macOS 仅提供源码级实现，未在实机或 CI 验证；GPU / 温度不实现；AX 读进度需要给运行 `dsh-probe` 的父进程授予「辅助功能」权限。
+macOS 已在 macOS 26 上进行初步测试；媒体读取使用系统 MediaRemote，无需安装额外工具；GPU / 温度不实现；AX 读进度需要给运行 `dsh-probe` 的父进程授予「辅助功能」权限。
 
 ### 网易云音乐 CDP（可选，红心/精确进度）
 

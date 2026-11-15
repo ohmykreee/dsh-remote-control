@@ -1,5 +1,5 @@
 //! macOS volume probe: `osascript` on the system output volume.
-//! Source only; not run in this repository's CI.
+//! Preliminarily tested on macOS 26.
 
 use super::Reading;
 use crate::util;
