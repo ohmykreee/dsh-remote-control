@@ -2,9 +2,12 @@
 //!
 //! CPU/memory come from sysinfo; current frequency from `/proc/cpuinfo` (or
 //! cpufreq); GPU and temperatures are best effort: `nvidia-smi` when present,
-//! otherwise AMD sysfs counters, plus `/sys/class/hwmon` thermal sensors.
+//! otherwise AMD/Intel sysfs counters, plus `/sys/class/hwmon` thermal sensors.
+//! Intel utilization additionally uses the optional `intel_gpu_top` helper.
 
 use std::path::Path;
+
+use serde_json::Value;
 
 use super::{common, Gpu, Performance, Temperature};
 use crate::util;
@@ -173,6 +176,175 @@ fn amd_gpu() -> Option<Gpu> {
     None
 }
 
+fn uevent_field(uevent: &str, key: &str) -> Option<String> {
+    uevent.lines().find_map(|line| {
+        let (name, value) = line.split_once('=')?;
+        (name.trim() == key).then(|| value.trim().to_string())
+    })
+}
+
+fn device_driver(device: &str) -> String {
+    std::fs::read_link(format!("{device}/driver"))
+        .ok()
+        .and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .unwrap_or_default()
+}
+
+fn lspci_gpu_name(slot: &str) -> Option<String> {
+    if slot.is_empty() {
+        return None;
+    }
+    let text = util::command_output("lspci", &["-mm", "-s", slot]).ok()?;
+    // `lspci -mm` returns quoted fields:
+    // 00:02.0 "VGA compatible controller" "Intel Corporation" "UHD Graphics"
+    let parts: Vec<&str> = text.split('"').collect();
+    if parts.len() < 6 {
+        return None;
+    }
+    let name = format!("{} {}", parts[3].trim(), parts[5].trim())
+        .trim()
+        .to_string();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+/// Parse `intel_gpu_top -L` and return the display name plus the `-d` filter
+/// for the Intel card whose PCI device id matches `pci_id`.
+fn intel_tool_card(pci_id: &str) -> Option<(String, String)> {
+    let tool = util::find_executable("intel_gpu_top")?;
+    let text = util::run_path_command(&tool, &["-L"]).ok()?;
+    let device_id = pci_id.split(':').nth(1)?.to_ascii_lowercase();
+    for line in text.lines() {
+        let Some(position) = line.find("pci:") else {
+            continue;
+        };
+        let filter = line[position..].trim();
+        let lower = filter.to_ascii_lowercase();
+        if !lower.contains("vendor=8086") || !lower.contains(&format!("device={device_id}")) {
+            continue;
+        }
+        let name = line[..position]
+            .split_whitespace()
+            .skip(1)
+            .collect::<Vec<_>>()
+            .join(" ");
+        let name = if name.is_empty() {
+            "Intel Graphics".to_string()
+        } else {
+            name
+        };
+        return Some((name, filter.to_string()));
+    }
+    None
+}
+
+fn parse_intel_utilization(text: &str) -> Option<f64> {
+    let samples: Value = serde_json::from_str(text).ok()?;
+    let sample = samples.as_array()?.last()?.as_object()?;
+    let engines = sample.get("engines")?.as_object()?;
+    let mut max = 0.0_f64;
+    for engine in engines.values() {
+        if let Some(busy) = engine.get("busy").and_then(Value::as_f64) {
+            max = max.max(busy);
+        }
+    }
+    some_if_finite(max)
+}
+
+fn some_if_finite(value: f64) -> Option<f64> {
+    if value.is_finite() {
+        Some(util::round1(util::clamp(value, 0.0, 100.0)))
+    } else {
+        None
+    }
+}
+
+/// `intel_gpu_top` needs CAP_PERFMON (or root) to read the i915/xe PMU. When it
+/// is unavailable, the caller keeps the sysfs name/frequency and leaves
+/// utilization unset.
+fn intel_utilization(filter: Option<&str>) -> Option<f64> {
+    let tool = util::find_executable("intel_gpu_top")?;
+    let mut args = vec!["-J", "-s", "250", "-n", "2"];
+    if let Some(filter) = filter {
+        args.push("-d");
+        args.push(filter);
+    }
+    let text = util::run_path_command(&tool, &args).ok()?;
+    parse_intel_utilization(&text)
+}
+
+fn intel_gpu() -> Option<Gpu> {
+    for index in 0..8 {
+        let card = format!("/sys/class/drm/card{index}");
+        let device = format!("{card}/device");
+        if !Path::new(&device).exists() {
+            continue;
+        }
+        let uevent = read_trim(&format!("{device}/uevent")).unwrap_or_default();
+        let Some(pci_id) = uevent_field(&uevent, "PCI_ID") else {
+            continue;
+        };
+        if !pci_id.to_ascii_lowercase().starts_with("8086:") {
+            continue;
+        }
+        let driver = device_driver(&device);
+        if driver != "i915" && driver != "xe" {
+            continue;
+        }
+        let slot = uevent_field(&uevent, "PCI_SLOT_NAME").unwrap_or_default();
+        let tool = intel_tool_card(&pci_id);
+        let (tool_name, filter) = match tool {
+            Some((name, filter)) => (Some(name), Some(filter)),
+            None => (None, None),
+        };
+        let name = lspci_gpu_name(&slot)
+            .or(tool_name)
+            .unwrap_or_else(|| "Intel Graphics".to_string());
+
+        let used = read_u64(&format!("{device}/mem_info_vram_used"));
+        let total = read_u64(&format!("{device}/mem_info_vram_total"));
+        // i915 exposes the GT frequency on the DRM card node, not on the PCI
+        // device symlink; the connector directories link back to this node.
+        let current = read_u64(&format!("{card}/gt_cur_freq_mhz")).map(|value| value as f64);
+        let maximum = read_u64(&format!("{card}/gt_max_freq_mhz"))
+            .or_else(|| read_u64(&format!("{card}/gt_RP0_freq_mhz")))
+            .map(|value| value as f64);
+        let utilization = intel_utilization(filter.as_deref());
+        let source = if utilization.is_some() {
+            "intel-gpu-top"
+        } else {
+            "sysfs-intel"
+        };
+        return Some(Gpu {
+            name: name.clone(),
+            driver,
+            adapters: vec![name],
+            utilization,
+            memory_used: used,
+            memory_total: total,
+            memory_percent: match (used, total) {
+                (Some(used), Some(total)) if total > 0 => {
+                    Some(util::round1(used as f64 / total as f64 * 100.0))
+                }
+                _ => None,
+            },
+            core_clock_mhz: current.map(util::round1),
+            core_clock_max_mhz: maximum.map(util::round1),
+            ok: true,
+            source: source.to_string(),
+            error: None,
+            ..Default::default()
+        });
+    }
+    None
+}
+
 fn push_temperature(temperatures: &mut Vec<Temperature>, name: String, celsius: f64) {
     if !(5.0..=125.0).contains(&celsius) {
         return;
@@ -230,7 +402,7 @@ pub fn read() -> Result<Performance, String> {
         cpu.base_mhz = base_frequency();
     }
 
-    let gpu = nvidia_gpu().or_else(amd_gpu);
+    let gpu = nvidia_gpu().or_else(amd_gpu).or_else(intel_gpu);
     let mut temperatures = Vec::new();
     if let Some(gpu) = gpu.as_ref() {
         if let Some(path) = util::find_executable("nvidia-smi") {
@@ -278,5 +450,16 @@ mod tests {
         push_temperature(&mut temperatures, "cpu".to_string(), 200.0);
         assert_eq!(temperatures.len(), 1);
         assert_eq!(temperatures[0].celsius, 45.0);
+    }
+
+    #[test]
+    fn parses_intel_gpu_top_utilization() {
+        let text = r#"[
+            {"engines": {"Render/3D": {"busy": 12.5}, "Blitter": {"busy": 0.0}}},
+            {"engines": {"Render/3D": {"busy": 40.0}, "Blitter": {"busy": 5.0}}}
+        ]"#;
+        assert_eq!(parse_intel_utilization(text), Some(40.0));
+        assert_eq!(parse_intel_utilization("[]"), None);
+        assert_eq!(parse_intel_utilization("not json"), None);
     }
 }

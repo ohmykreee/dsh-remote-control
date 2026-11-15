@@ -178,7 +178,28 @@ node scripts/build-rust.mjs
 # 产物：native/bin/linux-x64/dsh-probe
 ```
 
-MPRIS 需要会话 D-Bus；GeoClue2 需要 `geoclue2` 服务和桌面授权；音量按 `wpctl` → `pactl` → `amixer` 顺序探测；NVIDIA 需要 `nvidia-smi`（可选）。
+MPRIS 需要会话 D-Bus；GeoClue2 需要 `geoclue2` 服务和桌面授权；音量按 `wpctl` → `pactl` → `amixer` 顺序探测；NVIDIA 需要 `nvidia-smi`（驱动自带，可选）；AMD 使用 sysfs，无需额外包。
+
+#### Intel 核显 / 独显（可选）
+
+Intel i915 / xe 的名称与频率直接读取 sysfs；利用率需要可选的 `intel_gpu_top`：
+
+```bash
+# Fedora / RHEL
+sudo dnf install -y intel-gpu-tools
+# Debian / Ubuntu: sudo apt install intel-gpu-tools
+# Arch: sudo pacman -S intel-gpu-tools
+```
+
+普通用户默认无权读取 i915 / xe 的 PMU，需要给该工具 `CAP_PERFMON`：
+
+```bash
+sudo setcap cap_perfmon+ep /usr/bin/intel_gpu_top
+```
+
+- 未安装或未授权时，探针仍会显示 Intel GPU 名称、当前 / 最大频率，利用率留空。
+- `setcap` 会允许该二进制读取性能计数器；如果不希望修改系统工具权限，可以给 DSH 进程授予同样的 capability，或接受 Intel 利用率不可用。`setcap` 缺失时 Fedora 安装 `libcap`，Debian/Ubuntu 安装 `libcap2-bin`。
+- GPU 名称通常来自 `lspci`（`pciutils`）；没有该命令时显示通用的 “Intel Graphics”。
 
 ### macOS
 

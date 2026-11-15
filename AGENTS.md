@@ -356,7 +356,7 @@ dsh-probe location request [--open-settings]    # 申请定位权限（Windows �
 | 封面 | SMTC `Thumbnail` → data URL；网易云 SMTC 或 CDP URL | `file://` / `data:` 直接读取；HTTP(S) 由 Node 下载 | MediaRemote 不返回封面；`nowplaying-cli` 兜底时可取 artwork |
 | 音量 | Core Audio | `wpctl` → `pactl` → `amixer` | `osascript`（已在 macOS 26 上进行初步测试） |
 | CPU / 内存 / 频率 | sysinfo + PDH + 注册表 | sysinfo + `/proc` + cpufreq | `host_statistics` + `sysctl`（已在 macOS 26 上进行初步测试） |
-| GPU / 温度 | DXGI + PDH + WDDM D3DKMT + 磁盘温度 | `nvidia-smi` 或 AMD sysfs + hwmon | 不实现 |
+| GPU / 温度 | DXGI + PDH + WDDM D3DKMT + 磁盘温度 | `nvidia-smi` 或 AMD/Intel sysfs + hwmon；Intel 利用率需可选 `intel-gpu-tools`（`intel_gpu_top`） | 不实现 |
 | 通知 | 通知中心 SQLite | `org.freedesktop.Notifications` D-Bus 监视（zbus） | 通知中心 SQLite（已在 macOS 26 上进行初步测试） |
 | 位置 | WinRT Geolocation | GeoClue2 | 回退 IP（CoreLocation 需应用包，探针明确报不可用） |
 

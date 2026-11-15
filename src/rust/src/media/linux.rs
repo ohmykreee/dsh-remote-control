@@ -44,15 +44,38 @@ fn player_proxy<'a>(connection: &'a Connection, name: &'a str) -> Result<Proxy<'
     Proxy::new(connection, name, MPRIS_PATH, PLAYER_INTERFACE).map_err(failure)
 }
 
-fn playback_status(connection: &Connection, name: &str) -> Option<String> {
-    player_proxy(connection, name)
-        .ok()?
+/// A cheap projection of one MPRIS player used for selection.
+struct PlayerSummary {
+    status: String,
+    has_identity: bool,
+    duration: f64,
+}
+
+fn player_summary(connection: &Connection, name: &str) -> Option<PlayerSummary> {
+    let proxy = player_proxy(connection, name).ok()?;
+    let status = proxy
         .get_property::<String>("PlaybackStatus")
-        .ok()
+        .unwrap_or_else(|_| "Stopped".to_string());
+    let metadata = metadata_of(&proxy);
+    let title = string_value(&metadata, "xesam:title");
+    let artists = string_array(&metadata, "xesam:artist");
+    let has_identity =
+        !title.trim().is_empty() || artists.iter().any(|artist| !artist.trim().is_empty());
+    let duration = number_value(&metadata, "mpris:length")
+        .unwrap_or(0.0)
+        .max(0.0)
+        / 1_000_000.0;
+    Some(PlayerSummary {
+        status,
+        has_identity,
+        duration,
+    })
 }
 
 /// Reuse the previously selected player while it is alive, otherwise prefer a
-/// playing player, then the first one. Mirrors the old playerctl adapter.
+/// playing player, then any player that actually has a track (or at least a
+/// duration). Empty browser MPRIS placeholders are skipped so they cannot
+/// shadow a real player or turn into an empty media card.
 fn choose_player(
     connection: &Connection,
     names: &[String],
@@ -74,12 +97,26 @@ fn choose_player(
             return Some(partial.clone());
         }
     }
+
+    let mut playing_without_identity = None;
+    let mut fallback = None;
     for name in names {
-        if playback_status(connection, name).as_deref() == Some("Playing") {
+        let Some(summary) = player_summary(connection, name) else {
+            continue;
+        };
+        let playing = summary.status == "Playing";
+        let usable = summary.has_identity || summary.duration > 0.0;
+        if playing && usable {
             return Some(name.clone());
         }
+        if playing && playing_without_identity.is_none() {
+            playing_without_identity = Some(name.clone());
+        }
+        if usable && fallback.is_none() {
+            fallback = Some(name.clone());
+        }
     }
-    names.first().cloned()
+    playing_without_identity.or(fallback)
 }
 
 fn metadata_of(proxy: &Proxy<'_>) -> HashMap<String, OwnedValue> {
@@ -178,8 +215,22 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
     let proxy = player_proxy(&connection, &name)?;
     let metadata = metadata_of(&proxy);
     let title = string_value(&metadata, "xesam:title");
-    let artists = string_array(&metadata, "xesam:artist");
-    if title.trim().is_empty() && artists.is_empty() {
+    let artists: Vec<String> = string_array(&metadata, "xesam:artist")
+        .into_iter()
+        .filter(|artist| !artist.trim().is_empty())
+        .collect();
+    let status = proxy
+        .get_property::<String>("PlaybackStatus")
+        .unwrap_or_else(|_| "Stopped".to_string());
+    let length_micros = number_value(&metadata, "mpris:length")
+        .unwrap_or(0.0)
+        .max(0.0);
+    let duration = length_micros / 1_000_000.0;
+
+    // Browser MPRIS services often expose an empty placeholder entry while no
+    // tab is playing. Only treat it as a real session when it is playing or has
+    // a track/duration; otherwise fall through to the NetEase CDP probe.
+    if title.trim().is_empty() && artists.is_empty() && duration <= 0.0 && status != "Playing" {
         let netease = catalog::profile_for_id(&name)
             .map(|profile| profile.app == catalog::App::Netease)
             .unwrap_or(false);
@@ -190,14 +241,7 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
         });
     }
 
-    let status = proxy
-        .get_property::<String>("PlaybackStatus")
-        .unwrap_or_else(|_| "Stopped".to_string());
     let position_micros = proxy.get_property::<i64>("Position").unwrap_or(0).max(0);
-    let length_micros = number_value(&metadata, "mpris:length")
-        .unwrap_or(0.0)
-        .max(0.0);
-    let duration = length_micros / 1_000_000.0;
     let can_seek = proxy.get_property::<bool>("CanSeek").unwrap_or(false);
     let can_control = proxy.get_property::<bool>("CanControl").unwrap_or(true);
 
@@ -210,7 +254,11 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
     };
     media.artist = artists.join(", ");
     media.album = string_value(&metadata, "xesam:album");
-    media.album_artist = string_array(&metadata, "xesam:albumArtist").join(", ");
+    media.album_artist = string_array(&metadata, "xesam:albumArtist")
+        .into_iter()
+        .filter(|artist| !artist.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join(", ");
     media.playback_status = status;
     media.position = position_micros as f64 / 1_000_000.0;
     media.start_time = 0.0;

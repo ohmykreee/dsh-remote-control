@@ -168,7 +168,7 @@ Turn on **Push inquiries** and sessions waiting for an answer gain an **Answer**
 | Platform | Support |
 |---|---|
 | Windows | Full media, volume, performance, notifications and location support. |
-| Linux | Full media, volume, performance and notifications support; GPU support for NVIDIA / AMD. |
+| Linux | Full media, volume, performance and notifications support; GPU support for NVIDIA / AMD, Intel integrated/discrete GPUs need optional `intel-gpu-tools`. |
 | macOS | Preliminary testing completed on macOS 26; GPU and temperature are unavailable. |
 | Phone | Modern browser; layout is optimised for 1280×800 landscape. |
 
