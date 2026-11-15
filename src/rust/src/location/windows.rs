@@ -7,6 +7,8 @@
 //! `request_access` reports both cases and can open the privacy settings page
 //! for the user.
 
+#![deny(clippy::undocumented_unsafe_blocks)]
+
 use std::mem::{size_of, size_of_val};
 
 use windows::core::PCWSTR;
@@ -37,9 +39,12 @@ const SECURITY_MANDATORY_MEDIUM_RID: u32 = 0x2000;
 
 fn ensure_com() {
     static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| unsafe {
-        // S_FALSE / RPC_E_CHANGED_MODE are harmless.
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+    ONCE.call_once(|| {
+        // SAFETY: COM initialization is process-wide and idempotent. S_FALSE or
+        // RPC_E_CHANGED_MODE means another component already initialized COM.
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        }
     });
 }
 
@@ -55,6 +60,11 @@ fn access_status() -> Result<GeolocationAccessStatus, String> {
 /// location access to Low-integrity processes even when the privacy settings
 /// allow desktop apps, so this distinction matters for the hint shown in the UI.
 fn is_low_integrity() -> bool {
+    // SAFETY: the process token is opened with TOKEN_QUERY and always closed.
+    // The first GetTokenInformation call determines the required byte count;
+    // the second writes into a word-aligned buffer of at least that size. The
+    // TOKEN_MANDATORY_LABEL and SID pointers are only dereferenced while the
+    // buffer and token are still alive.
     unsafe {
         let mut token = HANDLE::default();
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
@@ -100,6 +110,8 @@ fn is_low_integrity() -> bool {
 
 /// Open `Settings > Privacy & security > Location` so the user can grant access.
 fn open_location_settings() -> bool {
+    // SAFETY: all strings are static, NUL-terminated wide literals (`w!`); the
+    // call has no output buffer and only asks the shell to open a settings URI.
     unsafe {
         let result = ShellExecuteW(
             None,

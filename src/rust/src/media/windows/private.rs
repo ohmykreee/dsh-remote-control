@@ -10,6 +10,8 @@
 //! Window titles are read with `EnumWindows` and process image names with
 //! `QueryFullProcessImageNameW`; neither touches the network.
 
+#![deny(clippy::undocumented_unsafe_blocks)]
+
 use std::collections::HashMap;
 
 use windows::core::{BOOL, PWSTR};
@@ -38,6 +40,9 @@ pub struct WindowInfo {
 
 pub fn enumerate_windows() -> Vec<WindowInfo> {
     let mut windows: Vec<WindowInfo> = Vec::new();
+    // SAFETY: `EnumWindows` invokes the callback synchronously and the LPARAM
+    // points to `windows`, which outlives the call. The callback only pushes
+    // owned data and never stores the pointer.
     unsafe {
         let _ = EnumWindows(
             Some(enum_window),
@@ -79,6 +84,10 @@ unsafe extern "system" fn enum_window(hwnd: HWND, lparam: LPARAM) -> BOOL {
 
 /// Full executable name (no directory) for a process id.
 pub fn process_image_name(pid: u32) -> Option<String> {
+    // SAFETY: the process handle is opened with query-only rights and closed on
+    // every path after a successful open. The buffer is valid for the duration
+    // of `QueryFullProcessImageNameW`, which receives its length and writes at
+    // most that many UTF-16 units.
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
         let mut buffer = [0u16; 1024];

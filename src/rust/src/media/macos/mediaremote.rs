@@ -12,8 +12,10 @@
 //! Transport commands keep using the legacy `MRMediaRemoteSendCommand` and
 //! `MRMediaRemoteSetElapsedTime` entry points.
 
+#![deny(clippy::undocumented_unsafe_blocks)]
+
+use std::cell::OnceCell;
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
-use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 type Id = *mut c_void;
@@ -42,10 +44,12 @@ struct Runtime {
     pool_pop: Option<unsafe extern "C" fn(Id)>,
 }
 
-// Every field is an immutable code address or a global object owned by the
-// frameworks; sharing the table across threads is safe.
-unsafe impl Send for Runtime {}
-unsafe impl Sync for Runtime {}
+thread_local! {
+    /// Resolved once per thread. `Runtime` contains raw ObjC/MediaRemote
+    /// function pointers; keeping it thread-local avoids asserting `Send`/`Sync`
+    /// for a table whose framework handles are thread-affine.
+    static RUNTIME: OnceCell<Option<Runtime>> = OnceCell::new();
+}
 
 #[derive(Debug, Clone)]
 pub(super) struct Reading {
@@ -60,6 +64,10 @@ pub(super) struct Reading {
 }
 
 fn load_runtime() -> Option<Runtime> {
+    // SAFETY: `dlopen` receives a static NUL-terminated path and the handle is
+    // kept alive for the process. `dlsym` results are transmuted only after a
+    // null check, and each cast uses the C ABI matching the symbol's documented
+    // signature (checked against MediaRemote's symbols on macOS 26).
     unsafe {
         let path =
             CString::new("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote")
@@ -114,9 +122,8 @@ unsafe fn symbol(handle: *mut c_void, name: &str) -> Option<*mut c_void> {
     }
 }
 
-fn runtime() -> Option<&'static Runtime> {
-    static RUNTIME: OnceLock<Option<Runtime>> = OnceLock::new();
-    RUNTIME.get_or_init(load_runtime).as_ref()
+fn with_runtime<T>(f: impl FnOnce(&Runtime) -> T) -> Option<T> {
+    RUNTIME.with(|slot| slot.get_or_init(load_runtime).as_ref().map(f))
 }
 
 unsafe fn class(rt: &Runtime, name: &str) -> Option<Id> {
@@ -236,28 +243,35 @@ unsafe fn count_value(rt: &Runtime, object: Id) -> usize {
 }
 
 pub(super) fn available() -> bool {
-    let Some(rt) = runtime() else {
-        return false;
-    };
-    unsafe {
-        class(rt, "MRDestination").is_some()
-            && class(rt, "MRNowPlayingControllerConfiguration").is_some()
-            && class(rt, "MRNowPlayingController").is_some()
-    }
+    with_runtime(|rt| {
+        // SAFETY: class lookup only reads the Objective-C runtime's class table;
+        // `rt` is an immutable function table and the class names are static.
+        unsafe {
+            class(rt, "MRDestination").is_some()
+                && class(rt, "MRNowPlayingControllerConfiguration").is_some()
+                && class(rt, "MRNowPlayingController").is_some()
+        }
+    })
+    .unwrap_or(false)
 }
 
 /// Read the user-selected Now Playing session, or `None` when nothing is
 /// playing / the private API is unavailable.
 pub(super) fn read() -> Option<Reading> {
-    let rt = runtime()?;
-    unsafe {
-        let pool = rt.pool_push.map(|push| push());
-        let reading = read_inner(rt);
-        if let (Some(pop), Some(pool)) = (rt.pool_pop, pool) {
-            pop(pool);
+    with_runtime(|rt| {
+        // SAFETY: the autorelease pool brackets all Objective-C object creation
+        // in `read_inner`; every returned value is owned Rust data, and the pool
+        // is popped on both success and failure paths.
+        unsafe {
+            let pool = rt.pool_push.map(|push| push());
+            let reading = read_inner(rt);
+            if let (Some(pop), Some(pool)) = (rt.pool_pop, pool) {
+                pop(pool);
+            }
+            reading
         }
-        reading
-    }
+    })
+    .flatten()
 }
 
 unsafe fn read_inner(rt: &Runtime) -> Option<Reading> {
@@ -368,6 +382,9 @@ unsafe fn extract(rt: &Runtime, response: Id) -> Option<Reading> {
 }
 
 fn send_command(rt: &Runtime, command: c_int) -> Result<(), String> {
+    // SAFETY: `send_command` was resolved from MediaRemote with the
+    // `Boolean(c_int, CFDictionaryRef)` signature; command ids come from the
+    // documented MRMediaRemoteCommand enum and a null userInfo is accepted.
     let accepted = unsafe { (rt.send_command)(command, std::ptr::null_mut()) };
     if accepted != 0 {
         Ok(())
@@ -377,8 +394,7 @@ fn send_command(rt: &Runtime, command: c_int) -> Result<(), String> {
 }
 
 pub(super) fn control(action: &str, position: f64) -> Result<(), String> {
-    let rt = runtime().ok_or_else(|| "MediaRemote is unavailable".to_string())?;
-    match action {
+    with_runtime(|rt| match action {
         "playpause" => send_command(rt, 2),
         "next" => send_command(rt, 4),
         "previous" => send_command(rt, 5),
@@ -386,11 +402,14 @@ pub(super) fn control(action: &str, position: f64) -> Result<(), String> {
             let set_elapsed = rt
                 .set_elapsed
                 .ok_or_else(|| "MediaRemote seek is unavailable".to_string())?;
+            // SAFETY: the symbol was resolved with the `void(double)` ABI and
+            // the position is clamped to a non-negative finite value.
             unsafe { set_elapsed(position.max(0.0)) };
             Ok(())
         }
         other => Err(format!("unsupported media action: {other}")),
-    }
+    })
+    .unwrap_or_else(|| Err("MediaRemote is unavailable".to_string()))
 }
 
 #[cfg(all(test, target_os = "macos"))]
@@ -402,75 +421,82 @@ mod tests {
     /// requiring Music/Spotify or an interactive desktop session.
     #[test]
     fn reads_a_fake_now_playing_session() {
-        let rt = runtime().expect("load MediaRemote");
-        unsafe {
-            let path =
-                CString::new("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote")
-                    .expect("path");
-            let media = dlopen(path.as_ptr(), RTLD_NOW | RTLD_GLOBAL);
-            assert!(!media.is_null(), "dlopen MediaRemote");
-            let can_be_now_playing: unsafe extern "C" fn(u8) = std::mem::transmute(
-                symbol(media, "MRMediaRemoteSetCanBeNowPlayingApplication")
-                    .expect("can be playing"),
-            );
-            let set_info: unsafe extern "C" fn(Id) = std::mem::transmute(
-                symbol(media, "MRMediaRemoteSetNowPlayingInfo").expect("set info"),
-            );
-            can_be_now_playing(1);
-
-            let info = msg0(
-                rt,
-                class(rt, "NSMutableDictionary").expect("NSMutableDictionary"),
-                "dictionary",
-            );
-            let set_object: unsafe extern "C" fn(Id, Sel, Id, Id) =
-                std::mem::transmute(rt.msg_send);
-            let number: unsafe extern "C" fn(Id, Sel, f64) -> Id = std::mem::transmute(rt.msg_send);
-            let number_class = class(rt, "NSNumber").expect("NSNumber");
-            for (key, value) in [
-                (
-                    "kMRMediaRemoteNowPlayingInfoTitle",
-                    nsstring(rt, "Probe Test Song"),
-                ),
-                (
-                    "kMRMediaRemoteNowPlayingInfoArtist",
-                    nsstring(rt, "Probe Artist"),
-                ),
-                (
-                    "kMRMediaRemoteNowPlayingInfoAlbum",
-                    nsstring(rt, "Probe Album"),
-                ),
-            ] {
-                set_object(
-                    info,
-                    selector(rt, "setObject:forKey:"),
-                    value,
-                    nsstring(rt, key),
+        with_runtime(|rt| {
+            // SAFETY: this test intentionally publishes a fake Now Playing entry
+            // through the same private symbols; all objects are created in this
+            // process, kept alive for the call, and no raw pointer escapes.
+            unsafe {
+                let path = CString::new(
+                    "/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote",
+                )
+                .expect("path");
+                let media = dlopen(path.as_ptr(), RTLD_NOW | RTLD_GLOBAL);
+                assert!(!media.is_null(), "dlopen MediaRemote");
+                let can_be_now_playing: unsafe extern "C" fn(u8) = std::mem::transmute(
+                    symbol(media, "MRMediaRemoteSetCanBeNowPlayingApplication")
+                        .expect("can be playing"),
                 );
-            }
-            for (key, value) in [
-                ("kMRMediaRemoteNowPlayingInfoDuration", 240.0),
-                ("kMRMediaRemoteNowPlayingInfoElapsedTime", 42.0),
-                ("kMRMediaRemoteNowPlayingInfoPlaybackRate", 1.0),
-            ] {
-                set_object(
-                    info,
-                    selector(rt, "setObject:forKey:"),
-                    number(number_class, selector(rt, "numberWithDouble:"), value),
-                    nsstring(rt, key),
+                let set_info: unsafe extern "C" fn(Id) = std::mem::transmute(
+                    symbol(media, "MRMediaRemoteSetNowPlayingInfo").expect("set info"),
                 );
-            }
-            set_info(info);
-            std::thread::sleep(Duration::from_millis(200));
+                can_be_now_playing(1);
 
-            let reading = read().expect("read the fake session");
-            assert_eq!(reading.title, "Probe Test Song");
-            assert_eq!(reading.artist, "Probe Artist");
-            assert_eq!(reading.album, "Probe Album");
-            assert!((reading.duration - 240.0).abs() < 0.5);
-            assert!((reading.position - 42.0).abs() < 2.0);
-            assert!(reading.playback_rate > 0.0);
-            assert!(!reading.app_id.is_empty());
-        }
+                let info = msg0(
+                    rt,
+                    class(rt, "NSMutableDictionary").expect("NSMutableDictionary"),
+                    "dictionary",
+                );
+                let set_object: unsafe extern "C" fn(Id, Sel, Id, Id) =
+                    std::mem::transmute(rt.msg_send);
+                let number: unsafe extern "C" fn(Id, Sel, f64) -> Id =
+                    std::mem::transmute(rt.msg_send);
+                let number_class = class(rt, "NSNumber").expect("NSNumber");
+                for (key, value) in [
+                    (
+                        "kMRMediaRemoteNowPlayingInfoTitle",
+                        nsstring(rt, "Probe Test Song"),
+                    ),
+                    (
+                        "kMRMediaRemoteNowPlayingInfoArtist",
+                        nsstring(rt, "Probe Artist"),
+                    ),
+                    (
+                        "kMRMediaRemoteNowPlayingInfoAlbum",
+                        nsstring(rt, "Probe Album"),
+                    ),
+                ] {
+                    set_object(
+                        info,
+                        selector(rt, "setObject:forKey:"),
+                        value,
+                        nsstring(rt, key),
+                    );
+                }
+                for (key, value) in [
+                    ("kMRMediaRemoteNowPlayingInfoDuration", 240.0),
+                    ("kMRMediaRemoteNowPlayingInfoElapsedTime", 42.0),
+                    ("kMRMediaRemoteNowPlayingInfoPlaybackRate", 1.0),
+                ] {
+                    set_object(
+                        info,
+                        selector(rt, "setObject:forKey:"),
+                        number(number_class, selector(rt, "numberWithDouble:"), value),
+                        nsstring(rt, key),
+                    );
+                }
+                set_info(info);
+                std::thread::sleep(Duration::from_millis(200));
+
+                let reading = read().expect("read the fake session");
+                assert_eq!(reading.title, "Probe Test Song");
+                assert_eq!(reading.artist, "Probe Artist");
+                assert_eq!(reading.album, "Probe Album");
+                assert!((reading.duration - 240.0).abs() < 0.5);
+                assert!((reading.position - 42.0).abs() < 2.0);
+                assert!(reading.playback_rate > 0.0);
+                assert!(!reading.app_id.is_empty());
+            }
+        })
+        .expect("load MediaRemote");
     }
 }

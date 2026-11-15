@@ -27,7 +27,10 @@ mod platform;
 mod platform;
 
 #[cfg(all(feature = "macos-check", not(target_os = "macos")))]
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "compiled for macos-check only; the module is never referenced"
+)]
 #[path = "macos.rs"]
 mod macos_preview;
 

@@ -12,6 +12,8 @@
 //! No network API is used. Cover art still comes from the SMTC thumbnail stream
 //! or the local NetEase cache.
 
+#![deny(clippy::undocumented_unsafe_blocks)]
+
 #[path = "windows/accessibility.rs"]
 mod accessibility;
 #[path = "windows/audio.rs"]
@@ -43,13 +45,16 @@ fn failure(error: impl std::fmt::Display) -> String {
 
 fn ensure_com() {
     static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| unsafe {
-        // S_FALSE / RPC_E_CHANGED_MODE are harmless: another library already
-        // initialized this apartment.
-        let _ = windows::Win32::System::Com::CoInitializeEx(
-            None,
-            windows::Win32::System::Com::COINIT_MULTITHREADED,
-        );
+    ONCE.call_once(|| {
+        // SAFETY: COM initialization is process-wide and idempotent. Another
+        // library may already own the apartment; S_FALSE/RPC_E_CHANGED_MODE is
+        // intentionally ignored and the subsequent COM calls surface errors.
+        unsafe {
+            let _ = windows::Win32::System::Com::CoInitializeEx(
+                None,
+                windows::Win32::System::Com::COINIT_MULTITHREADED,
+            );
+        }
     });
 }
 

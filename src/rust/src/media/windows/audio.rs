@@ -6,6 +6,8 @@
 //! whether the client is actually playing. The probe exposes the same signal so
 //! the private tier and incomplete system sessions can correct their status.
 
+#![deny(clippy::undocumented_unsafe_blocks)]
+
 use std::collections::HashMap;
 
 use windows::core::Interface;
@@ -35,8 +37,13 @@ impl Activity {
 
 fn ensure_com() {
     static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+    ONCE.call_once(|| {
+        // SAFETY: COM initialization is process-wide and idempotent. An existing
+        // apartment (S_FALSE/RPC_E_CHANGED_MODE) is harmless; later COM calls
+        // surface any real failure.
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        }
     });
 }
 
@@ -47,6 +54,10 @@ fn ensure_com() {
 pub fn snapshot() -> HashMap<u32, Activity> {
     ensure_com();
     let mut activities: HashMap<u32, Activity> = HashMap::new();
+    // SAFETY: COM is initialized above; all COM interfaces are owned by the
+    // `windows` crate (released on drop), and every fallible call is checked
+    // before its interface is used. A null outer unknown is valid for these
+    // activation calls.
     unsafe {
         let enumerator: IMMDeviceEnumerator =
             match CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) {

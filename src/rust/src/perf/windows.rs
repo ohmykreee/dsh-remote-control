@@ -8,6 +8,8 @@
 //! come from the WDDM performance data (`D3DKMTQueryAdapterInfo`), which is the
 //! same source Task Manager uses. None of this goes through WMI or PowerShell.
 
+#![deny(clippy::undocumented_unsafe_blocks)]
+
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::mem::size_of;
@@ -85,9 +87,16 @@ fn power_frequency() -> Option<(f64, f64)> {
         .map(|count| count.get())
         .unwrap_or(1)
         .max(1);
-    let mut info: Vec<PROCESSOR_POWER_INFORMATION> =
-        (0..count).map(|_| unsafe { std::mem::zeroed() }).collect();
+    let mut info: Vec<PROCESSOR_POWER_INFORMATION> = (0..count)
+        .map(|_| {
+            // SAFETY: PROCESSOR_POWER_INFORMATION is a plain C struct whose
+            // all-zero bit pattern is a valid empty sample.
+            unsafe { std::mem::zeroed() }
+        })
+        .collect();
     let bytes = (info.len() * size_of::<PROCESSOR_POWER_INFORMATION>()) as u32;
+    // SAFETY: the buffer is correctly sized for `count` entries and remains
+    // valid for the duration of the synchronous call; `bytes` matches its size.
     let status = unsafe {
         CallNtPowerInformation(
             ProcessorInformation,
@@ -131,6 +140,9 @@ struct PdhCounter {
 
 impl PdhCounter {
     fn open(path: &str) -> Result<Self, String> {
+        // SAFETY: each PDH handle is either returned in `Self` (and closed by
+        // `Drop`) or closed before the error path returns. `path` is copied
+        // into an HSTRING that outlives the add-counter call.
         unsafe {
             let mut query = PDH_HQUERY(std::ptr::null_mut());
             if PdhOpenQueryW(PCWSTR::null(), 0, &mut query) != 0 {
@@ -162,6 +174,8 @@ impl PdhCounter {
             }
         }
         let stale = elapsed.map_or(true, |elapsed| elapsed >= PDH_RESAMPLE_AFTER);
+        // SAFETY: `self.query` is a handle created by `PdhOpenQueryW` and kept
+        // open until `Drop`; both collections operate on it synchronously.
         unsafe {
             if PdhCollectQueryData(self.query) != 0 {
                 return Err("PdhCollectQueryData failed".to_string());
@@ -178,6 +192,10 @@ impl PdhCounter {
     }
 
     fn formatted_array(&self) -> Result<Vec<(String, f64)>, String> {
+        // SAFETY: the first PDH call only queries the required byte count and
+        // item count. The buffer is word-aligned and large enough for that
+        // byte count; the second call receives the same size/count pair and its
+        // status is checked before the buffer is viewed as an item slice.
         unsafe {
             let mut size = 0_u32;
             let mut count = 0_u32;
@@ -226,6 +244,8 @@ impl PdhCounter {
 
 impl Drop for PdhCounter {
     fn drop(&mut self) {
+        // SAFETY: the query handle was created by PdhOpenQueryW and is only
+        // closed here; `self` is not used after this call.
         unsafe {
             let _ = PdhCloseQuery(self.query);
         }
@@ -306,12 +326,16 @@ fn with_pdh_counter<T>(
 fn pdh_performance_percent() -> Option<f64> {
     with_pdh_counter(PROCESSOR_PERFORMANCE_COUNTER, |counter| {
         let mut value = PDH_FMT_COUNTERVALUE::default();
+        // SAFETY: `counter.counter` comes from a live PDH query; `value` is a
+        // correctly sized output struct and the returned status is checked.
         let status = unsafe {
             PdhGetFormattedCounterValue(counter.counter, PDH_FMT_DOUBLE, None, &mut value)
         };
         if status != 0 {
             return Err(format!("counter value failed (status {status})"));
         }
+        // SAFETY: the call requested PDH_FMT_DOUBLE, so reading the double union
+        // member is the active representation.
         let percent = unsafe { value.Anonymous.doubleValue };
         if percent.is_finite() && percent > 0.0 {
             Ok(Some(percent))
@@ -378,6 +402,8 @@ fn query_adapter_info<T>(h_adapter: u32, kind: KMTQUERYADAPTERINFOTYPE, value: &
         pPrivateDriverData: value as *mut T as *mut core::ffi::c_void,
         PrivateDriverDataSize: size_of::<T>() as u32,
     };
+    // SAFETY: the query points at `value`, which is sized for `T` and valid for
+    // the duration of the synchronous D3DKMT call.
     unsafe { D3DKMTQueryAdapterInfo(&mut query).0 >= 0 }
 }
 
@@ -388,6 +414,9 @@ fn query_adapter_info<T>(h_adapter: u32, kind: KMTQUERYADAPTERINFOTYPE, value: &
 /// * `D3DKMT_NODE_PERFDATA` reports per-engine clocks in hertz; the 3D engine is
 ///   the graphics clock shown in Task Manager.
 fn adapter_perf(luid: LUID) -> Option<AdapterPerf> {
+    // SAFETY: the adapter handle is opened from a valid LUID, every query uses
+    // a correctly sized output struct, and the handle is closed on all paths
+    // after it has been opened.
     unsafe {
         let mut open = D3DKMT_OPENADAPTERFROMLUID {
             AdapterLuid: luid,
@@ -534,6 +563,9 @@ struct DxgiAdapter {
 
 fn dxgi_adapters() -> Result<Vec<DxgiAdapter>, String> {
     let registry = registry_adapters();
+    // SAFETY: `CreateDXGIFactory1` returns a COM interface owned by this scope;
+    // every adapter enumeration result is checked and the interface is dropped
+    // normally. The returned descriptions are copied into owned Rust data.
     unsafe {
         let factory: IDXGIFactory1 =
             CreateDXGIFactory1().map_err(|error| format!("DXGI unavailable: {error}"))?;
@@ -726,6 +758,8 @@ struct StorageTemperatureDescriptor {
 /// physical drive, or `None` when the drive does not report it.
 fn disk_temperature(index: u32) -> Option<f64> {
     let path = HSTRING::from(format!(r"\\.\PhysicalDrive{index}"));
+    // SAFETY: `CreateFileW` receives a valid HSTRING-backed wide path and no
+    // template; the returned handle is checked and closed below.
     let handle: HANDLE = unsafe {
         CreateFileW(
             &path,
@@ -748,6 +782,9 @@ fn disk_temperature(index: u32) -> Option<f64> {
     };
     let mut output = StorageTemperatureDescriptor::default();
     let mut returned = 0_u32;
+    // SAFETY: the handle is valid and the input/output buffers are sized by the
+    // corresponding `size_of` values and live until the synchronous call
+    // returns; `returned` is a valid out parameter.
     let ok = unsafe {
         DeviceIoControl(
             handle,
@@ -760,6 +797,8 @@ fn disk_temperature(index: u32) -> Option<f64> {
             None,
         )
     };
+    // SAFETY: the handle was returned by `CreateFileW` and is closed exactly
+    // once here, whether or not the IOCTL succeeded.
     unsafe {
         let _ = CloseHandle(handle);
     }

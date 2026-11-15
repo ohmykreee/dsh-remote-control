@@ -7,6 +7,8 @@
 //! `sysctl`/`vm_stat` instead. GPU and thermal readings are still absent: they
 //! need privileged APIs (`powermetrics`, IOKit) this sidecar does not use.
 
+#![deny(clippy::undocumented_unsafe_blocks)]
+
 use std::cell::RefCell;
 use std::time::{Duration, Instant};
 
@@ -113,6 +115,10 @@ fn sample_ticks() -> Result<CpuTicks, String> {
             cpu_ticks: [0; CPU_STATE_MAX as usize],
         };
         let mut count = HOST_CPU_LOAD_INFO_COUNT;
+        // SAFETY: `info` is a properly aligned host_cpu_load_info and `count`
+        // starts at the exact element count expected for HOST_CPU_LOAD_INFO.
+        // `mach_host_self` names the host port, and the returned kern_return_t
+        // is checked before the data is read.
         let status = unsafe {
             host_statistics(
                 mach_host_self(),

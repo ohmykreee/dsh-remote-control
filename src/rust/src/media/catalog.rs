@@ -90,7 +90,10 @@ pub enum PrivateKind {
 
 /// Which layer produced a media payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "the Accessibility variant is only constructed by the Windows adapter; tests exercise it on every target"
+)]
 pub enum Tier {
     System,
     Private,
@@ -292,7 +295,6 @@ pub fn profile_for_process(process: &str) -> Option<&'static Profile> {
     })
 }
 
-#[allow(dead_code)]
 pub fn profile_for_app(app: App) -> Option<&'static Profile> {
     PROFILES.iter().find(|profile| profile.app == app)
 }

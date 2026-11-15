@@ -26,7 +26,10 @@ mod platform;
 // Compile the macOS implementation on other hosts for syntax/type checking.
 // This is not a macOS build and does not enable the code path.
 #[cfg(all(feature = "macos-check", not(target_os = "macos")))]
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "compiled for macos-check only; the module is never referenced"
+)]
 #[path = "macos.rs"]
 mod macos_preview;
 
@@ -160,9 +163,21 @@ fn collapse_repeated_title(title: &str) -> String {
 pub struct ReadOptions {
     /// Windows/Linux only; the macOS MediaRemote session has no per-read app
     /// filter, so the field is intentionally unread there.
-    #[cfg_attr(target_os = "macos", allow(dead_code))]
+    #[cfg_attr(
+        all(target_os = "macos", not(test)),
+        expect(
+            dead_code,
+            reason = "macOS reads the system session and ignores --app-id"
+        )
+    )]
     pub app_id: Option<String>,
-    #[cfg_attr(target_os = "macos", allow(dead_code))]
+    #[cfg_attr(
+        target_os = "macos",
+        expect(
+            dead_code,
+            reason = "macOS MediaRemote does not expose per-player selection"
+        )
+    )]
     pub player: Option<String>,
     pub thumbnail: bool,
 }
