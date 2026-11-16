@@ -249,36 +249,38 @@ export function createWeatherService(options: WeatherServiceOptions): WeatherSer
   }
 
   /**
-   * Resolve a display name for the system coordinates. The active QWeather
-   * account is asked first because its GeoAPI accepts "longitude,latitude";
-   * NMC and Open-Meteo cannot reverse coordinates, and an exhausted QWeather
-   * quota also falls through to the free reverse-geocode fallback.
+   * Resolve a display name for the system coordinates, in provider order:
+   * - selected NMC / Open-Meteo: BigDataCloud only;
+   * - selected QWeather and configured: QWeather GeoAPI, then BigDataCloud
+   *   if the request fails or the quota is exhausted;
+   * - QWeather not configured/available: BigDataCloud.
    */
   async function resolvePlaceName(latitude: number, longitude: number): Promise<ReverseGeocodeResult | null> {
     const weather = settings();
-    if (weather.provider === 'qweather' && qweatherConfigured(weather.qweather)) {
-      try {
-        const places = await searchQWeatherCities(
-          `${longitude.toFixed(2)},${latitude.toFixed(2)}`,
-          weather.qweather,
-          {
-            reserve: (count) => reserveQWeatherCalls(count, weather),
-            locale: locale(),
-            forecastMode: weather.forecastMode,
-          },
-          1,
-        );
-        const place = places[0];
-        if (place) {
-          return {
-            name: place.admin2 || place.name,
-            ...(place.admin1 ? { province: place.admin1 } : {}),
-            ...(place.country ? { country: place.country } : {}),
-          };
-        }
-      } catch {
-        // GeoAPI disabled, unsupported for this credential, or quota exhausted.
+    if (weather.provider !== 'qweather' || !qweatherConfigured(weather.qweather)) {
+      return reverseGeocodeFallback(latitude, longitude, locale());
+    }
+    try {
+      const places = await searchQWeatherCities(
+        `${longitude.toFixed(2)},${latitude.toFixed(2)}`,
+        weather.qweather,
+        {
+          reserve: (count) => reserveQWeatherCalls(count, weather),
+          locale: locale(),
+          forecastMode: weather.forecastMode,
+        },
+        1,
+      );
+      const place = places[0];
+      if (place) {
+        return {
+          name: place.admin2 || place.name,
+          ...(place.admin1 ? { province: place.admin1 } : {}),
+          ...(place.country ? { country: place.country } : {}),
+        };
       }
+    } catch {
+      // GeoAPI disabled, unsupported for this credential, or quota exhausted.
     }
     return reverseGeocodeFallback(latitude, longitude, locale());
   }
