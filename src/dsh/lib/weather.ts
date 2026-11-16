@@ -18,35 +18,34 @@ import {
 } from './settings.js';
 import type { PluginCacheStore } from './cache.js';
 import { probeInfo, runProbe } from './probe.js';
-import { isRecord } from './types.js';
+import { WeatherQuotaError, isRecord } from './types.js';
 import type { JsonRecord } from './types.js';
 import { finiteNumber, safeString, serializeError } from './util.js';
-import { fetchOpenMeteoWeather, searchOpenMeteoCities } from './weather-open-meteo.js';
+import { fetchOpenMeteoWeather, searchOpenMeteoCities } from './weather/open-meteo.js';
 import {
   fetchQWeatherWeather,
   fetchQWeatherConsole,
   qweatherConfigured,
   searchQWeatherCities,
-} from './weather-qweather.js';
+} from './weather/qweather.js';
 import {
   fetchNmcWeather,
   resolveNmcCity,
   searchNmcCities,
-} from './weather-nmc.js';
-import { fetchJson, isChinaCountry } from './weather-shared.js';
-import {
-  WeatherQuotaError,
-  type GeocodePlace,
-  type ProviderLocation,
-  type QWeatherConsoleSnapshot,
-  type ResolvedLocation,
-  type WeatherLocation,
-  type WeatherOverride,
-  type WeatherPayload,
-  type WeatherQuotaStatus,
-  type WeatherService,
-  type WeatherStatus,
-} from './weather-types.js';
+} from './weather/nmc.js';
+import { fetchJson, isChinaCountry } from './weather/shared.js';
+import type {
+  GeocodePlace,
+  ProviderLocation,
+  QWeatherConsoleSnapshot,
+  ResolvedLocation,
+  WeatherLocation,
+  WeatherOverride,
+  WeatherPayload,
+  WeatherQuotaStatus,
+  WeatherService,
+  WeatherStatus,
+} from './types.js';
 
 const WEATHER_TTL_MS = 10 * 60 * 1000;
 const WEATHER_ERROR_TTL_MS = 45 * 1000;

@@ -20,14 +20,14 @@ const {
   minimumQWeatherRefreshMinutes,
 } = await import('../lib/settings.js');
 const { createCacheStore, qweatherMonth } = await import('../lib/cache.js');
-const { generateQWeatherJwt, generateQWeatherKeyPair, parseQWeatherConsole } = await import('../lib/weather-qweather.js');
-const { resolveNmcCity } = await import('../lib/weather-nmc.js');
+const { generateQWeatherJwt, generateQWeatherKeyPair, parseQWeatherConsole } = await import('../lib/weather/qweather.js');
+const { resolveNmcCity } = await import('../lib/weather/nmc.js');
 const {
   mapNmcCode,
   mapQWeatherCode,
   normalizeAirQuality,
   stripRegionSuffix,
-} = await import('../lib/weather-shared.js');
+} = await import('../lib/weather/shared.js');
 
 /* ---------------------------------------------------------------- settings */
 

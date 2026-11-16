@@ -40,8 +40,8 @@ import {
   serializeError,
 } from './util.js';
 import { createWeatherService } from './weather.js';
-import { generateQWeatherJwt, generateQWeatherKeyPair } from './weather-qweather.js';
-import type { WeatherOverride } from './weather-types.js';
+import { generateQWeatherJwt, generateQWeatherKeyPair } from './weather/qweather.js';
+import type { WeatherOverride } from './types.js';
 import { createWebSocketHub } from './ws.js';
 import type {
   DshContext,

@@ -8,10 +8,10 @@
  */
 
 import crypto from 'node:crypto';
-import type { ForecastMode, QWeatherSettings } from './settings.js';
-import { isRecord } from './types.js';
-import type { JsonRecord } from './types.js';
-import { safeString } from './util.js';
+import type { ForecastMode, QWeatherSettings } from '../settings.js';
+import { WeatherQuotaError, isRecord } from '../types.js';
+import type { JsonRecord } from '../types.js';
+import { safeString } from '../util.js';
 import {
   arrayOf,
   coordinatePath,
@@ -21,16 +21,15 @@ import {
   mapQWeatherCode,
   nestedNumber,
   normalizeAirQuality,
-} from './weather-shared.js';
-import {
-  WeatherQuotaError,
-  type AirQuality,
-  type GeocodePlace,
-  type ProviderLocation,
-  type QWeatherConsoleSnapshot,
-  type QWeatherConsoleStats,
-  type WeatherPayload,
-} from './weather-types.js';
+} from './shared.js';
+import type {
+  AirQuality,
+  GeocodePlace,
+  ProviderLocation,
+  QWeatherConsoleSnapshot,
+  QWeatherConsoleStats,
+  WeatherPayload,
+} from '../types.js';
 
 const JWT_TTL_SECONDS = 60 * 60;
 const JWT_REFRESH_MARGIN_MS = 5 * 60 * 1000;

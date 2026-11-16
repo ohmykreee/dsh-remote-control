@@ -1,15 +1,15 @@
 /** Open-Meteo provider: global forecast and city search, no credentials. */
 
-import { fetchJson, normalizeAirQuality, numberOrNullValue } from './weather-shared.js';
+import { fetchJson, normalizeAirQuality, numberOrNullValue } from './shared.js';
 import type {
   AirQuality,
   GeocodePlace,
   ProviderLocation,
   WeatherPayload,
-} from './weather-types.js';
-import { isRecord } from './types.js';
-import type { JsonRecord } from './types.js';
-import { finiteNumber, safeString } from './util.js';
+} from '../types.js';
+import { isRecord } from '../types.js';
+import type { JsonRecord } from '../types.js';
+import { finiteNumber, safeString } from '../util.js';
 
 const HAN_CITY_NAME = /^[\u4e00-\u9fff]{2,}$/u;
 
