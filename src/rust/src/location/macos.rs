@@ -3,8 +3,8 @@
 //! CoreLocation only grants authorization to an application bundle that ships
 //! `NSLocationUsageDescription` (and is signed/notarized). A child sidecar
 //! process has no bundle identity, so `CLLocationManager` would be denied. The
-//! probe therefore reports a clear error and Node falls back to IP
-//! geolocation/timezone; manual coordinates remain available in settings.
+//! probe therefore reports a clear error and Node falls back to timezone-based
+//! coordinates; manual coordinates remain available in settings.
 
 use super::{AccessReport, Reading};
 
@@ -20,7 +20,7 @@ pub fn request_access(_open_settings: bool) -> AccessReport {
 pub fn read() -> Result<Reading, String> {
     Err(
         "CoreLocation requires an application bundle with a location usage description; \
-         falling back to IP location"
+         falling back to timezone-based coordinates"
             .to_string(),
     )
 }

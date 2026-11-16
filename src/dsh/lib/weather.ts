@@ -292,8 +292,8 @@ export function createWeatherService(options: WeatherServiceOptions): WeatherSer
     if (locationCache?.error && now - locationCacheAt < LOCATION_ERROR_TTL_MS) return locationCache;
 
     // Automatic mode uses only the OS location API (Windows Geolocation, Linux
-    // GeoClue2). No reverse-geocode or IP lookup is performed; the console shows
-    // the raw system coordinates instead of inventing a city name.
+    // GeoClue2). No reverse geocode is performed; the console shows the raw
+    // system coordinates instead of inventing a city name.
     const nativeLocation = await readProbeLocation();
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
     if (nativeLocation) {

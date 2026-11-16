@@ -3,7 +3,8 @@
 //! GeoClue is the system location service used by GNOME/KDE. A client asks the
 //! manager for a client object, sets `DesktopId`, calls `Start`, then reads the
 //! `Location` object. Authorization is controlled by the desktop/GeoClue
-//! policy; failures are returned so Node can fall back to IP geolocation.
+//! policy; failures are returned so Node can fall back to timezone-based
+//! coordinates.
 
 use std::time::Duration;
 

@@ -5,10 +5,10 @@
 //! * Linux: GeoClue2 (`org.freedesktop.GeoClue2`) over the session/system bus
 //! * macOS: CoreLocation requires an app bundle/usage description, which a
 //!   sidecar process cannot provide; returns a clear error so Node can fall
-//!   back to IP geolocation. Preliminarily tested on macOS 26.
+//!   back to timezone-based coordinates. Preliminarily tested on macOS 26.
 //!
 //! The Node weather service treats this as a best-effort first step and falls
-//! back to IP geolocation / timezone.
+//! back to timezone-based coordinates.
 
 use serde_json::{json, Value};
 
