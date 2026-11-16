@@ -7,7 +7,7 @@ import path from 'node:path';
 import type { JsonRecord } from './types.js';
 import { isRecord } from './types.js';
 
-const SETTINGS_VERSION = 1;
+const SETTINGS_VERSION = 2;
 const PAGE_KEYS = ['home', 'sessions', 'music', 'performance'] as const;
 
 export type PageKey = (typeof PAGE_KEYS)[number];
@@ -48,12 +48,92 @@ export function normalizeDshLocale(value: unknown): string {
   return trimmed.toLowerCase();
 }
 
+/** Weather data providers, listed in fallback priority order. */
+export type WeatherProvider = 'nmc' | 'open-meteo' | 'qweather';
+export const WEATHER_PROVIDERS: readonly WeatherProvider[] = ['nmc', 'open-meteo', 'qweather'];
+
+/** QWeather's free plan allows 50,000 calls in a calendar month. */
+export const QWEATHER_DEFAULT_MONTHLY_LIMIT = 50_000;
+/** QWeather calls used by one weather refresh (current + daily + air + hourly). */
+export const QWEATHER_CALLS_PER_REFRESH = 4;
+export const QWEATHER_MIN_REFRESH_MINUTES = 5;
+export const QWEATHER_MAX_REFRESH_MINUTES = 24 * 60;
+export const QWEATHER_DEFAULT_REFRESH_MINUTES = 30;
+
+/**
+ * Provider-specific geodata. The display name is shared at the weather level;
+ * each provider keeps its own coordinates and location id because the lookup
+ * APIs return different identifiers.
+ */
+export interface WeatherProviderLocation {
+  latitude: number | null;
+  longitude: number | null;
+  /** QWeather Location ID or NMC station code; empty for Open-Meteo. */
+  locationId: string;
+  timezone: string;
+  country: string;
+}
+
+/** JWT credentials and quota controls for QWeather. */
+export interface QWeatherSettings {
+  apiHost: string;
+  credentialId: string;
+  projectId: string;
+  developerId: string;
+  privateKey: string;
+  monthlyLimit: number;
+  refreshMinutes: number;
+  /** Read QWeather console finance/stats and reconcile the local call count. */
+  syncConsole: boolean;
+}
+
 export interface WeatherSettings {
   mode: 'auto' | 'manual';
   name: string;
-  latitude: number | null;
-  longitude: number | null;
   forecastMode: ForecastMode;
+  provider: WeatherProvider;
+  locations: Record<WeatherProvider, WeatherProviderLocation>;
+  qweather: QWeatherSettings;
+}
+
+/**
+ * Smallest refresh interval that keeps a full month of QWeather refreshes under
+ * the configured monthly limit. The calculation reserves the maximum number of
+ * calls per refresh so it is safe regardless of the display mode.
+ */
+export function minimumQWeatherRefreshMinutes(monthlyLimit: number): number {
+  const limit = Math.max(1, Math.floor(Number(monthlyLimit) || 0));
+  const minutesInMonth = 30 * 24 * 60;
+  const safe = Math.ceil((minutesInMonth * QWEATHER_CALLS_PER_REFRESH) / limit);
+  return Math.min(QWEATHER_MAX_REFRESH_MINUTES, Math.max(QWEATHER_MIN_REFRESH_MINUTES, safe));
+}
+
+function emptyProviderLocation(): WeatherProviderLocation {
+  return { latitude: null, longitude: null, locationId: '', timezone: '', country: '' };
+}
+
+function defaultWeatherSettings(): WeatherSettings {
+  return {
+    mode: 'auto',
+    name: '',
+    forecastMode: 'hourly',
+    provider: 'open-meteo',
+    locations: {
+      nmc: emptyProviderLocation(),
+      'open-meteo': emptyProviderLocation(),
+      qweather: emptyProviderLocation(),
+    },
+    qweather: {
+      apiHost: '',
+      credentialId: '',
+      projectId: '',
+      developerId: '',
+      privateKey: '',
+      monthlyLimit: QWEATHER_DEFAULT_MONTHLY_LIMIT,
+      refreshMinutes: QWEATHER_DEFAULT_REFRESH_MINUTES,
+      syncConsole: false,
+    },
+  };
 }
 
 export interface BalanceSettings {
@@ -193,13 +273,7 @@ export function defaultSettings(): RemoteControlSettings {
     language: 'dsh',
     dshLocale: '',
     temperatureUnit: 'celsius',
-    weather: {
-      mode: 'auto',
-      name: '',
-      latitude: null,
-      longitude: null,
-      forecastMode: 'hourly',
-    },
+    weather: defaultWeatherSettings(),
     balance: {
       spendWindow: 'calendar',
       lowThreshold: null,
@@ -263,6 +337,62 @@ function normalizeMinutes(value: unknown, min: number, max: number, fallback: nu
   return Math.max(min, Math.min(max, Math.round(minutes * 100) / 100));
 }
 
+/** Normalize the shared name plus one provider's geodata. */
+function normalizeProviderLocation(
+  value: unknown,
+  latitudeFallback: number | null,
+  longitudeFallback: number | null,
+): WeatherProviderLocation {
+  const input: JsonRecord = isRecord(value) ? value : {};
+  const latitudeInput = input.latitude === undefined || input.latitude === null || input.latitude === ''
+    ? latitudeFallback
+    : Number(input.latitude);
+  const longitudeInput = input.longitude === undefined || input.longitude === null || input.longitude === ''
+    ? longitudeFallback
+    : Number(input.longitude);
+  return {
+    latitude: typeof latitudeInput === 'number' && Number.isFinite(latitudeInput) && latitudeInput >= -90 && latitudeInput <= 90
+      ? latitudeInput
+      : null,
+    longitude: typeof longitudeInput === 'number' && Number.isFinite(longitudeInput) && longitudeInput >= -180 && longitudeInput <= 180
+      ? longitudeInput
+      : null,
+    locationId: typeof input.locationId === 'string' ? input.locationId.trim().slice(0, 80) : '',
+    timezone: typeof input.timezone === 'string' ? input.timezone.trim().slice(0, 80) : '',
+    country: typeof input.country === 'string' ? input.country.trim().slice(0, 80) : '',
+  };
+}
+
+/** Accept a bare host (or a pasted URL) and drop any path/protocol. */
+function normalizeQWeatherHost(value: unknown): string {
+  let host = typeof value === 'string' ? value.trim() : '';
+  host = host.replace(/^https?:\/\//i, '').replace(/\/.*$/u, '').trim();
+  if (!/^[a-z0-9.-]+(?::\d{1,5})?$/iu.test(host)) return '';
+  return host.slice(0, 120);
+}
+
+function normalizeQWeatherSettings(value: unknown): QWeatherSettings {
+  const input: JsonRecord = isRecord(value) ? value : {};
+  const limitInput = Number(input.monthlyLimit);
+  const monthlyLimit = Number.isFinite(limitInput)
+    ? Math.max(1, Math.min(1_000_000, Math.round(limitInput)))
+    : QWEATHER_DEFAULT_MONTHLY_LIMIT;
+  const refreshInput = Number(input.refreshMinutes);
+  const requestedRefresh = Number.isFinite(refreshInput)
+    ? Math.max(QWEATHER_MIN_REFRESH_MINUTES, Math.min(QWEATHER_MAX_REFRESH_MINUTES, Math.round(refreshInput)))
+    : QWEATHER_DEFAULT_REFRESH_MINUTES;
+  return {
+    apiHost: normalizeQWeatherHost(input.apiHost),
+    credentialId: typeof input.credentialId === 'string' ? input.credentialId.trim().slice(0, 120) : '',
+    projectId: typeof input.projectId === 'string' ? input.projectId.trim().slice(0, 120) : '',
+    developerId: typeof input.developerId === 'string' ? input.developerId.trim().slice(0, 120) : '',
+    privateKey: typeof input.privateKey === 'string' ? input.privateKey.trim().slice(0, 16_384) : '',
+    monthlyLimit,
+    refreshMinutes: Math.max(requestedRefresh, minimumQWeatherRefreshMinutes(monthlyLimit)),
+    syncConsole: input.syncConsole === true,
+  };
+}
+
 function normalize(raw: unknown): RemoteControlSettings {
   const base = defaultSettings();
   const input: JsonRecord = isRecord(raw) ? raw : {};
@@ -282,6 +412,15 @@ function normalize(raw: unknown): RemoteControlSettings {
   const validLongitude = Number.isFinite(longitude) && longitude >= -180 && longitude <= 180 ? longitude : null;
   const normalizedLatitude = mode === 'auto' && zeroPair ? null : validLatitude;
   const normalizedLongitude = mode === 'auto' && zeroPair ? null : validLongitude;
+  const providerInput = weather.provider;
+  const provider: WeatherProvider = oneOf(providerInput, WEATHER_PROVIDERS) ? providerInput : 'open-meteo';
+  const locationsInput: JsonRecord = isRecord(weather.locations) ? weather.locations : {};
+  const locations = Object.fromEntries(
+    WEATHER_PROVIDERS.map((id) => [
+      id,
+      normalizeProviderLocation(locationsInput[id], normalizedLatitude, normalizedLongitude),
+    ]),
+  ) as Record<WeatherProvider, WeatherProviderLocation>;
   const lowThreshold = Number(balance.lowThreshold);
   const themeInput = input.theme;
   const dshThemeInput = input.dshTheme;
@@ -334,9 +473,10 @@ function normalize(raw: unknown): RemoteControlSettings {
     weather: {
       mode,
       name: typeof weather.name === 'string' ? weather.name.slice(0, 80) : '',
-      latitude: normalizedLatitude,
-      longitude: normalizedLongitude,
       forecastMode: weather.forecastMode === 'daily' ? 'daily' : 'hourly',
+      provider,
+      locations,
+      qweather: normalizeQWeatherSettings(weather.qweather),
     },
     balance: {
       spendWindow: balance.spendWindow === 'rolling' ? 'rolling' : 'calendar',
@@ -390,10 +530,25 @@ export function createSettingsStore(): SettingsStore {
 
   function update(patch: unknown): RemoteControlSettings {
     const source: JsonRecord = isRecord(patch) ? patch : {};
+    const weatherPatch: JsonRecord = isRecord(source.weather) ? source.weather : {};
+    const locationPatch: JsonRecord = isRecord(weatherPatch.locations) ? weatherPatch.locations : {};
+    const locations = { ...current.weather.locations };
+    for (const id of WEATHER_PROVIDERS) {
+      const entry = locationPatch[id];
+      if (isRecord(entry)) locations[id] = { ...locations[id], ...entry };
+    }
     const next: JsonRecord = {
       ...current,
       ...source,
-      weather: { ...current.weather, ...(isRecord(source.weather) ? source.weather : {}) },
+      weather: {
+        ...current.weather,
+        ...weatherPatch,
+        locations,
+        qweather: {
+          ...current.weather.qweather,
+          ...(isRecord(weatherPatch.qweather) ? weatherPatch.qweather : {}),
+        },
+      },
       balance: { ...current.balance, ...(isRecord(source.balance) ? source.balance : {}) },
       notifications: {
         ...current.notifications,
@@ -441,7 +596,15 @@ export function createSettingsStore(): SettingsStore {
       language: current.language,
       locale: resolveLocale(current.language, current.dshLocale),
       temperatureUnit: current.temperatureUnit,
-      weather: { ...current.weather },
+      weather: {
+        ...current.weather,
+        locations: {
+          nmc: { ...current.weather.locations.nmc },
+          'open-meteo': { ...current.weather.locations['open-meteo'] },
+          qweather: { ...current.weather.locations.qweather },
+        },
+        qweather: { ...current.weather.qweather },
+      },
       balance: { ...current.balance },
       notifications: { ...current.notifications, enabledApps: [...current.notifications.enabledApps] },
       tls: { ...current.tls },

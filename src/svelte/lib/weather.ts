@@ -1,5 +1,5 @@
 import { t, type MessageKey } from './i18n.svelte';
-import type { WeatherData } from './types';
+import type { WeatherAirQuality, WeatherData } from './types';
 
 /** WMO weather-code mapping ported from the original console. */
 export const WMO: Record<number, readonly [MessageKey, string, string]> = {
@@ -79,6 +79,27 @@ export function weatherInfo(code: number | undefined, isDay: boolean | undefined
     ? ['weatherFallback', 'sun', 'day'] as const
     : ['weatherNight', 'moon', 'night'] as const);
   return { label: t(item[0]), icon: item[1], skycon: skyconFor(code, isDay), tone: item[2] };
+}
+
+/** Localized air-quality level (1..6) for the current reading. */
+export function aqiLevel(value: WeatherAirQuality | null | undefined): number | null {
+  if (!value) return null;
+  const reported = Number(value.level);
+  if (Number.isInteger(reported) && reported >= 1 && reported <= 6) return reported;
+  const aqi = Number(value.aqi);
+  if (!Number.isFinite(aqi) || aqi < 0) return null;
+  if (aqi <= 50) return 1;
+  if (aqi <= 100) return 2;
+  if (aqi <= 150) return 3;
+  if (aqi <= 200) return 4;
+  if (aqi <= 300) return 5;
+  return 6;
+}
+
+export function aqiText(value: WeatherAirQuality | null | undefined): string {
+  const level = aqiLevel(value);
+  if (level === null) return '';
+  return t(`aqiLevel${level}` as MessageKey);
 }
 
 export type { WeatherData };

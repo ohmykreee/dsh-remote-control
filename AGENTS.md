@@ -77,10 +77,10 @@ Host 与浏览器端（侧边栏）通过 DSH 自带 `webServer` 的环回路由
 | `scripts/screenshot-device.sh` / `screenshot-compose.py` | 实机整屏采集与对角/分组合成 |
 | `src/dsh/index.ts` | Host 入口（`inject` / `apply`） |
 | `src/dsh/client/` | 侧边栏（React，`sections/` 为八个设置节，`types.ts` 为线格式） |
-| `src/dsh/lib/` | Host 逻辑：`service` `settings` `sessions` `account` `weather` `media-enrich` `probe*` `notifications` `app-mapping` `i18n` |
+| `src/dsh/lib/` | Host 逻辑：`service` `settings` `sessions` `account` `weather`（`weather-open-meteo` / `weather-qweather` / `weather-nmc` / `weather-shared` / `weather-types`）`cache` `media-enrich` `probe*` `notifications` `app-mapping` `i18n` |
 | `src/svelte/` | 手机端（Svelte 5 + Tailwind v4，`lib/components/` 为页面与卡片） |
 | `src/rust/src/` | 探针：`media/`（catalog + 平台 + vendor）、`perf/`、`notifications/`、`volume/`、`location/` |
-| `test/` | 5 个按功能分组的 Node 集成测试 |
+| `test/` | 6 个按功能分组的 Node 集成测试 |
 | `static/` | Vite 公共资源（图标、manifest、字体许可） |
 | `docs/` | 英文 README 与截图 |
 
@@ -140,7 +140,11 @@ Host 与浏览器端（侧边栏）通过 DSH 自带 `webServer` 的环回路由
 | POST | `/dsh-remote-control/api/settings` | 批量应用设置 |
 | POST | `/dsh-remote-control/api/apps` | 应用改名 / 恢复默认 |
 | POST | `/dsh-remote-control/api/location` | 调探针 `location request`，成功则清定位缓存 |
-| GET | `/dsh-remote-control/api/geocode?q=` | Open-Meteo 城市检索 |
+| GET/POST | `/dsh-remote-control/api/geocode` | 城市检索；GET 使用已保存的提供商，POST 携带当前编辑中的 provider / 和风天气凭据 |
+| POST | `/dsh-remote-control/api/weather/qweather/jwt` | 用设置页当前填写（未保存）的和风天气凭据生成 JWT |
+| POST | `/dsh-remote-control/api/weather/qweather/keypair` | 生成首次配置用的 Ed25519 密钥对（私钥返回侧边栏填入，公钥用于控制台） |
+| POST | `/dsh-remote-control/api/weather/qweather/sync` | 读取和风天气控制台的本月 / 最近 24 小时调用次数并校准本地计数 |
+| POST | `/dsh-remote-control/api/weather/refresh` | 桌面侧边栏刷新按钮：重新读取系统位置、绕过地名缓存并刷新天气 |
 | POST | `/dsh-remote-control/api/theme` | 同步 DSH 明暗主题 |
 | POST | `/dsh-remote-control/api/locale` | 同步 DSH 当前语言 |
 | POST | `/dsh-remote-control/api/token/rotate` | 轮换令牌并断开所有设备 |
@@ -176,8 +180,9 @@ window.__ModuleLoader__.load({
 ### 生命周期与设置
 
 - `service.start()`：读取设置、创建适配器、启动 LAN HTTP/HTTPS、启动 WebSocket hub、启动推送循环；`dispose()` 关闭服务器、hub、适配器和定时器。`index.ts` 用 `ctx.effect()` 绑定，DSH 卸载 / 重载插件时自动清理。
-- 数据目录：`DSH_PROFILE_DIR/remote-control`（优先）或 `DSH_HOME/remote-control`，否则 `~/.dsh/remote-control`；文件为 `settings.json`（临时文件 + rename 原子写）。
-- 当前 schema 版本 `1`，字段包括 token、允许网卡、主题、插件语言（`language` / `dshLocale`）、温度单位、天气、余额、通知、TLS、导航位置、番茄钟与倒计时（互斥，番茄钟分钟允许两位小数、计时四舍五入到秒，倒计时 1–5 个按分/秒填写的预设）、页面顺序 / 开关。
+- 数据目录：`DSH_PROFILE_DIR/remote-control`（优先）或 `DSH_HOME/remote-control`，否则 `~/.dsh/remote-control`；文件为 `settings.json` 与通用 `cache.json`（临时文件 + rename 原子写）。旧 `notification-cache.json` 在首次启动时迁移为 `cache.json`。
+- 当前 schema 版本 `2`，字段包括 token、允许网卡、主题、插件语言（`language` / `dshLocale`）、温度单位、天气（提供商 `provider`、共享名称 `name`、按提供商分开的 `locations`、和风天气 `qweather` JWT 凭据 / 月上限 / 刷新间隔）、余额、通知、TLS、导航位置、番茄钟与倒计时（互斥，番茄钟分钟允许两位小数、计时四舍五入到秒，倒计时 1–5 个按分/秒填写的预设）、页面顺序 / 开关。
+- 天气旧字段 `weather.latitude` / `weather.longitude` 在 normalize 时迁移到三个提供商的 `locations`，共享 `name` 只保存一次；`qweather.apiHost` 会去掉协议与路径。
 - `normalize()` 对每个字段做白名单 / 范围校验，缺失时回落默认值；`update(patch)` 浅合并 + 嵌套对象合并；令牌 24 字节随机 `base64url`，`rotateToken()` 后由 service 断开所有设备。
 - 设置对象不含 token；`/api/info`（以及 `/api/settings` 的 `info`）会带配对 URL 和二维码路径，token 只出现在 URL query 中（客户端另存为 cookie）。
 
@@ -247,18 +252,20 @@ window.__ModuleLoader__.load({
 ### 其他 Host 服务
 
 - `account.ts`：DSH 账户余额与用量，支持「本周 / 最近 7 天」窗口和低余额标记。
-- `weather.ts`：系统定位（Windows WinRT / Linux GeoClue2，经探针）→ IP 定位（ipwho.is）→ 时区兜底；Open-Meteo 预报与城市检索（裸中文市名会补「市」重查）；缓存与清空。
+- `weather.ts`：系统定位（Windows WinRT / Linux GeoClue2，经探针）→ 时区兜底；自动模式使用系统 API 的坐标，地名优先用系统 API 自带名称，其次用当前 QWeather GeoAPI 的经纬度反查，NMC / Open-Meteo 或 QWeather 额度不足时用原有的 BigDataCloud 免费反向地理接口兜底（不新增天气提供商），失败显示「当前位置」。提供商按 `nmc` / `open-meteo` / `qweather` 调度，手动位置与自动位置共用一套解析，三个提供商各自保存经纬度 / 站点 / Location ID。QWeather 只走 JWT（API Host + 凭据 ID + 项目 ID + 开发者 ID + Ed25519 私钥，短期 token 自动续签）；每次请求先写入 `cache.json` 的自然月计数并预留调用数，达到上限才切换到 NMC（中国城市）或 Open-Meteo（国外 / NMC 无站点），普通请求失败不切换。开启控制台同步时调用 `finance/v1/summary` 与 `metrics/v1/stats`，只取本月 / 最近 24 小时调用次数并校准本地计数；控制台调用不占天气额度。Open-Meteo / QWeather / NMC 的当天空气质量统一归一化为 `airQuality`，没有数据时为 null。
+- `weather-open-meteo.ts` / `weather-qweather.ts` / `weather-nmc.ts` / `weather-shared.ts` / `weather-types.ts`：三个提供商、公共 HTTP / 天气代码映射 / AQI 归一化，以及载荷类型。NMC 城市目录缓存在 `cache.json`，首次整表抓取后复用 30 天。
+- `cache.ts`：通用运行时缓存，文件 `cache.json`；保存 QWeather 自然月调用计数、NMC 城市目录、控制台快照与最近一次反向地理结果；坐标变化小于约 0.01° 且 30 天内复用，桌面侧边栏刷新按钮会清除并重新反查。并保留旧 `notification-cache.json` 的 `apps` 数据用于迁移。
 - `performance.ts`：只采用 Rust `performance` 载荷；探针缺失时仅用 `os.cpus()` / `os.totalmem()`。
 - `media-enrich.ts`：统一媒体字段、`provider` / `providerDetail`、进度平滑和 seek 判定。
 - `notifications.ts`：Windows/macOS 一次性读取；Linux 启动 `notifications watch` 长进程并按行更新；字段归一化、应用筛选与数量限制在 Node 侧。
-- `app-mapping.ts`：应用历史 + 默认名称 + 用户改名 + 旧 `notification-cache.json` 迁移；`/api/apps` 写接口。
+- `app-mapping.ts`：应用历史 + 默认名称 + 用户改名 + 旧缓存迁移（优先读 `cache.json`，兼容旧 `notification-cache.json`）；`/api/apps` 写接口。
 - `qr.ts`：`qrcode-generator` 生成配对 SVG。
 
 ### 安全模型
 
 - LAN 端：token（query / cookie）、可选网卡 CIDR 白名单、可选 HTTPS、Origin 校验、静态路径白名单、64 KiB body 限制；CSP 的 `img-src` 允许 http(s) 远程封面 / 头像。
 - 侧边栏端：依赖 DSH `webServer` 的环回访问控制，并额外做 `sameOrigin`。
-- 设置与映射文件只存本机；仓库不包含路径、令牌、证书或通知内容。
+- 设置与映射文件只存本机；仓库不包含路径、令牌、证书、和风天气私钥或通知内容。和风天气私钥会通过环回 `/api/settings` 返回给侧边栏用于回填，但不会随手机端 `welcome` / `settings` 下发。
 - 轮换 token 会断开全部 WebSocket；关闭 token 后 `/` 与 `/ws` 不再要求 token，但网卡白名单仍生效。
 
 ## 手机端（Svelte）
@@ -273,6 +280,7 @@ window.__ModuleLoader__.load({
 - 性能页占用率使用 `RadialGauge` 圆环；右侧温度保留大号最高温度与热区背景列表。
 - 音乐封面支持 data URL 和 http(s) URL，用 `<img referrerpolicy="no-referrer">` 渲染并把封面地址加入 CSP `img-src`；后端未返回封面时显示占位，不伪造。
 - 音乐进度：`SeekBar.svelte` 视觉同 shadcn Slider，但拖动轨道自行实现，用 100 ms 本地时钟推进以避免快照拉回；松手只提交一次 seek；播放时显示 SVG 正弦波，暂停 / 拖动 / 无时间轴时收平；`canSeek=false` 用只读轨道，无时间轴时固定 100% 并显示 `--:--`。后端快照的 `position` 比上一份低超过 1 s 时视为播放器内手动 seek 并重新锚定（可拖动与只读轨道都适用）；重复 / 缓存的同值快照不会触发回退。
+- 天气卡片：`airQuality` 有值时把 AQI 与等级放在体感 / 湿度 / 风速同一行，没有数据时整项隐藏；NMC 没有逐小时数据时 `WeatherPanel` 自动改用 7 天预报，不显示空行。
 - 分页：每页 `scroll-snap-stop: always`，一次手势最多前进 / 后退一页；页面顺序与开关来自设置，关闭的页面不渲染、不轮询。
 - 字体：`@fontsource-variable/inter`、`noto-sans-sc`、`jetbrains-mono` 由 Vite 打进 `web/assets/`，不依赖手机系统字体；许可见 `web/fonts/LICENSE.txt`。
 - 手机端只读会话；`pushQuestions` 开启后才显示回答入口。
@@ -282,6 +290,7 @@ window.__ModuleLoader__.load({
 - `src/dsh/client` 用 `React.createElement`（`h`）而不是 JSX；React 由 DSH loader 提供。
 - 入口 `src/dsh/client/index.ts` 向 DSH 注册设置页（slot），菜单包含：连接、偏好设置、番茄钟 / 倒计时、天气设置、余额显示、通知设置、软件映射、系统信息。
 - 所有设置先进入 `DraftState`，点「保存设置」才 `POST /api/settings` 一次性提交；应用改名、主题同步、令牌轮换、断开设备是即时请求。
+- 天气设置按「定位权限 → 数据提供商 → 和风天气 JWT（仅选中时）→ 位置 → 显示方式」排列。位置只提供城市搜索，匹配到的经纬度 / 站点 ID 只显示在提示里，不再提供名称 / 经纬度输入框；城市搜索用 POST `/api/geocode` 携带当前编辑中的 provider 与和风凭据，切换提供商后无需先保存即可搜索。和风天气分组可生成 Ed25519 密钥对、填入私钥并显示 / 复制公钥，JWT 由 Host 按请求自动生成。系统信息页的天气状态 detail 显示实际使用的提供商。
 - 偏好设置的第一个设置组是 **插件语言**（跟随 DSH / 简体中文 / English）；保存后 `hydrate()` 调 `setPluginLanguage()` 立即重绘，Host 同时把解析后的 `locale` 推给手机端。
 - 主题：`theme = dsh` 时跟随 DSH 的 `dshTheme`，由 `/api/theme` 同步；也可固定 light/dark。
 - 样式集中在 `src/dsh/client/styles.ts`：按 DSH 设置页的 188px 导航、54px 顶栏、卡片分组与 14px 行文字实现，只读取 `--dsw-*` 令牌，不复制宿主颜色值；`--drc-*` 仅为旧版 DSH 缺失令牌提供回退。
@@ -468,7 +477,7 @@ pnpm shot -- --timer countdown --out .mock-web/countdown.png
 
 pnpm check                      # tsc（Host + 浏览器端）+ svelte-check
 pnpm build                      # src/dsh + src/svelte
-pnpm test                       # 下面 5 个按功能分组的 Node 测试
+pnpm test                       # 下面 6 个按功能分组的 Node 测试
 cargo fmt --manifest-path src/rust/Cargo.toml -- --check
 cargo test --manifest-path src/rust/Cargo.toml
 cargo check --manifest-path src/rust/Cargo.toml --features macos-check
@@ -484,6 +493,7 @@ pnpm build:rust
 - `settings.mjs`：语言精确匹配与回退、`dshLocale` 持久化、Host 字典对齐；倒计时预设与秒级范围、番茄钟两位小数、互斥、公开设置深拷贝。
 - `media.mjs`：进度平滑与 seek 规则；探针缺失显式报错；真实 daemon 的并发、重启、禁用与平台能力。探针路径缓存在同一进程内切换时用 `resetProbeCache()`（测试专用）。
 - `notifications.mjs`：通知字段归一化与数量限制、应用名称推导与旧缓存迁移、Linux 流式监视。
+- `weather.mjs`：v1 → v2 天气设置迁移、按提供商分开的 locations、QWeather 凭据与刷新间隔下限、`cache.json` 迁移 / 月调用计数 / NMC 城市缓存、JWT 结构与 Ed25519 签名校验、密钥对生成、天气代码 / AQI 归一化、NMC 城市匹配。
 
 ### 文档截图
 
@@ -544,7 +554,7 @@ npm publish --access public --tag bootstrap
 
 ## 已知限制
 
-面向用户的限制见 [`README.md`](README.md#已知限制)。实现上还要记住：探针必须在目标机构建，缺失时显式报「探针不可用」；npm 包里没有探针二进制，从 npm 安装的用户开箱只有 CPU / 内存兜底与「探针不可用」状态，完整功能要按 [`INSTALLATION.md`](INSTALLATION.md) 自行编译探针；Windows 定位受低完整性限制；私有层与 UIA / AX 永远不授予 seek，网易云 CDP 也不授予 seek；CDP 依赖页面 webpack runtime，刷新后可能回退到播放条 DOM；番茄钟 / 倒计时只在手机浏览器运行。
+面向用户的限制见 [`README.md`](README.md#已知限制)。实现上还要记住：探针必须在目标机构建，缺失时显式报「探针不可用」；npm 包里没有探针二进制，从 npm 安装的用户开箱只有 CPU / 内存兜底与「探针不可用」状态，完整功能要按 [`INSTALLATION.md`](INSTALLATION.md) 自行编译探针；Windows 定位受低完整性限制；私有层与 UIA / AX 永远不授予 seek，网易云 CDP 也不授予 seek；CDP 依赖页面 webpack runtime，刷新后可能回退到播放条 DOM；番茄钟 / 倒计时只在手机浏览器运行。天气方面：NMC 只覆盖中国城市且没有逐小时预报；QWeather 需要用户自己的 JWT 凭据，月上限达到后只按配额切换到 NMC（中国）/ Open-Meteo（国外或 NMC 无站点），普通请求失败不切换；Open-Meteo 的 AQI 使用 US AQI，QWeather 优先中国 AQI，NMC 使用其自带 AQI。
 
 ## 开发约定
 

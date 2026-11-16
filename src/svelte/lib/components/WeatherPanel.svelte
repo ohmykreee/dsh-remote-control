@@ -2,7 +2,7 @@
   import { app } from '../state.svelte';
   import { formatTemperature, pad, temperatureUnitLabel, toDisplayTemperature } from '../format';
   import { localeTag, t } from '../i18n.svelte';
-  import { weatherInfo } from '../weather';
+  import { aqiText, weatherInfo } from '../weather';
   import type { WeatherData } from '../types';
   import { Skeleton } from '$lib/components/ui/skeleton/index.js';
   import { cn } from '$lib/utils.js';
@@ -26,7 +26,12 @@
   const dailyForecast = $derived(
     available && Array.isArray(weather?.dailyForecast) ? weather.dailyForecast.slice(0, 7) : [],
   );
-  const showDaily = $derived(available && weather?.forecastMode === 'daily' && dailyForecast.length > 0);
+  // NMC has no future hourly series; fall back to the 7-day strip instead of
+  // leaving an empty forecast row.
+  const showDaily = $derived(
+    available && (weather?.forecastMode === 'daily' || hourly.length === 0) && dailyForecast.length > 0,
+  );
+  const air = $derived(weather?.airQuality ?? null);
 
   const sunrise = $derived(weather?.daily?.sunrise ? new Date(weather.daily.sunrise) : null);
   const sunset = $derived(weather?.daily?.sunset ? new Date(weather.daily.sunset) : null);
@@ -101,6 +106,12 @@
         <span><b>{formatTemperature(current.feelsLike, unit)}</b><small>{t('feelsLike')}</small></span>
         <span><b>{Math.round(current.humidity ?? 0)}%</b><small>{t('humidity')}</small></span>
         <span><b>{Math.round(current.windSpeed ?? 0)} km/h</b><small>{t('windSpeed')}</small></span>
+        {#if air && air.aqi != null}
+          <span>
+            <b>{t('aqiLabel')} {air.display || Math.round(Number(air.aqi))}</b>
+            <small>{aqiText(air)}</small>
+          </span>
+        {/if}
       </div>
     </div>
 

@@ -465,6 +465,11 @@ export const CSS = `
 
 .drc-seg button[aria-pressed='false']:hover { color: var(--drc-text); }
 
+.drc-seg.is-disabled { opacity: 0.55; }
+.drc-seg button:disabled { cursor: not-allowed; }
+.drc-seg button:disabled:hover { color: var(--drc-muted); }
+.drc-seg button.is-active:disabled:hover { color: var(--drc-text); }
+
 .drc-fields {
   display: flex;
   flex-wrap: wrap;
@@ -565,6 +570,78 @@ export const CSS = `
 .drc-field input::placeholder { color: var(--dsw-alias-label-dimmed, var(--drc-tertiary)); }
 .drc-field input:focus { border-color: var(--dsw-alias-state-business-primary, var(--drc-accent)); }
 .drc-field input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.drc-field-area { flex-basis: 100%; }
+
+.drc-field textarea {
+  width: 100%;
+  min-height: 92px;
+  padding: 8px 12px;
+  box-sizing: border-box;
+  border: 0.5px solid var(--drc-hairline);
+  border-radius: var(--drc-radius);
+  outline: none;
+  background: var(--drc-surface-3);
+  color: var(--drc-text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  resize: vertical;
+}
+
+.drc-field textarea::placeholder { color: var(--dsw-alias-label-dimmed, var(--drc-tertiary)); }
+.drc-field textarea:focus { border-color: var(--dsw-alias-state-business-primary, var(--drc-accent)); }
+.drc-field textarea:disabled { opacity: 0.5; cursor: not-allowed; }
+.drc-field-area.is-mono textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.drc-token {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0 2px;
+}
+
+.drc-public-key {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.drc-token-output {
+  width: 100%;
+  padding: 8px 12px;
+  box-sizing: border-box;
+  border: 0.5px solid var(--drc-hairline);
+  border-radius: var(--drc-radius);
+  outline: none;
+  background: var(--drc-surface-3);
+  color: var(--drc-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+  line-height: 18px;
+  resize: vertical;
+}
+
+.drc-warning {
+  color: var(--drc-error);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.drc-row-desc.is-warning { color: var(--drc-error); }
+
+.drc-console { padding: 12px 0 16px; }
+
+.drc-console-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0 0;
+}
 
 /* City combobox: the field keeps the normal label/input layout and hosts the
  * suggestion list in an absolutely positioned popover so the card never

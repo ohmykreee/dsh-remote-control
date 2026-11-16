@@ -4,16 +4,50 @@ import type {
   CountdownPresetDraft,
   DraftState,
   LocationResult,
+  ProviderLocationSettings,
   RemoteApp,
   RemoteSettings,
   SavePatch,
   SettingsPayload,
   StagedSettings,
   Translator,
+  WeatherProviderId,
+  WeatherSettings,
 } from './types.js';
 import { isRecord } from './api.js';
 
 export const PAGE_ORDER: string[] = ['home', 'sessions', 'music', 'performance'];
+
+/** Provider order used by the settings list and the quota fallback priority. */
+export const WEATHER_PROVIDERS: WeatherProviderId[] = ['nmc', 'open-meteo', 'qweather'];
+
+/** QWeather calls used by one refresh; mirrors the Host's quota estimate. */
+export const QWEATHER_CALLS_PER_REFRESH = 4;
+export const QWEATHER_DEFAULT_MONTHLY_LIMIT = 50_000;
+export const QWEATHER_DEFAULT_REFRESH_MINUTES = 30;
+export const QWEATHER_MIN_REFRESH_MINUTES = 5;
+export const QWEATHER_MAX_REFRESH_MINUTES = 24 * 60;
+
+export function normalizeWeatherProvider(value: unknown): WeatherProviderId {
+  return value === 'nmc' || value === 'qweather' ? value : 'open-meteo';
+}
+
+export function weatherProviderLabel(t: Translator, provider: string | undefined): string {
+  if (provider === 'nmc') return t('providerNmc');
+  if (provider === 'qweather') return t('providerQweather');
+  return t('providerOpenMeteo');
+}
+
+export function minimumQWeatherRefreshMinutes(monthlyLimit: number): number {
+  const limit = Math.max(1, Math.floor(Number(monthlyLimit) || 0));
+  const safe = Math.ceil((30 * 24 * 60 * QWEATHER_CALLS_PER_REFRESH) / limit);
+  return Math.min(QWEATHER_MAX_REFRESH_MINUTES, Math.max(QWEATHER_MIN_REFRESH_MINUTES, safe));
+}
+
+export function estimatedMonthlyCalls(refreshMinutes: number): number {
+  const minutes = Math.max(QWEATHER_MIN_REFRESH_MINUTES, Number(refreshMinutes) || QWEATHER_DEFAULT_REFRESH_MINUTES);
+  return Math.round((30 * 24 * 60 * QWEATHER_CALLS_PER_REFRESH) / minutes);
+}
 
 /** Upper bound for user-configured countdown presets. */
 export const COUNTDOWN_PRESET_LIMIT = 5;
@@ -31,9 +65,14 @@ export const POMODORO_MAX_BREAK_MINUTES = 120;
 export const EMPTY_DRAFT: DraftState = {
   certPath: '',
   keyPath: '',
-  locationName: '',
-  latitude: '',
-  longitude: '',
+  qweatherApiHost: '',
+  qweatherCredentialId: '',
+  qweatherProjectId: '',
+  qweatherDeveloperId: '',
+  qweatherPrivateKey: '',
+  qweatherMonthlyLimit: '50000',
+  qweatherRefreshMinutes: '30',
+  qweatherSyncConsole: false,
   threshold: '',
   notificationLimit: '5',
   pomodoroFocus: '25',
@@ -159,9 +198,14 @@ export function createDraft(settings: RemoteSettings): DraftState {
   return {
     certPath: settings.tls?.certPath ?? '',
     keyPath: settings.tls?.keyPath ?? '',
-    locationName: settings.weather?.name ?? '',
-    latitude: text(settings.weather?.latitude),
-    longitude: text(settings.weather?.longitude),
+    qweatherApiHost: settings.weather?.qweather?.apiHost ?? '',
+    qweatherCredentialId: settings.weather?.qweather?.credentialId ?? '',
+    qweatherProjectId: settings.weather?.qweather?.projectId ?? '',
+    qweatherDeveloperId: settings.weather?.qweather?.developerId ?? '',
+    qweatherPrivateKey: settings.weather?.qweather?.privateKey ?? '',
+    qweatherMonthlyLimit: String(settings.weather?.qweather?.monthlyLimit ?? QWEATHER_DEFAULT_MONTHLY_LIMIT),
+    qweatherRefreshMinutes: String(settings.weather?.qweather?.refreshMinutes ?? QWEATHER_DEFAULT_REFRESH_MINUTES),
+    qweatherSyncConsole: settings.weather?.qweather?.syncConsole === true,
     threshold: text(settings.balance?.lowThreshold),
     notificationLimit: String(settings.notifications?.limit ?? 5),
     pomodoroFocus: String(settings.pomodoro?.focusMinutes ?? 25),
@@ -184,12 +228,30 @@ export function mergeStaged(current: StagedSettings, patch: StagedSettings): Sta
   return merge(current, patch) as StagedSettings;
 }
 
+function mergeWeatherSettings(
+  base: WeatherSettings | undefined,
+  staged: WeatherSettings | undefined,
+): WeatherSettings {
+  const merged: WeatherSettings = { ...(base ?? {}), ...(staged ?? {}) };
+  const locations: Partial<Record<WeatherProviderId, ProviderLocationSettings>> = {};
+  for (const id of WEATHER_PROVIDERS) {
+    const baseLocation = base?.locations?.[id];
+    const stagedLocation = staged?.locations?.[id];
+    if (baseLocation || stagedLocation) {
+      locations[id] = { ...(baseLocation ?? {}), ...(stagedLocation ?? {}) };
+    }
+  }
+  merged.locations = locations;
+  merged.qweather = { ...(base?.qweather ?? {}), ...(staged?.qweather ?? {}) };
+  return merged;
+}
+
 /** Layer staged edits over the Host settings document for rendering. */
 export function buildSettingsView(base: RemoteSettings, staged: StagedSettings): RemoteSettings {
   return {
     ...base,
     ...staged,
-    weather: { ...(base.weather ?? {}), ...(staged.weather ?? {}) },
+    weather: mergeWeatherSettings(base.weather, staged.weather),
     balance: { ...(base.balance ?? {}), ...(staged.balance ?? {}) },
     notifications: { ...(base.notifications ?? {}), ...(staged.notifications ?? {}) },
     tls: { ...(base.tls ?? {}), ...(staged.tls ?? {}) },
@@ -217,15 +279,55 @@ function minutesOr(value: string, fallback: number): number {
   return Number.isFinite(minutes) ? minutes : fallback;
 }
 
+function numberOrNull(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function normalizeLocationSettings(
+  value: WeatherSettings['locations'],
+): Partial<Record<WeatherProviderId, ProviderLocationSettings>> {
+  const output: Partial<Record<WeatherProviderId, ProviderLocationSettings>> = {};
+  for (const id of WEATHER_PROVIDERS) {
+    const entry = value?.[id];
+    if (!entry) continue;
+    output[id] = {
+      latitude: numberOrNull(entry.latitude),
+      longitude: numberOrNull(entry.longitude),
+      locationId: typeof entry.locationId === 'string' ? entry.locationId : '',
+      timezone: typeof entry.timezone === 'string' ? entry.timezone : '',
+      country: typeof entry.country === 'string' ? entry.country : '',
+    };
+  }
+  return output;
+}
+
 /** Build the single batch body posted by "save settings". */
 export function buildSavePatch(input: SavePatchInput): SavePatch {
   const { data, settings, draft, selectedInterfaces, selectedApps, notificationApps, order } = input;
   const allInterfaces = [...new Set((data.interfaces ?? []).map((entry) => entry.name))];
-  const nextWeather: RemoteSettings['weather'] = {
-    ...(settings.weather ?? {}),
-    name: draft.locationName,
-    latitude: draft.latitude === '' ? null : Number(draft.latitude),
-    longitude: draft.longitude === '' ? null : Number(draft.longitude),
+  const weatherProvider = normalizeWeatherProvider(settings.weather?.provider);
+  const nextWeather: WeatherSettings = {
+    mode: settings.weather?.mode === 'manual' ? 'manual' : 'auto',
+    name: settings.weather?.name ?? '',
+    // NMC only publishes a 7-day forecast; keep the saved mode consistent with
+    // the disabled control shown in the settings page.
+    forecastMode: weatherProvider === 'nmc'
+      ? 'daily'
+      : settings.weather?.forecastMode === 'daily' ? 'daily' : 'hourly',
+    provider: weatherProvider,
+    locations: normalizeLocationSettings(settings.weather?.locations),
+    qweather: {
+      apiHost: draft.qweatherApiHost.trim(),
+      credentialId: draft.qweatherCredentialId.trim(),
+      projectId: draft.qweatherProjectId.trim(),
+      developerId: draft.qweatherDeveloperId.trim(),
+      privateKey: draft.qweatherPrivateKey.trim(),
+      monthlyLimit: numberOrNull(draft.qweatherMonthlyLimit) ?? QWEATHER_DEFAULT_MONTHLY_LIMIT,
+      refreshMinutes: numberOrNull(draft.qweatherRefreshMinutes) ?? QWEATHER_DEFAULT_REFRESH_MINUTES,
+      syncConsole: draft.qweatherSyncConsole === true,
+    },
   };
   return {
     allowedInterfaces: selectedInterfaces.length === allInterfaces.length ? null : selectedInterfaces,

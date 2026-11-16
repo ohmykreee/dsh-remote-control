@@ -66,17 +66,40 @@ export interface RemoteInfo {
   clients?: RemoteClient[];
 }
 
+export type WeatherProviderId = 'nmc' | 'open-meteo' | 'qweather';
+
+export interface ProviderLocationSettings {
+  latitude?: number | null;
+  longitude?: number | null;
+  locationId?: string;
+  timezone?: string;
+  country?: string;
+}
+
+export interface QWeatherSettings {
+  apiHost?: string;
+  credentialId?: string;
+  projectId?: string;
+  developerId?: string;
+  privateKey?: string;
+  monthlyLimit?: number;
+  refreshMinutes?: number;
+  /** Read console finance/stats and reconcile the local call count. */
+  syncConsole?: boolean;
+}
+
 export interface WeatherSettings {
   mode?: string;
   name?: string;
-  latitude?: number | null;
-  longitude?: number | null;
   forecastMode?: string;
+  provider?: WeatherProviderId;
+  locations?: Partial<Record<WeatherProviderId, ProviderLocationSettings>>;
+  qweather?: QWeatherSettings;
 }
 
-/** One city from `GET /api/geocode` (Open-Meteo geocoding). */
+/** One city from `GET/POST /api/geocode`. */
 export interface GeocodePlace {
-  id?: number;
+  id?: number | string;
   name: string;
   latitude: number;
   longitude: number;
@@ -180,11 +203,47 @@ export interface NodeCapability extends CapabilityStatus {
   };
 }
 
+export interface WeatherQuota {
+  month?: string;
+  used?: number;
+  limit?: number;
+  remaining?: number;
+  exhausted?: boolean;
+}
+
+export interface QWeatherConsoleStats {
+  asOf?: string | null;
+  success?: number;
+  errors?: number;
+  total?: number;
+}
+
+export interface QWeatherConsoleSnapshot {
+  fetchedAt?: number;
+  asOf?: string | null;
+  stats?: QWeatherConsoleStats | null;
+  monthlyUsed?: number | null;
+  errors?: string[];
+}
+
+export interface WeatherCapability {
+  ok?: boolean | null;
+  updatedAt?: number | null;
+  provider?: string;
+  requestedProvider?: string;
+  providerSwitched?: boolean;
+  quota?: WeatherQuota;
+  configured?: boolean;
+  location?: { name?: string; latitude?: number; longitude?: number; source?: string } | null;
+  console?: QWeatherConsoleSnapshot | null;
+  error?: string | null;
+}
+
 export interface RemoteCapabilities {
   notifications?: CapabilityStatus;
   media?: CapabilityStatus;
   volume?: CapabilityStatus;
-  weather?: { ok?: boolean | null; updatedAt?: number | null };
+  weather?: WeatherCapability;
   probe?: ProbeCapability;
   node?: NodeCapability;
 }
@@ -220,9 +279,14 @@ export interface CountdownPresetDraft {
 export interface DraftState {
   certPath: string;
   keyPath: string;
-  locationName: string;
-  latitude: string | number;
-  longitude: string | number;
+  qweatherApiHost: string;
+  qweatherCredentialId: string;
+  qweatherProjectId: string;
+  qweatherDeveloperId: string;
+  qweatherPrivateKey: string;
+  qweatherMonthlyLimit: string;
+  qweatherRefreshMinutes: string;
+  qweatherSyncConsole: boolean;
   threshold: string | number;
   notificationLimit: string;
   pomodoroFocus: string;
@@ -354,6 +418,8 @@ export interface PanelApi {
   stage: (patch: StagedSettings) => void;
   save: (patch: SavePatch) => Promise<void>;
   saveAll: () => void;
+  refreshData: () => Promise<void>;
+  settingsVersion: number;
   copy: () => Promise<void>;
   rotate: () => Promise<void>;
   saveAppName: (key: string, name: string) => Promise<void>;

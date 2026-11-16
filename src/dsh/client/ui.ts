@@ -19,6 +19,7 @@ export interface SegProps {
   options: SegOption[];
   value: string;
   onChange: (value: string) => void;
+  disabled?: boolean;
 }
 
 export interface BtnProps {
@@ -39,6 +40,16 @@ export interface FieldProps {
   placeholder?: string;
   inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
   disabled?: boolean;
+}
+
+export interface TextAreaProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  rows?: number;
+  disabled?: boolean;
+  mono?: boolean;
 }
 
 export interface RowProps {
@@ -67,10 +78,11 @@ export function Toggle({ checked, onChange, label }: ToggleProps): React.ReactEl
   }, h('i'));
 }
 
-export function Seg({ options, value, onChange }: SegProps): React.ReactElement {
-  return h('div', { className: 'drc-seg', role: 'group' }, options.map((option) => h('button', {
+export function Seg({ options, value, onChange, disabled = false }: SegProps): React.ReactElement {
+  return h('div', { className: `drc-seg${disabled ? ' is-disabled' : ''}`, role: 'group' }, options.map((option) => h('button', {
     key: option.value,
     type: 'button',
+    disabled,
     className: value === option.value ? 'is-active' : '',
     'aria-pressed': value === option.value,
     onClick: () => onChange(option.value),
@@ -95,6 +107,21 @@ export function Field({ label, value, onChange, onBlur, placeholder, inputMode, 
       disabled,
       onBlur,
       onChange: (event: React.ChangeEvent<HTMLInputElement>) => onChange(event.target.value),
+    }),
+  );
+}
+
+export function TextArea({ label, value, onChange, placeholder, rows = 4, disabled = false, mono = false }: TextAreaProps): React.ReactElement {
+  return h('label', { className: `drc-field drc-field-area${mono ? ' is-mono' : ''}` },
+    h('span', null, label),
+    h('textarea', {
+      value,
+      placeholder,
+      rows,
+      disabled,
+      spellCheck: false,
+      autoComplete: 'off',
+      onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => onChange(event.target.value),
     }),
   );
 }

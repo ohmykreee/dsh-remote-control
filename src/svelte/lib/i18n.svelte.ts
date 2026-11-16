@@ -107,6 +107,14 @@ export const zh = {
   tomorrow: '明日',
   weatherFallback: '天气',
   weatherNight: '夜间',
+  airQuality: '空气质量',
+  aqiLabel: 'AQI',
+  aqiLevel1: '优',
+  aqiLevel2: '良',
+  aqiLevel3: '轻度污染',
+  aqiLevel4: '中度污染',
+  aqiLevel5: '重度污染',
+  aqiLevel6: '严重污染',
 
   // Weather codes (WMO)
   wmoClear: '晴',
@@ -368,6 +376,14 @@ export const en: Record<MessageKey, string> = {
   tomorrow: 'Tomorrow',
   weatherFallback: 'Weather',
   weatherNight: 'Night',
+  airQuality: 'Air quality',
+  aqiLabel: 'AQI',
+  aqiLevel1: 'Excellent',
+  aqiLevel2: 'Good',
+  aqiLevel3: 'Light pollution',
+  aqiLevel4: 'Moderate pollution',
+  aqiLevel5: 'Heavy pollution',
+  aqiLevel6: 'Severe pollution',
 
   // Weather codes (WMO)
   wmoClear: 'Clear',

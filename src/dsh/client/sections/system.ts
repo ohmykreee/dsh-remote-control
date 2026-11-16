@@ -3,7 +3,7 @@
 import type * as React from 'react';
 import { Btn, StatusRow, groupHead, h, sectionHead } from '../ui.js';
 import type { PanelApi, ProbeBackends } from '../types.js';
-import { formatBytes, formatDuration } from '../logic.js';
+import { formatBytes, formatDuration, weatherProviderLabel } from '../logic.js';
 
 function factRow(key: string, label: string, value: React.ReactNode, wide = false): React.ReactElement {
   return h('div', { className: `drc-fact-row${wide ? ' is-wide' : ''}`, key },
@@ -16,7 +16,6 @@ function statusGroup(api: PanelApi): React.ReactElement {
   const { t, data } = api;
   const capabilities = data.capabilities ?? {};
   const probe = capabilities.probe;
-  const node = capabilities.node;
   const backends = probe?.backends;
   const labels = { okLabel: t('healthy'), badLabel: t('unavailable'), pendingLabel: t('checking') };
   const probeReady = probe ? probe.ok ?? probe.available : undefined;
@@ -60,7 +59,7 @@ function statusGroup(api: PanelApi): React.ReactElement {
     h(StatusRow, {
       label: t('weatherStatus'),
       value: capabilities.weather?.ok ?? undefined,
-      detail: node ? 'Node.js' : undefined,
+      detail: weatherProviderLabel(t, capabilities.weather?.provider),
       ...labels,
     }),
   );

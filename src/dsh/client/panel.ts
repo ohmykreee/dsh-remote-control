@@ -14,6 +14,7 @@ import {
   LOCATION_URL,
   SETTINGS_URL,
   TOKEN_URL,
+  WEATHER_REFRESH_URL,
   describeError,
   isRecord,
   isSettingsPayload,
@@ -118,6 +119,7 @@ export function RemotePanel(): React.ReactElement {
   const [locationBusy, setLocationBusy] = useState(false);
   const [locationResult, setLocationResult] = useState<LocationResult | null>(null);
   const [staged, setStaged] = useState<StagedSettings>({});
+  const [settingsVersion, setSettingsVersion] = useState(0);
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const orderListRef = useRef<HTMLDivElement | null>(null);
@@ -158,11 +160,35 @@ export function RemotePanel(): React.ReactElement {
     }
   }, [hydrate]);
 
+  /** Desktop refresh: re-read the system position and weather, then reload settings. */
+  const refreshSettings = useCallback(async (): Promise<void> => {
+    setBusy(true);
+    setError('');
+    try {
+      hydrate(await postJson(WEATHER_REFRESH_URL));
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [hydrate]);
+
+  /** Refresh server-side stats without discarding staged edits. */
+  const refreshData = useCallback(async (): Promise<void> => {
+    try {
+      const payload = await requestJson(SETTINGS_URL);
+      if (isSettingsPayload(payload)) setData(payload);
+    } catch (err) {
+      setError(describeError(err));
+    }
+  }, []);
+
   const save = useCallback(async (patch: SavePatch): Promise<void> => {
     setBusy(true);
     setError('');
     try {
       hydrate(await postJson(SETTINGS_URL, patch));
+      setSettingsVersion((current) => current + 1);
       setNotice(t('saved'));
       window.setTimeout(() => setNotice(''), 1600);
     } catch (err) {
@@ -361,7 +387,7 @@ export function RemotePanel(): React.ReactElement {
       h('div', { className: 'drc-empty', style: { padding: 32, maxWidth: 680 } },
         h('h1', { className: 'drc-section-title' }, t('heading')),
         h('p', { className: 'drc-banner is-error' }, error || t('noWebServer')),
-        h(Btn, { primary: true, onClick: () => void load() }, t('refresh')),
+        h(Btn, { primary: true, onClick: () => void refreshSettings(), disabled: busy }, t('refresh')),
       ),
     );
   }
@@ -415,6 +441,8 @@ export function RemotePanel(): React.ReactElement {
     stage,
     save,
     saveAll,
+    refreshData,
+    settingsVersion,
     copy,
     rotate,
     saveAppName,
@@ -447,7 +475,7 @@ export function RemotePanel(): React.ReactElement {
           ),
           h(Btn, { primary: true, onClick: saveAll, disabled: busy }, t('saveSettings')),
           h(Btn, { disabled: !remote, onClick: () => window.open(remote, '_blank', 'noopener,noreferrer') }, t('open')),
-          h(Btn, { onClick: () => void load(), disabled: busy }, t('refresh')),
+          h(Btn, { onClick: () => void refreshSettings(), disabled: busy }, t('refresh')),
         ),
       ),
       narrow

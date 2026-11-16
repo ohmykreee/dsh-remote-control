@@ -206,26 +206,31 @@ function readEntries(value: unknown): Record<string, StoredApp> {
   return apps;
 }
 
-/** Seed the history from the pre-mapping `notification-cache.json`, if any. */
+/** Seed the history from the pre-mapping cache, if any. */
 function readLegacyCache(directory: string): Record<string, StoredApp> {
   const apps: Record<string, StoredApp> = {};
-  try {
-    const parsed: unknown = JSON.parse(fs.readFileSync(path.join(directory, 'notification-cache.json'), 'utf8'));
-    if (!isRecord(parsed) || !isRecord(parsed.apps)) return apps;
-    for (const entry of Object.values(parsed.apps)) {
-      if (!isRecord(entry) || typeof entry.key !== 'string' || !entry.key) continue;
-      const key = entry.key.slice(0, MAX_KEY_CHARS);
-      apps[key] = {
-        key,
-        customName: null,
-        firstSeen: Number(entry.lastSeen) || 0,
-        lastSeen: Number(entry.lastSeen) || 0,
-        count: Math.max(0, Math.round(Number(entry.count) || 0)),
-        sources: ['notification'],
-      };
+  // `cache.json` is the current general cache; `notification-cache.json` is the
+  // old name kept for profiles that have not been migrated yet.
+  for (const fileName of ['cache.json', 'notification-cache.json']) {
+    try {
+      const parsed: unknown = JSON.parse(fs.readFileSync(path.join(directory, fileName), 'utf8'));
+      if (!isRecord(parsed) || !isRecord(parsed.apps)) continue;
+      for (const entry of Object.values(parsed.apps)) {
+        if (!isRecord(entry) || typeof entry.key !== 'string' || !entry.key) continue;
+        const key = entry.key.slice(0, MAX_KEY_CHARS);
+        if (apps[key]) continue;
+        apps[key] = {
+          key,
+          customName: null,
+          firstSeen: Number(entry.lastSeen) || 0,
+          lastSeen: Number(entry.lastSeen) || 0,
+          count: Math.max(0, Math.round(Number(entry.count) || 0)),
+          sources: ['notification'],
+        };
+      }
+    } catch {
+      /* no legacy cache */
     }
-  } catch {
-    /* no legacy cache */
   }
   return apps;
 }

@@ -43,7 +43,7 @@
     "preview": "vite preview",
     "shot": "node scripts/browser-shot.mjs",
     "check": "tsc -p tsconfig.dsh.json --noEmit && tsc -p tsconfig.dsh-client.json --noEmit && svelte-check --tsconfig ./tsconfig.json",
-    "test": "node test/smoke.mjs && node test/questions.mjs && node test/settings.mjs && node test/media.mjs && node test/notifications.mjs",
+    "test": "node test/smoke.mjs && node test/questions.mjs && node test/settings.mjs && node test/media.mjs && node test/notifications.mjs && node test/weather.mjs",
     "pack:check": "node scripts/check-npm-package.mjs"
   },
   "files": [

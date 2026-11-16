@@ -62,13 +62,23 @@ export interface WeatherDay {
   low?: number;
 }
 
+export interface WeatherAirQuality {
+  aqi?: number;
+  display?: string;
+  level?: number | null;
+  category?: string | null;
+  primaryPollutant?: string | null;
+}
+
 export interface WeatherData {
   ok?: boolean;
+  provider?: string;
   location?: { name?: string };
   current?: WeatherCurrent;
   daily?: WeatherDaily;
   hourly?: WeatherHour[];
   dailyForecast?: WeatherDay[];
+  airQuality?: WeatherAirQuality | null;
   forecastMode?: string;
 }
 

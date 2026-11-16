@@ -86,7 +86,7 @@ The **Remote control** sidebar has these groups:
 | Connection | QR code, console address, allowed interfaces, access verification, HTTPS |
 | Preferences | Plugin language, temperature unit, theme, page order and toggles, navigation position |
 | Pomodoro / countdown | Enable switch (mutually exclusive), focus / break lengths, countdown presets, alert sound |
-| Weather | Location mode, city search, hourly / 7-day display, location access |
+| Weather | Data provider, location mode, city search, QWeather JWT credentials and monthly limit, call-count sync, hourly / 7-day display, location access |
 | Balance | Spend window, low-balance threshold, peak / off-peak marker |
 | Notifications | Per-app toggles, display limit, remote answers |
 | App names | Rename apps or reset their default names |
@@ -111,11 +111,17 @@ Both sit between the clock and the weather on the phone, are **mutually exclusiv
 
 ## Weather
 
-- Automatic mode uses the computer's location. If it is unavailable or denied, network location is used; if that also fails, the time zone is used.
+- Choose **NMC** (Central Meteorological Observatory), **Open-Meteo** or **QWeather**. The settings list follows the automatic-switch priority: NMC → Open-Meteo → QWeather.
+- NMC and Open-Meteo need no account or key. NMC uses city stations and covers Chinese cities only.
+- QWeather uses JWT authentication only. Create a project and JWT credential in the QWeather console, then fill in API Host, project ID, credential ID, developer ID and the Ed25519 private key under **Weather → QWeather JWT authentication**. The private key stays in the local settings file, and the plugin generates short-lived JWTs automatically. The settings page can generate a key pair for first-time setup.
+- Enable these QWeather console permissions: **GeoAPI** (city search), **Weather forecast** (current / hourly / 7-day) and **Air quality** (today's AQI; hidden automatically when the plan does not support it) under API permissions; and **Allow access to finance summary** plus **Allow access to request statistics summary** under the credential's console permissions (used for call-count sync).
+- QWeather calls are counted per calendar month, including weather and city searches, with a default limit of 50,000. The refresh interval is given a safe minimum for the configured limit. When the limit is reached the console switches to NMC for Chinese cities or Open-Meteo elsewhere, and returns to QWeather next month.
+- QWeather settings can enable **Sync console call count** (off by default). It reads only this month's and the last 24 hours' call counts. Console data may be about one hour behind. If the console does not return a monthly count (for example on the free plan), only the last-24-hour stats are synced and the local monthly count remains based on actual requests.
+- Automatic mode uses the system location; when it is unavailable, the time zone is used.
 - Windows may block location through a privacy switch. **Weather → Request location access** asks for permission; when denied, the system Location settings page opens. Refresh after granting access.
-- Manual mode searches for a city and fills in the coordinates, or you can edit latitude and longitude directly.
-- City search and forecasts contact an external weather service; no account or key is required. Temperature units support Celsius and Fahrenheit, and the choice applies to weather, forecasts and performance sensors.
-- In automatic mode the manual location fields are read-only.
+- Manual mode only needs a city search and selection; the matched coordinates or NMC station ID appear in the location hint.
+- When the current provider supplies today's air quality, the weather card shows the AQI and its level in the feels-like / humidity / wind row; otherwise the item is hidden.
+- City search and forecasts contact external weather services; QWeather calls count against your own account quota. Temperature units support Celsius and Fahrenheit, and the choice applies to weather, forecasts and performance sensors.
 
 ## Sessions and balance
 
@@ -160,8 +166,8 @@ Turn on **Push inquiries** and sessions waiting for an answer gain an **Answer**
 
 - Access verification is random and enabled by default. You can turn it off or refresh it; refreshing disconnects every connected device. You can allow only selected network interfaces / subnets.
 - Optional HTTPS; an invalid certificate falls back to HTTP with an error shown.
-- Settings stay on this computer. The repository contains no local paths, verification secrets, certificates or notification content, and there is no telemetry.
-- Weather, network location and public-holiday lookups contact external services; all other data stays between your computer and your phone.
+- Settings stay on this computer. The repository contains no local paths, verification secrets, certificates, QWeather private keys or notification content, and there is no telemetry.
+- Weather and public-holiday lookups contact external services; with QWeather the requests go to your own QWeather API Host. All other data stays between your computer and your phone.
 
 ## Platform support
 
@@ -176,6 +182,8 @@ Turn on **Push inquiries** and sessions waiting for an answer gain an **Answer**
 
 - Media, volume, notifications, GPU / temperature and system location need one component built on your own computer. Until it is built those features show unavailable; CPU / memory still work.
 - Windows location needs system privacy permission; if it is denied you may need to enable it in system settings.
+- NMC covers Chinese cities only.
+- QWeather needs your own JWT credentials; reaching the calendar-month limit switches to NMC or Open-Meteo and returns next month.
 - Only players that support seek allow dragging the progress bar; some players show progress only or offer no transport controls.
 - NetEase Cloud Music's like state and exact progress require an optional feature; they may be briefly unavailable after a page refresh.
 - The sessions page is read-only; media and volume are writable; tool approvals cannot be handled remotely.

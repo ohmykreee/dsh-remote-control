@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { createAccountService } from './account.js';
 import { createAppMapping } from './app-mapping.js';
 import type { MappedApp } from './app-mapping.js';
+import { createCacheStore } from './cache.js';
 import { hostMessage } from './i18n.js';
 import { createPerformanceService } from './performance.js';
 import { createPlatformAdapters } from './platform/index.js';
@@ -39,6 +40,8 @@ import {
   serializeError,
 } from './util.js';
 import { createWeatherService } from './weather.js';
+import { generateQWeatherJwt, generateQWeatherKeyPair } from './weather-qweather.js';
+import type { WeatherOverride } from './weather-types.js';
 import { createWebSocketHub } from './ws.js';
 import type {
   DshContext,
@@ -126,13 +129,6 @@ export interface RemoteUrlEntry {
   address: string;
   url?: string;
 }
-
-/** Untrusted input forwarded to the weather service (`{}` = auto location). */
-type WeatherInput = {
-  latitude?: number | null;
-  longitude?: number | null;
-  name?: string;
-};
 
 /** Browser-facing settings snapshot pushed over the socket. */
 export interface RemoteSettingsPayload {
@@ -262,7 +258,18 @@ export interface SettingsPayload {
     notifications: unknown;
     media: unknown;
     volume: unknown;
-    weather: { ok: unknown; updatedAt: unknown };
+    weather: {
+      ok: unknown;
+      updatedAt: unknown;
+      provider: string | null;
+      requestedProvider: string;
+      providerSwitched: boolean;
+      quota: { month: string; used: number; limit: number; remaining: number; exhausted: boolean };
+      configured: boolean;
+      location: unknown;
+      console: unknown;
+      error: string | null;
+    };
     probe: ProbeCapability;
     node: NodeCapability;
   };
@@ -297,6 +304,10 @@ export interface RemoteControlService {
   handleAppNames(req: IncomingMessage, res: ServerResponse): Promise<void>;
   handleLocation(req: IncomingMessage, res: ServerResponse): Promise<void>;
   handleGeocode(req: IncomingMessage, res: ServerResponse): Promise<void>;
+  handleQWeatherJwt(req: IncomingMessage, res: ServerResponse): Promise<void>;
+  handleQWeatherKeyPair(req: IncomingMessage, res: ServerResponse): Promise<void>;
+  handleQWeatherSync(req: IncomingMessage, res: ServerResponse): Promise<void>;
+  handleWeatherRefresh(req: IncomingMessage, res: ServerResponse): Promise<void>;
   handleTheme(req: IncomingMessage, res: ServerResponse): Promise<void>;
   handleLocale(req: IncomingMessage, res: ServerResponse): Promise<void>;
   handleTokenRotate(req: IncomingMessage, res: ServerResponse): Promise<void>;
@@ -440,6 +451,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
   const log: (message: string) => void = options.log || (() => {});
   const locale = options.locale || 'zh';
   const settingsStore: SettingsStore = createSettingsStore();
+  const cache = createCacheStore(settingsStore.dir);
   const appMapping: AppMapping = createAppMapping(settingsStore.dir);
   let hub: WebSocketHub | null = null;
   const pending = createPendingTracker(ctx, {
@@ -448,7 +460,12 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     },
     getLocale: effectiveLocale,
   });
-  const weather: WeatherService = createWeatherService();
+  const weather: WeatherService = createWeatherService({
+    getSettings: settingsStore.get,
+    cache,
+    getLocale: () => effectiveLocale(),
+    log,
+  });
   const performance: PerformanceService = createPerformanceService();
   const adapters: PlatformAdapters = createPlatformAdapters({ limit: 8 });
   const account: AccountService = createAccountService(ctx, { locale, getSettings: settingsStore.get });
@@ -838,17 +855,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
 
   async function getWeatherView(): Promise<WeatherSnapshot> {
     const value = settings();
-    let input: WeatherInput = {};
-    if (value.weather.mode === 'manual') {
-      if (value.weather.latitude !== null && value.weather.longitude !== null) {
-        input = {
-          latitude: value.weather.latitude,
-          longitude: value.weather.longitude,
-          name: value.weather.name,
-        };
-      }
-    }
-    const result: WeatherSnapshot = await weather.getWeather(input);
+    const result: WeatherSnapshot = await weather.getWeather();
     result.forecastMode = value.weather.forecastMode === 'daily' ? 'daily' : 'hourly';
     lastWeather = result;
     return result;
@@ -1342,6 +1349,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
   async function getSettingsPayload(): Promise<SettingsPayload> {
     const [notifications, probe] = await Promise.all([getNotificationsView(), readProbeCapability()]);
     const mediaStatus = adapters.media?.status?.() || {};
+    const weatherStatus = weather.status();
     return {
       ok: true,
       settings: settingsStore.public(),
@@ -1356,6 +1364,14 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
         weather: {
           ok: lastWeather?.ok ?? null,
           updatedAt: lastWeather?.updatedAt ?? null,
+          provider: weatherStatus.provider ?? weatherStatus.requestedProvider,
+          requestedProvider: weatherStatus.requestedProvider,
+          providerSwitched: weatherStatus.switchedByQuota,
+          quota: weatherStatus.quota,
+          configured: weatherStatus.configured,
+          location: weatherStatus.location,
+          console: weatherStatus.console,
+          error: weatherStatus.error,
         },
         probe,
         node: readNodeCapability(),
@@ -1382,6 +1398,22 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     const tlsChanged = JSON.stringify(before.tls) !== JSON.stringify(next.tls);
     const authChanged = before.tokenEnabled !== next.tokenEnabled;
     const interfacesChanged = JSON.stringify(before.allowedInterfaces) !== JSON.stringify(next.allowedInterfaces);
+    // A different QWeather project/credential is a different quota; start its
+    // local counter from zero instead of carrying the previous account's usage.
+    const qweatherIdentityChanged =
+      before.weather.qweather.apiHost !== next.weather.qweather.apiHost ||
+      before.weather.qweather.credentialId !== next.weather.qweather.credentialId ||
+      before.weather.qweather.projectId !== next.weather.qweather.projectId ||
+      before.weather.qweather.developerId !== next.weather.qweather.developerId;
+    if (qweatherIdentityChanged) {
+      cache.resetQWeatherUsage();
+    }
+    if (
+      next.weather.qweather.syncConsole &&
+      (!before.weather.qweather.syncConsole || qweatherIdentityChanged)
+    ) {
+      void weather.syncConsole();
+    }
     if (authChanged || interfacesChanged) {
       hub?.closeAll('settings changed');
     }
@@ -1500,28 +1532,136 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
   }
 
   /**
-   * Forward geocoding for the weather settings city picker. The Host proxies
-   * Open-Meteo (the same provider as the forecast API) so the sidebar page does
-   * not depend on the remote service's CORS headers and can share its timeout
-   * and result cache.
+   * Forward geocoding for the weather settings city picker. GET uses the saved
+   * provider; POST accepts the provider and QWeather credentials currently being
+   * edited so the city search works before "save settings" is pressed.
    */
   async function handleGeocode(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    if (req.method !== 'GET') {
+    const method = req.method;
+    if (method !== 'GET' && method !== 'POST') {
       jsonResponse(res, 405, { ok: false, error: 'method not allowed' });
       return;
     }
-    const url = new URL(req.url || '/', 'http://127.0.0.1');
-    const query = safeString(url.searchParams.get('q') || '', 120).trim();
+    let query = '';
+    const override: WeatherOverride = {};
+    try {
+      if (method === 'POST') {
+        if (!sameOrigin(req)) {
+          jsonResponse(res, 403, { ok: false, error: 'origin rejected' });
+          return;
+        }
+        const body = await readBody(req);
+        query = safeString(body.q, 120).trim();
+        const provider = body.provider;
+        if (provider === 'nmc' || provider === 'open-meteo' || provider === 'qweather') {
+          override.provider = provider;
+        }
+        const qweather = isRecord(body.qweather) ? body.qweather : null;
+        if (qweather) {
+          override.qweather = {
+            apiHost: safeString(qweather.apiHost, 120),
+            credentialId: safeString(qweather.credentialId, 120),
+            projectId: safeString(qweather.projectId, 120),
+            developerId: safeString(qweather.developerId, 120),
+            privateKey: safeString(qweather.privateKey, 16_384),
+            monthlyLimit: finiteNumber(qweather.monthlyLimit, 50_000),
+            refreshMinutes: finiteNumber(qweather.refreshMinutes, 30),
+          };
+        }
+      } else {
+        const url = new URL(req.url || '/', 'http://127.0.0.1');
+        query = safeString(url.searchParams.get('q') || '', 120).trim();
+      }
+    } catch (errorValue) {
+      jsonResponse(res, 400, { ok: false, error: serializeError(errorValue) });
+      return;
+    }
     if (!query) {
       jsonResponse(res, 400, { ok: false, error: 'query is required' });
       return;
     }
     try {
-      const results = await weather.searchCities(query);
+      const results = await weather.searchCities(query, 8, override);
       jsonResponse(res, 200, { ok: true, query, results, updatedAt: Date.now() });
     } catch (errorValue) {
       log(`geocode "${query}" failed: ${serializeError(errorValue)}`);
       jsonResponse(res, 502, { ok: false, error: serializeError(errorValue) });
+    }
+  }
+
+  /** Generate a JWT from the credentials currently typed in the settings page. */
+  async function handleQWeatherJwt(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (req.method !== 'POST') {
+      jsonResponse(res, 405, { ok: false, error: 'method not allowed' });
+      return;
+    }
+    if (!sameOrigin(req)) {
+      jsonResponse(res, 403, { ok: false, error: 'origin rejected' });
+      return;
+    }
+    try {
+      const body = await readBody(req);
+      const generated = generateQWeatherJwt({
+        credentialId: safeString(body.credentialId, 120),
+        projectId: safeString(body.projectId, 120),
+        developerId: safeString(body.developerId, 120),
+        privateKey: safeString(body.privateKey, 16_384),
+      });
+      jsonResponse(res, 200, { ok: true, ...generated });
+    } catch (errorValue) {
+      jsonResponse(res, 400, { ok: false, error: serializeError(errorValue) });
+    }
+  }
+
+  /** Create a fresh Ed25519 key pair for the first-time QWeather setup. */
+  async function handleQWeatherKeyPair(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (req.method !== 'POST') {
+      jsonResponse(res, 405, { ok: false, error: 'method not allowed' });
+      return;
+    }
+    if (!sameOrigin(req)) {
+      jsonResponse(res, 403, { ok: false, error: 'origin rejected' });
+      return;
+    }
+    try {
+      jsonResponse(res, 200, { ok: true, ...generateQWeatherKeyPair() });
+    } catch (errorValue) {
+      jsonResponse(res, 500, { ok: false, error: serializeError(errorValue) });
+    }
+  }
+
+  async function handleQWeatherSync(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (req.method !== 'POST') {
+      jsonResponse(res, 405, { ok: false, error: 'method not allowed' });
+      return;
+    }
+    if (!sameOrigin(req)) {
+      jsonResponse(res, 403, { ok: false, error: 'origin rejected' });
+      return;
+    }
+    try {
+      const snapshot = await weather.syncConsole();
+      jsonResponse(res, 200, { ok: true, console: snapshot });
+    } catch (errorValue) {
+      jsonResponse(res, 400, { ok: false, error: serializeError(errorValue) });
+    }
+  }
+
+  async function handleWeatherRefresh(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (req.method !== 'POST') {
+      jsonResponse(res, 405, { ok: false, error: 'method not allowed' });
+      return;
+    }
+    if (!sameOrigin(req)) {
+      jsonResponse(res, 403, { ok: false, error: 'origin rejected' });
+      return;
+    }
+    try {
+      weather.refreshLocation();
+      await weather.getWeather();
+      jsonResponse(res, 200, getSettingsPayload());
+    } catch (errorValue) {
+      jsonResponse(res, 500, { ok: false, error: serializeError(errorValue) });
     }
   }
 
@@ -1628,6 +1768,10 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     handleAppNames,
     handleLocation,
     handleGeocode,
+    handleQWeatherJwt,
+    handleQWeatherKeyPair,
+    handleQWeatherSync,
+    handleWeatherRefresh,
     handleTheme,
     handleLocale,
     handleTokenRotate,
@@ -1639,6 +1783,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
       pending.dispose();
       adapters.dispose();
       appMapping.dispose();
+      cache.flush();
       void stopServer();
     },
   };
