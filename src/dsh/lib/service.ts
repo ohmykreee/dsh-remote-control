@@ -1564,7 +1564,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
             projectId: safeString(qweather.projectId, 120),
             developerId: safeString(qweather.developerId, 120),
             privateKey: safeString(qweather.privateKey, 16_384),
-            monthlyLimit: finiteNumber(qweather.monthlyLimit, 50_000),
+            monthlyLimit: finiteNumber(qweather.monthlyLimit, 47_500),
             refreshMinutes: finiteNumber(qweather.refreshMinutes, 30),
           };
         }

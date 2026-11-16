@@ -52,8 +52,6 @@ export interface PluginCacheStore {
   weatherUsage(): WeatherUsage;
   addQWeatherCalls(count: number): WeatherUsage;
   resetQWeatherUsage(): WeatherUsage;
-  /** Raise the local counter to the account-wide value from the console. */
-  reconcileQWeatherUsage(used: number): WeatherUsage;
   nmcCities(): NmcCityCache | null;
   setNmcCities(cities: NmcCity[], fetchedAt?: number): NmcCityCache;
   qweatherConsole(): QWeatherConsoleSnapshot | null;
@@ -262,16 +260,6 @@ export function createCacheStore(directory: string): PluginCacheStore {
     return nmcCities() as NmcCityCache;
   }
 
-  function reconcileQWeatherUsage(used: number): WeatherUsage {
-    const amount = Math.max(0, Math.floor(Number(used) || 0));
-    const month = qweatherMonth();
-    const current = usage.month === month ? usage.qweather : 0;
-    if (amount <= current) return currentUsage();
-    usage = { month, qweather: amount, updatedAt: Date.now() };
-    persist();
-    return { ...usage };
-  }
-
   function qweatherConsole(): QWeatherConsoleSnapshot | null {
     if (!consoleSnapshot) return null;
     return JSON.parse(JSON.stringify(consoleSnapshot)) as QWeatherConsoleSnapshot;
@@ -306,7 +294,6 @@ export function createCacheStore(directory: string): PluginCacheStore {
     weatherUsage: currentUsage,
     addQWeatherCalls,
     resetQWeatherUsage,
-    reconcileQWeatherUsage,
     nmcCities,
     setNmcCities,
     qweatherConsole,

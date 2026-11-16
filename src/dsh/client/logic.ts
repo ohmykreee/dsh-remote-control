@@ -23,7 +23,7 @@ export const WEATHER_PROVIDERS: WeatherProviderId[] = ['nmc', 'open-meteo', 'qwe
 
 /** QWeather calls used by one refresh; mirrors the Host's quota estimate. */
 export const QWEATHER_CALLS_PER_REFRESH = 4;
-export const QWEATHER_DEFAULT_MONTHLY_LIMIT = 50_000;
+export const QWEATHER_DEFAULT_MONTHLY_LIMIT = 47_500;
 export const QWEATHER_DEFAULT_REFRESH_MINUTES = 30;
 export const QWEATHER_MIN_REFRESH_MINUTES = 5;
 export const QWEATHER_MAX_REFRESH_MINUTES = 24 * 60;
@@ -70,7 +70,7 @@ export const EMPTY_DRAFT: DraftState = {
   qweatherProjectId: '',
   qweatherDeveloperId: '',
   qweatherPrivateKey: '',
-  qweatherMonthlyLimit: '50000',
+  qweatherMonthlyLimit: '47500',
   qweatherRefreshMinutes: '30',
   qweatherSyncConsole: false,
   threshold: '',

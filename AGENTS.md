@@ -143,7 +143,7 @@ Host 与浏览器端（侧边栏）通过 DSH 自带 `webServer` 的环回路由
 | GET/POST | `/dsh-remote-control/api/geocode` | 城市检索；GET 使用已保存的提供商，POST 携带当前编辑中的 provider / 和风天气凭据 |
 | POST | `/dsh-remote-control/api/weather/qweather/jwt` | 用设置页当前填写（未保存）的和风天气凭据生成 JWT |
 | POST | `/dsh-remote-control/api/weather/qweather/keypair` | 生成首次配置用的 Ed25519 密钥对（私钥返回侧边栏填入，公钥用于控制台） |
-| POST | `/dsh-remote-control/api/weather/qweather/sync` | 读取和风天气控制台的本月 / 最近 24 小时调用次数并校准本地计数 |
+| POST | `/dsh-remote-control/api/weather/qweather/sync` | 读取和风天气控制台最近 24 小时统计与尽力获取的本月用量（2 次请求，均计入本地月计数） |
 | POST | `/dsh-remote-control/api/weather/refresh` | 桌面侧边栏刷新按钮：重新读取系统位置、绕过地名缓存并刷新天气 |
 | POST | `/dsh-remote-control/api/theme` | 同步 DSH 明暗主题 |
 | POST | `/dsh-remote-control/api/locale` | 同步 DSH 当前语言 |
@@ -252,7 +252,7 @@ window.__ModuleLoader__.load({
 ### 其他 Host 服务
 
 - `account.ts`：DSH 账户余额与用量，支持「本周 / 最近 7 天」窗口和低余额标记。
-- `weather.ts`：系统定位（Windows WinRT / Linux GeoClue2，经探针）→ 时区兜底；自动模式使用系统 API 的坐标，地名按当前提供商决定：系统 API 自带名称优先；选中的是 QWeather 且可用时用 QWeather GeoAPI 反查；选中的是 NMC / Open-Meteo，或 QWeather 未配置 / 额度不足时用原有的 BigDataCloud 免费反向地理接口兜底（不新增天气提供商）；失败显示「当前位置」。提供商按 `nmc` / `open-meteo` / `qweather` 调度，手动位置与自动位置共用一套解析，三个提供商各自保存经纬度 / 站点 / Location ID。QWeather 只走 JWT（API Host + 凭据 ID + 项目 ID + 开发者 ID + Ed25519 私钥，短期 token 自动续签）；每次请求先写入 `cache.json` 的自然月计数并预留调用数，达到上限才切换到 NMC（中国城市）或 Open-Meteo（国外 / NMC 无站点），普通请求失败不切换。开启控制台同步时调用 `finance/v1/summary` 与 `metrics/v1/stats`，只取本月 / 最近 24 小时调用次数并校准本地计数；控制台调用不占天气额度。Open-Meteo / QWeather / NMC 的当天空气质量统一归一化为 `airQuality`，没有数据时为 null。
+- `weather.ts`：系统定位（Windows WinRT / Linux GeoClue2，经探针）→ 时区兜底；自动模式使用系统 API 的坐标，地名按当前提供商决定：系统 API 自带名称优先；选中的是 QWeather 且可用时用 QWeather GeoAPI 反查；选中的是 NMC / Open-Meteo，或 QWeather 未配置 / 额度不足时用原有的 BigDataCloud 免费反向地理接口兜底（不新增天气提供商）；失败显示「当前位置」。提供商按 `nmc` / `open-meteo` / `qweather` 调度，手动位置与自动位置共用一套解析，三个提供商各自保存经纬度 / 站点 / Location ID。QWeather 只走 JWT（API Host + 凭据 ID + 项目 ID + 开发者 ID + Ed25519 私钥，短期 token 自动续签）；每次请求先写入 `cache.json` 的自然月计数并预留调用数，达到上限才切换到 NMC（中国城市）或 Open-Meteo（国外 / NMC 无站点），普通请求失败不切换。开启控制台同步时，在 QWeather 天气查询前读取 `finance/v1/summary` 与 `metrics/v1/stats`，最多每 3 小时一次，并把这次两次控制台请求计入本地月计数；财务汇总的 `availableResourcePlans[].utilized` 只是资源包已用量，免费额度没有自然月接口，因此本月计数以本地累计为准，控制台能返回月用量时作为参考显示，返回不了则在设置页提示。Open-Meteo / QWeather / NMC 的当天空气质量统一归一化为 `airQuality`，没有数据时为 null。
 - `weather/open-meteo.ts` / `weather/qweather.ts` / `weather/nmc.ts` / `weather/shared.ts`：三个提供商、公共 HTTP / 天气代码映射 / AQI 归一化；天气载荷与 `WeatherService` 契约统一放在 `types.ts`。NMC 城市目录缓存在 `cache.json`，首次整表抓取后复用 30 天。
 - `cache.ts`：通用运行时缓存，文件 `cache.json`；保存 QWeather 自然月调用计数、NMC 城市目录、控制台快照与最近一次反向地理结果；坐标变化小于约 0.01° 且 30 天内复用，桌面侧边栏刷新按钮会清除并重新反查。并保留旧 `notification-cache.json` 的 `apps` 数据用于迁移。
 - `performance.ts`：只采用 Rust `performance` 载荷；探针缺失时仅用 `os.cpus()` / `os.totalmem()`。

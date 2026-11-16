@@ -252,9 +252,9 @@ function sumHours(entries: unknown): number {
 
 /**
  * Normalize the Console API `finance/v1/summary` and `metrics/v1/stats`
- * responses. Only the request counters are kept: the monthly `utilized` value
- * from an active resource plan and the last-24-hour success/error totals. Money,
- * balance and bill fields are intentionally ignored.
+ * responses. The finance response is best-effort: an active resource plan's
+ * `utilized` is the only monthly number it can expose, and free accounts return
+ * no resource plan at all. Money, balance and bill fields are ignored.
  */
 export function parseQWeatherConsole(
   financeRaw: unknown,
@@ -291,7 +291,7 @@ export function parseQWeatherConsole(
   };
 }
 
-/** Read the optional QWeather Console API. These calls are not quota-counted. */
+/** Read the optional QWeather Console API (two requests, both quota-counted). */
 export async function fetchQWeatherConsole(
   settings: QWeatherSettings,
   options: QWeatherRequestOptions,

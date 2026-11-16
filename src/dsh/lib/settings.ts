@@ -52,8 +52,8 @@ export function normalizeDshLocale(value: unknown): string {
 export type WeatherProvider = 'nmc' | 'open-meteo' | 'qweather';
 export const WEATHER_PROVIDERS: readonly WeatherProvider[] = ['nmc', 'open-meteo', 'qweather'];
 
-/** QWeather's free plan allows 50,000 calls in a calendar month. */
-export const QWEATHER_DEFAULT_MONTHLY_LIMIT = 50_000;
+/** QWeather's free plan allows 50,000 calls/month; keep 5% headroom. */
+export const QWEATHER_DEFAULT_MONTHLY_LIMIT = 47_500;
 /** QWeather calls used by one weather refresh (current + daily + air + hourly). */
 export const QWEATHER_CALLS_PER_REFRESH = 4;
 export const QWEATHER_MIN_REFRESH_MINUTES = 5;

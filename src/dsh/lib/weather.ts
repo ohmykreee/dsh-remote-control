@@ -53,6 +53,7 @@ const LOCATION_TTL_MS = 6 * 60 * 60 * 1000;
 const LOCATION_ERROR_TTL_MS = 5 * 60 * 1000;
 const GEOCODE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const GEOCODE_CACHE_DISTANCE = 0.01;
+const CONSOLE_SYNC_INTERVAL_MS = 3 * 60 * 60 * 1000;
 const GEOCODE_TTL_MS = 10 * 60 * 1000;
 const GEOCODE_CACHE_LIMIT = 64;
 const WEATHER_CACHE_LIMIT = 32;
@@ -513,7 +514,7 @@ export function createWeatherService(options: WeatherServiceOptions): WeatherSer
     return WEATHER_TTL_MS;
   }
 
-  /** Read the optional Console API; console calls do not count against quota. */
+  /** Read the Console API; its request is counted against the local quota. */
   async function syncConsole(): Promise<QWeatherConsoleSnapshot | null> {
     const weather = settings();
     if (!weather.qweather.syncConsole) return cache.qweatherConsole();
@@ -523,6 +524,7 @@ export function createWeatherService(options: WeatherServiceOptions): WeatherSer
     if (consoleSyncBusy) return cache.qweatherConsole();
     consoleSyncBusy = true;
     try {
+      reserveQWeatherCalls(2, weather);
       const snapshot = await fetchQWeatherConsole(weather.qweather, {
         reserve: () => {},
         locale: locale(),
@@ -530,7 +532,6 @@ export function createWeatherService(options: WeatherServiceOptions): WeatherSer
         log,
       });
       cache.setQWeatherConsole(snapshot);
-      if (snapshot.monthlyUsed !== null) cache.reconcileQWeatherUsage(snapshot.monthlyUsed);
       consoleSyncAt = Date.now();
       return snapshot;
     } catch (error) {
@@ -552,7 +553,8 @@ export function createWeatherService(options: WeatherServiceOptions): WeatherSer
   function syncConsoleIfDue(): void {
     const weather = settings();
     if (!weather.qweather.syncConsole || !qweatherConfigured(weather.qweather)) return;
-    if (consoleSyncBusy || Date.now() - consoleSyncAt < 60 * 60 * 1000) return;
+    if (consoleSyncBusy || Date.now() - consoleSyncAt < CONSOLE_SYNC_INTERVAL_MS) return;
+    if (quotaStatus(weather).remaining < 2) return;
     void syncConsole();
   }
 

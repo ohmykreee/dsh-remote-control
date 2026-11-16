@@ -470,7 +470,7 @@ function QWeatherConsole({ api }: { api: PanelApi }): React.ReactElement {
         monthly === null && stats
           ? h('div', { className: 'drc-row-desc' }, t('qweatherConsoleNoMonthly'))
           : null,
-        monthly === null && !stats && errors.length === 0
+        !stats && errors.length === 0
           ? h('div', { className: 'drc-row-desc' }, t('qweatherConsoleNever'))
           : null,
         errors.length > 0

@@ -355,12 +355,12 @@ export interface QWeatherConsoleStats {
   total: number;
 }
 
-/** Last successful or failed console sync. Only call counts are kept. */
+/** Last successful or failed console sync. Only request counts are kept. */
 export interface QWeatherConsoleSnapshot {
   fetchedAt: number;
   asOf: string | null;
   stats: QWeatherConsoleStats | null;
-  /** Monthly used count derived from an active resource plan, when present. */
+  /** Best-effort monthly usage from an active resource plan, when present. */
   monthlyUsed: number | null;
   errors: string[];
 }

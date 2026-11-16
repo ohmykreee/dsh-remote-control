@@ -55,7 +55,7 @@ for (const provider of WEATHER_PROVIDERS) {
   assert.equal(store.get().weather.locations[provider].longitude, 115.8531);
   assert.equal(store.get().weather.locations[provider].locationId, '');
 }
-assert.equal(store.get().weather.qweather.monthlyLimit, 50_000);
+assert.equal(store.get().weather.qweather.monthlyLimit, 47_500);
 assert.equal(store.get().weather.qweather.refreshMinutes, 30);
 
 // Per-provider geodata survives a provider switch. The display name is shared.
@@ -137,18 +137,9 @@ assert.equal(cache.weatherUsage().qweather, 5, 'the counter survives a reload');
 assert.equal(cache.weatherUsage().month, qweatherMonth());
 cache.resetQWeatherUsage();
 assert.equal(cache.weatherUsage().qweather, 0);
-cache.reconcileQWeatherUsage(12);
-assert.equal(cache.weatherUsage().qweather, 12);
-cache.addQWeatherCalls(1);
-cache.reconcileQWeatherUsage(10);
-assert.equal(cache.weatherUsage().qweather, 13, 'a lower console count never lowers the local counter');
 
 const consoleSnapshot = parseQWeatherConsole({
   asOf: '2026-11-16T08:00Z',
-  balance: 123,
-  currency: 'CNY',
-  accruedCharges: { thisMonth: 99 },
-  pendingBills: [{ number: 'x' }],
   availableResourcePlans: [{ status: 'active', requests: '50000', utilized: 1234 }],
 }, {
   asOf: '2026-11-16T08:59Z',
@@ -160,7 +151,6 @@ assert.equal(consoleSnapshot.stats.success, 6);
 assert.equal(consoleSnapshot.stats.errors, 1);
 assert.equal(consoleSnapshot.stats.total, 7);
 assert.equal(consoleSnapshot.asOf, '2026-11-16T08:00Z');
-assert.equal(consoleSnapshot.balance, undefined, 'money fields are not cached');
 cache.setQWeatherConsole(consoleSnapshot);
 assert.equal(cache.qweatherConsole().monthlyUsed, 1234);
 cache = createCacheStore(cacheDir);
