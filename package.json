@@ -1,6 +1,6 @@
 {
   "name": "@ohmykreee/dsh-remote-control",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "A touch-first LAN console for DeepSeek Harness built with Svelte 5, shadcn-svelte, and Lucide icons.",
   "license": "MIT",
   "type": "module",
