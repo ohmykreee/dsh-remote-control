@@ -299,6 +299,25 @@ pub fn profile_for_app(app: App) -> Option<&'static Profile> {
     PROFILES.iter().find(|profile| profile.app == app)
 }
 
+/// Resolve the profile for a media item from its app id / process name.
+pub fn profile_for_media(media: &Media) -> Option<&'static Profile> {
+    profile_for_id(&media.app_id).or_else(|| profile_for_process(&media.app_id))
+}
+
+/// True when a media item belongs to the explicitly requested player.
+pub fn media_matches_preferred(media: &Media, preferred: &str) -> bool {
+    let wanted = preferred.trim().to_lowercase();
+    if wanted.is_empty() {
+        return false;
+    }
+    if media.app_id.to_lowercase().contains(&wanted) {
+        return true;
+    }
+    let candidate = profile_for_media(media);
+    let requested = profile_for_id(preferred).or_else(|| profile_for_process(preferred));
+    matches!((candidate, requested), (Some(left), Some(right)) if left.app == right.app)
+}
+
 impl Profile {
     /// Parse this client's window title through its vendor adapter.
     pub fn parse_title(&self, raw: &str) -> Option<ParsedTitle> {

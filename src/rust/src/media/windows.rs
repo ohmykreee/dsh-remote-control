@@ -86,8 +86,10 @@ fn app_id_of(session: &GlobalSystemMediaTransportControlsSession) -> String {
         .unwrap_or_default()
 }
 
-/// Pick a session exactly like the PowerShell probe: explicit app id, then the
-/// current session, then the first playing session, then the first session.
+/// Pick the control target. When an app id is supplied, the target must match
+/// that app exactly (or through its catalog profile); never fall back to
+/// Windows' current SMTC session. Without an app id, use the current/playing
+/// session as a best effort.
 fn select(
     app_id: Option<&str>,
 ) -> Result<Option<GlobalSystemMediaTransportControlsSession>, String> {
@@ -123,6 +125,10 @@ fn select(
                 return Ok(Some(session.clone()));
             }
         }
+        // The caller explicitly asked for one player. Do not silently fall
+        // back to another app's SMTC session (for example a paused Bilibili
+        // tab) just because that session is the Windows "current" one.
+        return Ok(None);
     }
 
     let mut session = manager.GetCurrentSession().ok();
@@ -676,39 +682,33 @@ fn best_for_app<'a>(candidates: &'a [Candidate], app: catalog::App) -> Option<&'
         .min_by_key(|candidate| rank(candidate))
 }
 
-pub fn control(action: &str, position: f64, options: &ReadOptions) -> Result<(), String> {
-    let preferred = options.app_id.as_deref().or(options.player.as_deref());
-    let session = match select(preferred) {
-        Ok(session) => session,
-        Err(_) => None,
-    };
-    let Some(session) = session else {
-        // No SMTC session: CDP-only NetEase still has its page transport.
-        let netease = preferred
-            .map(|value| {
-                catalog::profile_for_id(value)
-                    .or_else(|| catalog::profile_for_process(value))
-                    .map(|profile| profile.app == catalog::App::Netease)
-                    .unwrap_or_else(|| value.to_ascii_lowercase().contains("cloudmusic"))
-            })
-            .unwrap_or(true);
-        if netease && crate::media::vendor::netease::cdp_control(action, position).is_ok() {
-            return Ok(());
-        }
-        return Err(
-            "no active SMTC session; this player is read-only in the private tier".to_string(),
-        );
-    };
-    ensure_com();
+fn requested_app(options: &ReadOptions, current: Option<&Media>) -> Option<catalog::App> {
+    options
+        .app_id
+        .as_deref()
+        .or(options.player.as_deref())
+        .and_then(|value| {
+            catalog::profile_for_id(value).or_else(|| catalog::profile_for_process(value))
+        })
+        .or_else(|| current.and_then(catalog::profile_for_media))
+        .map(|profile| profile.app)
+}
 
+fn system_control(
+    session: &GlobalSystemMediaTransportControlsSession,
+    action: &str,
+    position: f64,
+    options: &ReadOptions,
+) -> Result<(), String> {
+    ensure_com();
     if action == "seek" {
-        let profile = catalog::profile_for_id(&app_id_of(&session))
-            .or_else(|| catalog::profile_for_process(&app_id_of(&session)));
+        let profile = catalog::profile_for_id(&app_id_of(session))
+            .or_else(|| catalog::profile_for_process(&app_id_of(session)));
         let check_options = ReadOptions {
             thumbnail: false,
             ..options.clone()
         };
-        let media = media_from_session(&session, &check_options)?;
+        let media = media_from_session(session, &check_options)?;
         if !is_complete(profile, &media) {
             return Err(
                 "this player only reports progress; seek requires a complete SMTC timeline"
@@ -749,8 +749,41 @@ pub fn control(action: &str, position: f64, options: &ReadOptions) -> Result<(),
     Ok(())
 }
 
-pub fn like(liked: Option<bool>, _options: &ReadOptions) -> Result<(), String> {
-    crate::media::vendor::netease::cdp_set_liked(liked).map(|_| ())
+pub fn control(action: &str, position: f64, options: &ReadOptions) -> Result<(), String> {
+    let preferred = options.app_id.as_deref().or(options.player.as_deref());
+    let check = ReadOptions {
+        thumbnail: false,
+        ..options.clone()
+    };
+    let current = read(&check).ok().flatten();
+    let target_app = requested_app(options, current.as_ref());
+    let session = select(preferred).ok().flatten();
+    crate::media::vendor::control(
+        crate::media::vendor::Platform::Windows,
+        target_app,
+        action,
+        position,
+        current.as_ref(),
+        || {
+            let Some(session) = session.as_ref() else {
+                return Err(
+                    "no active SMTC session; this player is read-only in the private tier"
+                        .to_string(),
+                );
+            };
+            system_control(session, action, position, options)
+        },
+    )
+}
+
+pub fn like(liked: Option<bool>, options: &ReadOptions) -> Result<(), String> {
+    let check = ReadOptions {
+        thumbnail: false,
+        ..options.clone()
+    };
+    let current = read(&check).ok().flatten();
+    let target_app = requested_app(options, current.as_ref());
+    crate::media::vendor::like(target_app, liked)
 }
 
 #[cfg(test)]

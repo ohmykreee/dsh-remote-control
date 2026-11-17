@@ -73,3 +73,79 @@ pub fn resolve(
         _ => common::resolve_system_or_private(app, system, private),
     }
 }
+
+/// Vendor-first transport dispatch. The platform supplies the target app (from
+/// the UI's app id) and the currently selected media; the vendor decides
+/// whether to use the private interface or the platform's system control.
+///
+/// Only NetEase has a client-specific transport (CDP); every other client uses
+/// the platform closure, so QQ/Spotify/etc. never need client checks in the
+/// generic platform layer.
+#[allow(dead_code)] // used by every platform adapter; kept cross-platform.
+pub fn control(
+    platform: Platform,
+    app: Option<App>,
+    action: &str,
+    position: f64,
+    current: Option<&Media>,
+    system: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    match app {
+        Some(App::Netease) => netease::control(platform, action, position, current, system),
+        _ => system(),
+    }
+}
+
+/// Last-resort vendor media when the platform has no system session at all.
+/// Only NetEase currently has such a path (CDP); platforms ask the vendor layer
+/// instead of naming the client themselves.
+#[allow(dead_code)] // used by Linux/macOS; kept cross-platform.
+pub fn fallback_media() -> Option<Media> {
+    netease::cdp_media()
+}
+
+/// Vendor-specific like control. Only NetEase exposes a red-heart control.
+#[allow(dead_code)] // used by every platform adapter; kept cross-platform.
+pub fn like(app: Option<App>, liked: Option<bool>) -> Result<(), String> {
+    match app {
+        Some(App::Netease) => netease::cdp_set_liked(liked).map(|_| ()),
+        _ => Err("the current player does not support liking".to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn non_vendor_players_delegate_transport_to_the_system() {
+        let mut called = false;
+        control(Platform::MacOS, None, "playpause", 0.0, None, || {
+            called = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(called);
+
+        let mut called = false;
+        control(
+            Platform::MacOS,
+            Some(App::Spotify),
+            "next",
+            0.0,
+            None,
+            || {
+                called = true;
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(called);
+    }
+
+    #[test]
+    fn only_netease_accepts_like_control() {
+        assert!(like(None, Some(true)).is_err());
+        assert!(like(Some(App::Spotify), Some(true)).is_err());
+    }
+}

@@ -16,6 +16,7 @@ __pycache__/
 remote-control/
 settings.json
 notification-cache.json
+TODO.md
 *.pem
 *.key
 *.p12

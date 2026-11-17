@@ -33,7 +33,7 @@ use serde_json::{json, Value};
 
 use super::common;
 use super::Platform;
-use crate::media::catalog::ParsedTitle;
+use crate::media::catalog::{self, ParsedTitle};
 use crate::media::Media;
 use crate::util;
 
@@ -1216,6 +1216,42 @@ pub fn cdp_media() -> Option<Media> {
     media.can_like = track.can_like;
     media.can_set_liked = track.can_set_liked;
     Some(media)
+}
+
+/// NetEase transport dispatch. A complete system session wins; a CDP-only page
+/// or a target whose system session is absent/another app uses the CDP page.
+#[allow(dead_code)] // called by vendor::control on every platform.
+pub fn control(
+    _platform: Platform,
+    action: &str,
+    position: f64,
+    current: Option<&Media>,
+    system: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    let current_is_netease = current
+        .and_then(catalog::profile_for_media)
+        .map(|profile| profile.app == crate::media::catalog::App::Netease)
+        .unwrap_or_else(|| {
+            current
+                .map(|media| is_netease(&media.app_id))
+                .unwrap_or(false)
+        });
+    let cdp_provider = current
+        .map(|media| media.provider_detail.contains("cdp"))
+        .unwrap_or(true);
+    if current_is_netease && !cdp_provider {
+        return system();
+    }
+    match cdp_control(action, position) {
+        Ok(()) => Ok(()),
+        Err(cdp_error) => {
+            if current_is_netease {
+                system()
+            } else {
+                Err(cdp_error)
+            }
+        }
+    }
 }
 
 /// Transport control through the NetEase page when there is no SMTC session.

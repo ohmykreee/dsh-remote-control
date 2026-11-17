@@ -50,8 +50,16 @@ interface ChannelStatus {
   updatedAt: number | null;
 }
 
+/** The media channel additionally exposes the backend-reported provider detail. */
+export interface MediaChannelStatus extends ChannelStatus {
+  appId: string | null;
+  title: string | null;
+  provider: PublicMedia['provider'] | null;
+  providerDetail: string | null;
+}
+
 export interface MediaAdapterStatus {
-  media: ChannelStatus;
+  media: MediaChannelStatus;
   volume: ChannelStatus;
 }
 
@@ -250,6 +258,7 @@ export function createProbeMediaAdapter({ label = '平台' }: { label?: string }
   }
 
   function status(): MediaAdapterStatus {
+    const media = mediaCache?.media ?? null;
     return {
       media: mediaCache
         ? {
@@ -258,8 +267,22 @@ export function createProbeMediaAdapter({ label = '平台' }: { label?: string }
             error: mediaCache.error,
             backend: mediaCache.backend,
             updatedAt: mediaCache.updatedAt,
+            appId: media?.appId ?? null,
+            title: media?.title ?? null,
+            provider: media?.provider ?? null,
+            providerDetail: media?.providerDetail ?? null,
           }
-        : { ok: null, available: null, error: null, backend: null, updatedAt: null },
+        : {
+            ok: null,
+            available: null,
+            error: null,
+            backend: null,
+            updatedAt: null,
+            appId: null,
+            title: null,
+            provider: null,
+            providerDetail: null,
+          },
       volume: volumeCache
         ? {
             ok: volumeCache.ok,

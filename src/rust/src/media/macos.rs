@@ -290,7 +290,7 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
     }
     if media.is_none() {
         // No Now Playing/AppleScript/Cider source: try the NetEase CDP page.
-        return Ok(crate::media::vendor::netease::cdp_media());
+        return Ok(crate::media::vendor::fallback_media());
     }
     if let Some(media) = media.as_mut() {
         if media.app_id == "macOS" {
@@ -363,17 +363,46 @@ fn accessibility_process(app_id: &str) -> Option<&'static str> {
 }
 
 pub fn control(action: &str, position: f64, options: &ReadOptions) -> Result<(), String> {
-    // A CDP-only NetEase session has no Now Playing entry; route its transport
-    // through the page before trying the AppleScript fallback.
+    let preferred = options
+        .app_id
+        .as_deref()
+        .or(options.player.as_deref())
+        .filter(|value| !value.is_empty());
     let check = ReadOptions {
         thumbnail: false,
         ..options.clone()
     };
-    if let Ok(Some(current)) = read(&check) {
-        if current.provider_detail.contains("cdp") {
-            return crate::media::vendor::netease::cdp_control(action, position);
+    let current = read(&check).ok().flatten();
+    let target_app = preferred
+        .and_then(|value| {
+            catalog::profile_for_id(value).or_else(|| catalog::profile_for_process(value))
+        })
+        .or_else(|| current.as_ref().and_then(catalog::profile_for_media))
+        .map(|profile| profile.app);
+    if let Some(preferred) = preferred {
+        if let Some(media) = current.as_ref() {
+            if target_app != Some(catalog::App::Netease)
+                && !catalog::media_matches_preferred(media, preferred)
+            {
+                return Err(
+                    "the requested player is not the current Now Playing session".to_string(),
+                );
+            }
+        } else if target_app != Some(catalog::App::Netease) {
+            return Err("the requested player is not the current Now Playing session".to_string());
         }
     }
+    crate::media::vendor::control(
+        crate::media::vendor::Platform::MacOS,
+        target_app,
+        action,
+        position,
+        current.as_ref(),
+        || system_control(action, position),
+    )
+}
+
+fn system_control(action: &str, position: f64) -> Result<(), String> {
     if mediaremote::available() {
         return mediaremote::control(action, position);
     }
@@ -411,8 +440,22 @@ pub fn control(action: &str, position: f64, options: &ReadOptions) -> Result<(),
     Ok(())
 }
 
-pub fn like(liked: Option<bool>, _options: &ReadOptions) -> Result<(), String> {
-    crate::media::vendor::netease::cdp_set_liked(liked).map(|_| ())
+pub fn like(liked: Option<bool>, options: &ReadOptions) -> Result<(), String> {
+    let check = ReadOptions {
+        thumbnail: false,
+        ..options.clone()
+    };
+    let current = read(&check).ok().flatten();
+    let target_app = options
+        .app_id
+        .as_deref()
+        .or(options.player.as_deref())
+        .and_then(|value| {
+            catalog::profile_for_id(value).or_else(|| catalog::profile_for_process(value))
+        })
+        .or_else(|| current.as_ref().and_then(catalog::profile_for_media))
+        .map(|profile| profile.app);
+    crate::media::vendor::like(target_app, liked)
 }
 
 #[cfg(test)]
@@ -426,5 +469,15 @@ mod tests {
         assert_eq!(nowplaying_value(output, 3), "120.5");
         assert_eq!(nowplaying_value(output, 6), "");
         assert_eq!(nowplaying_value("null\nnull\n", 1), "");
+    }
+
+    #[test]
+    fn control_target_must_match_the_current_media() {
+        let media = Media::new("Music");
+        assert!(catalog::media_matches_preferred(&media, "Music"));
+        assert!(!catalog::media_matches_preferred(&media, "Spotify"));
+        assert!(!catalog::profile_for_media(&media)
+            .map(|profile| profile.app == catalog::App::Netease)
+            .unwrap_or(false));
     }
 }

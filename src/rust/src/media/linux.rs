@@ -119,6 +119,21 @@ fn choose_player(
     playing_without_identity.or(fallback)
 }
 
+fn player_matches_preferred(name: &str, preferred: &str) -> bool {
+    let wanted = preferred.trim().to_lowercase();
+    if wanted.is_empty() {
+        return false;
+    }
+    let lower = name.to_lowercase();
+    if lower == wanted || lower.ends_with(&wanted) || lower.contains(&wanted) {
+        return true;
+    }
+    let candidate = catalog::profile_for_id(name).or_else(|| catalog::profile_for_process(name));
+    let requested =
+        catalog::profile_for_id(preferred).or_else(|| catalog::profile_for_process(preferred));
+    matches!((candidate, requested), (Some(left), Some(right)) if left.app == right.app)
+}
+
 fn metadata_of(proxy: &Proxy<'_>) -> HashMap<String, OwnedValue> {
     proxy
         .get_property::<HashMap<String, OwnedValue>>("Metadata")
@@ -203,14 +218,14 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
         Ok(connection) => connection,
         // No session bus / no MPRIS service: try the NetEase CDP page, then
         // return an empty reading.
-        Err(_) => return Ok(crate::media::vendor::netease::cdp_media()),
+        Err(_) => return Ok(crate::media::vendor::fallback_media()),
     };
     let names = match player_names(&connection) {
         Ok(names) => names,
-        Err(_) => return Ok(crate::media::vendor::netease::cdp_media()),
+        Err(_) => return Ok(crate::media::vendor::fallback_media()),
     };
     let Some(name) = choose_player(&connection, &names, options) else {
-        return Ok(crate::media::vendor::netease::cdp_media());
+        return Ok(crate::media::vendor::fallback_media());
     };
     let proxy = player_proxy(&connection, &name)?;
     let metadata = metadata_of(&proxy);
@@ -235,7 +250,7 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
             .map(|profile| profile.app == catalog::App::Netease)
             .unwrap_or(false);
         return Ok(if netease {
-            crate::media::vendor::netease::cdp_media()
+            crate::media::vendor::fallback_media()
         } else {
             None
         });
@@ -299,41 +314,19 @@ pub fn read_all(options: &ReadOptions) -> Result<Vec<Media>, String> {
     Ok(read(options)?.into_iter().collect())
 }
 
-fn preferred_is_netease(options: &ReadOptions) -> bool {
+fn requested_app(options: &ReadOptions, current: Option<&Media>) -> Option<catalog::App> {
     options
         .app_id
         .as_deref()
         .or(options.player.as_deref())
-        .map(|value| {
-            catalog::profile_for_id(value)
-                .or_else(|| catalog::profile_for_process(value))
-                .map(|profile| profile.app == catalog::App::Netease)
-                .unwrap_or_else(|| value.to_ascii_lowercase().contains("cloudmusic"))
+        .and_then(|value| {
+            catalog::profile_for_id(value).or_else(|| catalog::profile_for_process(value))
         })
-        .unwrap_or(true)
+        .or_else(|| current.and_then(catalog::profile_for_media))
+        .map(|profile| profile.app)
 }
 
-fn cdp_fallback(action: &str, position: f64, options: &ReadOptions) -> Result<(), String> {
-    if preferred_is_netease(options) {
-        crate::media::vendor::netease::cdp_control(action, position)
-    } else {
-        Err("no MPRIS player is running".to_string())
-    }
-}
-
-pub fn control(action: &str, position: f64, options: &ReadOptions) -> Result<(), String> {
-    let connection = match connection() {
-        Ok(connection) => connection,
-        Err(_) => return cdp_fallback(action, position, options),
-    };
-    let names = match player_names(&connection) {
-        Ok(names) => names,
-        Err(_) => return cdp_fallback(action, position, options),
-    };
-    let Some(name) = choose_player(&connection, &names, options) else {
-        return cdp_fallback(action, position, options);
-    };
-    let proxy = player_proxy(&connection, &name)?;
+fn system_control(proxy: &Proxy<'_>, action: &str, position: f64) -> Result<(), String> {
     match action {
         "playpause" => {
             let _: () = proxy.call("PlayPause", &()).map_err(failure)?;
@@ -349,7 +342,7 @@ pub fn control(action: &str, position: f64, options: &ReadOptions) -> Result<(),
             // itself advertises a seekable track. The private/accessibility
             // tiers never grant seek.
             let can_seek = proxy.get_property::<bool>("CanSeek").unwrap_or(false);
-            let metadata = metadata_of(&proxy);
+            let metadata = metadata_of(proxy);
             let duration = number_value(&metadata, "mpris:length").unwrap_or(0.0);
             if !can_seek || duration <= 0.0 {
                 return Err(
@@ -374,8 +367,60 @@ pub fn control(action: &str, position: f64, options: &ReadOptions) -> Result<(),
     Ok(())
 }
 
-pub fn like(liked: Option<bool>, _options: &ReadOptions) -> Result<(), String> {
-    crate::media::vendor::netease::cdp_set_liked(liked).map(|_| ())
+pub fn control(action: &str, position: f64, options: &ReadOptions) -> Result<(), String> {
+    let preferred = options
+        .app_id
+        .as_deref()
+        .or(options.player.as_deref())
+        .filter(|value| !value.is_empty());
+    let check = ReadOptions {
+        thumbnail: false,
+        ..options.clone()
+    };
+    let current = read(&check).ok().flatten();
+    let target_app = requested_app(options, current.as_ref());
+    let connection = connection().ok();
+    let names = connection
+        .as_ref()
+        .and_then(|connection| player_names(connection).ok())
+        .unwrap_or_default();
+    let chosen = connection
+        .as_ref()
+        .and_then(|connection| choose_player(connection, &names, options));
+    crate::media::vendor::control(
+        crate::media::vendor::Platform::Linux,
+        target_app,
+        action,
+        position,
+        current.as_ref(),
+        || {
+            let connection = connection
+                .as_ref()
+                .ok_or_else(|| "no MPRIS session bus".to_string())?;
+            let name = chosen
+                .as_ref()
+                .ok_or_else(|| "no MPRIS player is running".to_string())?;
+            if let Some(preferred) = preferred {
+                // Never control a different player than the one requested by
+                // the UI (the same rule as the Windows session selector).
+                if !player_matches_preferred(name, preferred) {
+                    return Err("the requested player is not the current MPRIS player".to_string());
+                }
+            }
+            let proxy = player_proxy(connection, name)?;
+            system_control(&proxy, action, position)
+        },
+    )
+}
+
+pub fn like(liked: Option<bool>, options: &ReadOptions) -> Result<(), String> {
+    let check = ReadOptions {
+        thumbnail: false,
+        ..options.clone()
+    };
+    let current = read(&check).ok().flatten();
+    let target_app = requested_app(options, current.as_ref());
+    crate::media::vendor::like(target_app, liked)
 }
 
 #[cfg(test)]
@@ -398,5 +443,21 @@ mod tests {
             remote.thumbnail_url.as_deref(),
             Some("https://example.test/cover.jpg")
         );
+    }
+
+    #[test]
+    fn preferred_player_must_match_the_control_target() {
+        assert!(player_matches_preferred(
+            "org.mpris.MediaPlayer2.spotify",
+            "org.mpris.MediaPlayer2.spotify"
+        ));
+        assert!(player_matches_preferred(
+            "org.mpris.MediaPlayer2.spotify",
+            "spotify"
+        ));
+        assert!(!player_matches_preferred(
+            "org.mpris.MediaPlayer2.vlc",
+            "org.mpris.MediaPlayer2.spotify"
+        ));
     }
 }

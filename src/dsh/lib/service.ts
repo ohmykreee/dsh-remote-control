@@ -1348,6 +1348,14 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
 
   async function getSettingsPayload(): Promise<SettingsPayload> {
     const [notifications, probe] = await Promise.all([getNotificationsView(), readProbeCapability()]);
+    // The system page reports the API used by the currently selected player;
+    // refresh once instead of showing a stale/empty cache from before the last
+    // phone poll.
+    try {
+      await adapters.media.getMedia(true);
+    } catch {
+      // The capability status below still exposes the failure.
+    }
     const mediaStatus = adapters.media?.status?.() || {};
     const weatherStatus = weather.status();
     return {

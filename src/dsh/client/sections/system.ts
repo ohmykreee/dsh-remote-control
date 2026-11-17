@@ -12,6 +12,14 @@ function factRow(key: string, label: string, value: React.ReactNode, wide = fals
   );
 }
 
+function mediaApiDetail(
+  media: { provider?: string | null; providerDetail?: string | null } | undefined,
+  backend: string | undefined,
+): string {
+  if (!media) return backend || '—';
+  return media.providerDetail || media.provider || backend || '—';
+}
+
 function statusGroup(api: PanelApi): React.ReactElement {
   const { t, data } = api;
   const capabilities = data.capabilities ?? {};
@@ -35,7 +43,7 @@ function statusGroup(api: PanelApi): React.ReactElement {
     h(StatusRow, {
       label: t('mediaStatus'),
       value: capabilities.media?.available ?? capabilities.media?.ok,
-      detail: backends?.media,
+      detail: mediaApiDetail(capabilities.media, backends?.media),
       ...labels,
     }),
     h(StatusRow, {

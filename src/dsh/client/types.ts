@@ -168,6 +168,14 @@ export interface CapabilityStatus {
   error?: string | null;
 }
 
+/** Media capability plus the backend-reported provider detail. */
+export interface MediaCapability extends CapabilityStatus {
+  appId?: string | null;
+  title?: string | null;
+  provider?: 'system' | 'private' | 'accessibility' | null;
+  providerDetail?: string | null;
+}
+
 /** `dsh-probe version` platform backends. */
 export interface ProbeBackends {
   media?: string;
@@ -241,7 +249,7 @@ export interface WeatherCapability {
 
 export interface RemoteCapabilities {
   notifications?: CapabilityStatus;
-  media?: CapabilityStatus;
+  media?: MediaCapability;
   volume?: CapabilityStatus;
   weather?: WeatherCapability;
   probe?: ProbeCapability;

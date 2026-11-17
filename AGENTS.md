@@ -385,6 +385,8 @@ Windows 只允许 Medium 完整性及以上的进程访问定位。插件目录�
 
 播放器滚动标题可能在 DOM 中出现两遍；`Media::finish()` 只折叠完全相同的重复两半（以及 ` - ` / ` · ` 等分隔形式），不影响正常的重复歌名。
 
+传输控制走 `vendor::control`：只有网易云 vendor 处理 CDP 传输，其他客户端及浏览器统一使用系统控制闭包。平台层必须先确认目标 app 与当前媒体/系统会话一致，不能因为目标没有 SMTC/MPRIS 就转而控制 Windows/macOS 的“当前”播放器。系统信息页的媒体详情直接显示后端返回的 `providerDetail`（无媒体时显示平台媒体后端），不做前端翻译。
+
 **不访问任何外部 Web API。** 封面来自 SMTC `Thumbnail`、MPRIS `mpris:artUrl`、网易云 CDP 歌曲数据里的封面 URL 或本地缓存；歌曲信息不通过网易云 / QQ 音乐等网络接口查询。
 
 适配思路参考 [Widdit/now-playing-service](https://github.com/Widdit/now-playing-service)（MIT）的 `GetMusicStatus` 实现；Rust 侧为独立实现。
