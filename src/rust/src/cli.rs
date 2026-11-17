@@ -45,7 +45,7 @@ Commands:
   media read [--app-id ID] [--player DEST] [--no-thumbnail] [--all]
   media playpause|next|previous|seek [--position SECONDS] [--app-id ID] [--player DEST]
   media like [--value true|false] [--app-id ID] [--player DEST]
-  media cdp                                  # NetEase CDP diagnostics
+  media cdp                                  # private-page diagnostics
   volume read
   volume set --value 0.0..1.0
   volume toggle

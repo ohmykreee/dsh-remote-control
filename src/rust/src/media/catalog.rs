@@ -356,6 +356,14 @@ pub fn system_complete(profile: Option<&Profile>, media: &Media) -> bool {
     }
 }
 
+/// Whether a platform snapshot is a complete system session for its own app.
+///
+/// Every platform adapter and vendor uses this instead of re-implementing the
+/// rule, so `SmtcPolicy` (including `VerifyPosition`) applies on every OS.
+pub fn system_valid(media: &Media) -> bool {
+    system_complete(profile_for_media(media), media)
+}
+
 /// A title/artist pair parsed from a client window title.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedTitle {
@@ -486,5 +494,29 @@ mod tests {
         assert!(!seek_allowed(Tier::Accessibility, true, false));
         assert!(!seek_allowed(Tier::Private, false, false));
         assert!(seek_allowed(Tier::Private, false, true));
+    }
+
+    #[test]
+    fn system_valid_applies_the_profile_policy_on_every_platform() {
+        let mut netease = Media::new("org.mpris.MediaPlayer2.netease-cloud-music");
+        netease.title = "Song".to_string();
+        netease.playback_status = "Playing".to_string();
+        netease.start_time = 0.0;
+        netease.end_time = 200.0;
+        netease.can_seek = true;
+        netease.position = 0.0;
+        // VerifyPosition: a seekable timeline without a real position is not
+        // a complete session, regardless of the platform that produced it.
+        assert!(!system_valid(&netease));
+        netease.position = 12.0;
+        assert!(system_valid(&netease));
+
+        let mut trusted = Media::new("Spotify.exe");
+        trusted.title = "Song".to_string();
+        trusted.playback_status = "Playing".to_string();
+        trusted.end_time = 200.0;
+        trusted.can_seek = true;
+        trusted.position = 0.0;
+        assert!(system_valid(&trusted));
     }
 }

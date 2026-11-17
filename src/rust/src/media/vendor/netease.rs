@@ -1,34 +1,29 @@
-//! NetEase Cloud Music vendor adapter: local metadata cache and CDP bridge.
+//! NetEase Cloud Music vendor adapter: CDP bridge and window-title parser.
 //!
-//! The desktop client keeps its library in `Library/webdb.dat` (a SQLite
-//! database) and its image cache in `Statics/*.dat`. This module opens those
-//! files read-only to enrich the private window-title path with a track id,
-//! duration and cover art. It never writes to the client, never calls a network
-//! API and never extracts cookies.
+//! The CDP bridge reads the page's webpack store (never the DOM) for title,
+//! artist, album, cover URL, track id, playback state and progress. The window
+//! title and UI Automation remain the fallback when CDP is unavailable. It never
+//! writes to the client, never calls a network API and never extracts cookies.
 //!
 //! When the client was launched with `/remote-debugging-port=<port>` (or
 //! `--remote-debugging-port=<port>`, default port `2015`), the CDP bridge also
 //! supplies:
 //!
-//! - with a usable SMTC/MPRIS/Now Playing session: exact playback progress,
-//!   duration and liked state, while the system session keeps its transport and
-//!   seek policy;
+//! - with a usable system session: exact playback progress, duration and liked
+//!   state, while the system session keeps its transport and seek policy;
 //! - without a system session: the full media snapshot (title, artist, album,
 //!   cover URL, playback state and progress) plus play/pause and next/previous,
 //!   but no seek grant;
 //! - the like button state and click, which the client store does not expose.
 //!
 //! Without CDP, liked state stays `null` and progress falls back to the
-//! platform's window-title / UI Automation text. The local database is never
-//! used for liked state.
+//! platform's window-title / UI Automation text.
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
-use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use base64::Engine as _;
-use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
 
 use super::common;
@@ -36,26 +31,6 @@ use super::Platform;
 use crate::media::catalog::{self, ParsedTitle};
 use crate::media::Media;
 use crate::util;
-
-const MAX_COVER_BYTES: u64 = 4 * 1024 * 1024;
-const HISTORY_LIMIT: usize = 120;
-
-/// A NetEase track matched from the local client database.
-#[derive(Debug, Clone, Default)]
-pub struct LocalTrack {
-    pub track_id: Option<String>,
-    pub duration_seconds: Option<f64>,
-    pub cover: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-struct TrackData {
-    id: Option<String>,
-    name: String,
-    artists: Vec<String>,
-    duration_ms: Option<f64>,
-    source_history: bool,
-}
 
 /// True when the SMTC/MPRIS app id belongs to the NetEase desktop client.
 pub fn is_netease(app_id: &str) -> bool {
@@ -88,335 +63,12 @@ pub fn parse_title(raw: &str) -> Option<ParsedTitle> {
     Some(parsed)
 }
 
-/// Enrich a playing media item with local NetEase cover/duration data.
-///
-/// Liked state is deliberately not read here: it is only available through the
-/// CDP bridge when the client is launched with remote debugging.
-pub fn enrich(media: &mut Media) {
-    if !is_netease(&media.app_id) {
-        return;
-    }
-    // Seek policy is decided by the platform adapter. A complete system
-    // session owns the timeline; an incomplete one may be filled from CDP.
-    // This module only enriches metadata and must not grant seek itself.
-    let Some(local) = read_local(&media.title, &media.artist) else {
-        return;
-    };
-    if media.track_id.is_none() {
-        media.track_id = local.track_id;
-    }
-    // The cover must come from the active provider: SMTC while a system
-    // session exists, or the CDP page in CDP-only mode. The local Statics cache
-    // is only a fallback for the private window-title path.
-    let provider_cover =
-        media.provider_detail.contains("smtc") || media.provider_detail.contains("cdp");
-    if !provider_cover && media.thumbnail.is_none() {
-        media.thumbnail = local.cover;
-        if media.thumbnail.is_some() {
-            media.thumbnail_type = Some("image/*".to_string());
-        }
-    }
-    if media.end_time <= media.start_time {
-        if let Some(duration) = local.duration_seconds.filter(|value| *value > 0.0) {
-            media.end_time = duration;
-            media.max_seek_time = duration;
-        }
-    }
-}
-
-pub fn read_local(title: &str, artist: &str) -> Option<LocalTrack> {
-    let track = with_database(|connection| find_track(connection, title, artist))?;
-    let track = track?;
-    Some(LocalTrack {
-        track_id: track.id,
-        duration_seconds: track.duration_ms.map(|value| value / 1000.0),
-        cover: latest_cover(),
-    })
-}
-
-/// Run `f` against a read-only copy of the NetEase database.
-///
-/// Opening the live file first mirrors the old Node adapter: SQLite readers can
-/// share a WAL database. If the client holds an exclusive lock, fall back to a
-/// temporary copy of the database and its sidecars.
-fn with_database<T>(f: impl FnOnce(&Connection) -> T) -> Option<T> {
-    for root in netease_roots() {
-        let source = root.join("Library").join("webdb.dat");
-        if !source.is_file() {
-            continue;
-        }
-        if let Ok(connection) =
-            Connection::open_with_flags(&source, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        {
-            let _ = connection.busy_timeout(std::time::Duration::from_millis(500));
-            return Some(f(&connection));
-        }
-        let temp = util::TempDir::create("dsh-probe-netease").ok()?;
-        let target = temp.path().join("webdb.dat");
-        util::copy_sqlite_database(&source, &target).ok()?;
-        if let Ok(connection) =
-            Connection::open_with_flags(&target, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        {
-            return Some(f(&connection));
-        }
-    }
-    None
-}
-
-/// Candidate NetEase Cloud Music data roots, most specific first.
-pub fn netease_roots() -> Vec<PathBuf> {
-    let mut roots = Vec::new();
-    if cfg!(windows) {
-        let local = std::env::var_os("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .or_else(|| util::home_dir().map(|home| home.join("AppData").join("Local")));
-        if let Some(local) = local {
-            for name in ["NetEase", "Netease"] {
-                roots.push(local.join(name).join("CloudMusic"));
-            }
-        }
-    } else if cfg!(target_os = "macos") {
-        if let Some(home) = util::home_dir() {
-            roots.push(
-                home.join("Library")
-                    .join("Application Support")
-                    .join("Netease")
-                    .join("CloudMusic"),
-            );
-            roots.push(
-                home.join("Library")
-                    .join("Application Support")
-                    .join("NetEase")
-                    .join("CloudMusic"),
-            );
-            roots.push(
-                home.join("Library")
-                    .join("Containers")
-                    .join("com.netease.163music")
-                    .join("Data")
-                    .join("Documents"),
-            );
-        }
-    } else {
-        if let Some(home) = util::home_dir() {
-            roots.push(home.join(".config").join("netease-cloud-music"));
-            roots.push(
-                home.join(".local")
-                    .join("share")
-                    .join("netease-cloud-music"),
-            );
-            roots.push(home.join(".netease-cloud-music"));
-            roots.push(home.join(".config").join("NetEase").join("CloudMusic"));
-        }
-    }
-    roots.retain(|root| root.is_dir());
-    roots
-}
-
-/// Normalize a title/artist for comparison (case, spaces, punctuation).
-pub fn normalize(value: &str) -> String {
-    value
-        .to_lowercase()
-        .chars()
-        .filter(|character| !character.is_whitespace() && !"()（）[]【】'\"`".contains(*character))
-        .collect()
-}
-
-fn column_names(connection: &Connection, table: &str) -> Vec<String> {
-    let sql = format!("pragma table_info(\"{}\")", table.replace('"', "\"\""));
-    let Ok(mut statement) = connection.prepare(&sql) else {
-        return Vec::new();
-    };
-    let Ok(rows) = statement.query_map([], |row| row.get::<_, String>(1)) else {
-        return Vec::new();
-    };
-    rows.flatten().collect()
-}
-
-fn json_column(columns: &[String]) -> Option<String> {
-    columns
-        .iter()
-        .find(|name| name.eq_ignore_ascii_case("jsonStr"))
-        .cloned()
-}
-
-fn value_to_string(value: &Value) -> Option<String> {
-    match value {
-        Value::String(text) => Some(text.clone()),
-        Value::Number(number) => Some(number.to_string()),
-        _ => None,
-    }
-}
-
-fn parse_track(json: &str, source_history: bool) -> Option<TrackData> {
-    let value: Value = serde_json::from_str(json).ok()?;
-    let name = value.get("name")?.as_str()?.trim().to_string();
-    if name.is_empty() {
-        return None;
-    }
-    let id = value.get("id").and_then(value_to_string);
-    let artists = value
-        .get("artists")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| item.get("name").and_then(Value::as_str))
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    let duration_ms = value.get("duration").and_then(Value::as_f64);
-    Some(TrackData {
-        id,
-        name,
-        artists,
-        duration_ms,
-        source_history,
-    })
-}
-
-fn find_track(connection: &Connection, title: &str, artist: &str) -> Option<TrackData> {
-    let wanted_title = normalize(title);
-    if wanted_title.is_empty() {
-        return None;
-    }
-    let wanted_artist = normalize(artist);
-    let mut candidates: Vec<(i32, TrackData)> = Vec::new();
-
-    for table in ["historyTracks", "dbTrack"] {
-        let columns = column_names(connection, table);
-        let Some(json_column) = json_column(&columns) else {
-            continue;
-        };
-        let order = if table == "historyTracks" {
-            " order by playtime desc"
-        } else {
-            ""
-        };
-        let sql = format!(
-            "select \"{}\" from \"{}\"{} limit {HISTORY_LIMIT}",
-            json_column.replace('"', "\"\""),
-            table,
-            order
-        );
-        let Ok(mut statement) = connection.prepare(&sql) else {
-            continue;
-        };
-        let Ok(rows) = statement.query_map([], |row| row.get::<_, String>(0)) else {
-            continue;
-        };
-        for json in rows.flatten() {
-            let Some(track) = parse_track(&json, table == "historyTracks") else {
-                continue;
-            };
-            let name = normalize(&track.name);
-            let mut score: i32 = 0;
-            if name == wanted_title {
-                score += 10;
-            } else if name.contains(&wanted_title) || wanted_title.contains(&name) {
-                score += 5;
-            }
-            if !wanted_artist.is_empty() {
-                let artist_match = track.artists.iter().any(|candidate| {
-                    let candidate = normalize(candidate);
-                    candidate == wanted_artist
-                        || candidate.contains(&wanted_artist)
-                        || wanted_artist.contains(&candidate)
-                });
-                if artist_match {
-                    score += 6;
-                }
-            }
-            if track.source_history {
-                score += 1;
-            }
-            if score >= 5 {
-                candidates.push((score, track));
-            }
-        }
-    }
-
-    candidates.sort_by(|left, right| right.0.cmp(&left.0));
-    candidates.into_iter().next().map(|(_, track)| track)
-}
-
-/// Read the newest image from the client `Statics` cache.
-fn latest_cover() -> Option<String> {
-    for root in netease_roots() {
-        let directory = root.join("Statics");
-        if let Some(cover) = cover_from_directory(&directory) {
-            return Some(cover);
-        }
-    }
-    None
-}
-
-fn cover_from_directory(directory: &Path) -> Option<String> {
-    let mut files: Vec<(SystemTime, PathBuf, u64)> = std::fs::read_dir(directory)
-        .ok()?
-        .flatten()
-        .filter_map(|entry| {
-            let path = entry.path();
-            let is_dat = path
-                .extension()
-                .map(|extension| extension.eq_ignore_ascii_case("dat"))
-                .unwrap_or(false);
-            if !is_dat {
-                return None;
-            }
-            let metadata = entry.metadata().ok()?;
-            if !metadata.is_file() {
-                return None;
-            }
-            let size = metadata.len();
-            if !(500..MAX_COVER_BYTES).contains(&size) {
-                return None;
-            }
-            let modified = metadata.modified().ok()?;
-            Some((modified, path, size))
-        })
-        .collect();
-    files.sort_by(|left, right| right.0.cmp(&left.0));
-    for (_, path, _) in files.into_iter().take(8) {
-        let Ok(bytes) = std::fs::read(&path) else {
-            continue;
-        };
-        if let Some(data) = util::image_data_url(&bytes) {
-            return Some(data);
-        }
-    }
-    None
-}
-
-/// Read the track metadata for a test database (exposed for unit tests).
-#[cfg(test)]
-fn read_local_from(connection: &Connection, title: &str, artist: &str) -> Option<LocalTrack> {
-    let track = find_track(connection, title, artist)?;
-    Some(LocalTrack {
-        track_id: track.id.clone(),
-        duration_seconds: track.duration_ms.map(|value| value / 1000.0),
-        cover: None,
-    })
-}
-
-/// Simple key/value view used by the tests.
-#[cfg(test)]
-fn json_track(name: &str, artist: &str, id: &str, duration: f64) -> String {
-    serde_json::json!({
-        "id": id,
-        "name": name,
-        "duration": duration,
-        "artists": [{ "id": "1", "name": artist }],
-    })
-    .to_string()
-}
-
 /// Live state read from the NetEase page through the Chromium DevTools
 /// Protocol. Only available when the client was started with
 /// `/remote-debugging-port=<port>` (or `--remote-debugging-port=<port>`).
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct CdpState {
+    pub track_id: Option<String>,
     pub position: Option<f64>,
     pub duration: Option<f64>,
     pub liked: Option<bool>,
@@ -429,6 +81,7 @@ pub struct CdpState {
 /// and transport availability.
 #[derive(Debug, Clone, Default)]
 struct CdpTrack {
+    track_id: Option<String>,
     title: String,
     artist: String,
     album: String,
@@ -460,6 +113,7 @@ __STORE_HELPER__
   const effectiveDuration = duration || dom.duration || null;
   const button = pickLikeButton(false);
   return {
+    trackId: track.id ? String(track.id) : null,
     position,
     duration: effectiveDuration,
     liked: readLiked(button),
@@ -493,16 +147,24 @@ const CDP_CLICK_LIKE_EXPRESSION: &str = r#"
 
 /// Attempt to resolve the live store through the NetEase webpack runtime. The
 /// module id changes between client builds, so inspect the loaded module cache
-/// instead of hard-coding one id. This is opportunistic: after a page reload
-/// the require hook may not be installable, so every template also has a DOM
-/// player-bar fallback.
+/// instead of hard-coding one id. The player bar remains only a fallback for
+/// progress, playback status and the like control.
 const CDP_STORE_HELPER: &str = r#"
   const req = (() => {
     if (window.__dsh_cm_require__) return window.__dsh_cm_require__;
     try {
-      webpackJsonp.push([[987660], { 987660: function(module, exports, require) {
-        window.__dsh_cm_require__ = require;
-      } }]);
+      const jsonp = window.webpackJsonp;
+      if (!jsonp || typeof jsonp.push !== 'function') return null;
+      // Webpack 4 stores the module factory on push; the third argument lists
+      // the modules to execute once installed. Without it the factory is
+      // registered but never runs, so `require` is never captured.
+      jsonp.push([
+        [987660],
+        { 987660: function(module, exports, require) {
+          window.__dsh_cm_require__ = require;
+        } },
+        [[987660]]
+      ]);
     } catch (error) {}
     return window.__dsh_cm_require__;
   })();
@@ -664,9 +326,8 @@ const CDP_STORE_HELPER: &str = r#"
       : (button.querySelector('[aria-label="like_number"]') ? false : null))
     : null;
 
-  // The webpack store is not always reachable (the runtime changed between
-  // NetEase builds). The visible player bar still carries the same metadata,
-  // progress and cover, so use it as a fallback instead of returning null.
+  // The player bar supplies progress and playback status only; track, album
+  // and cover are read from the webpack store.
   const domMedia = () => {
     const footer = document.querySelector('footer');
     const root = footer
@@ -678,65 +339,11 @@ const CDP_STORE_HELPER: &str = r#"
         .find((candidate) => Number(candidate.max) > 5);
     const range = root.querySelector('.slider-default input[type="range"]')
       || visibleRange;
-    const textOf = (node) => node ? (node.innerText || '').replace(/\s+/g, ' ').trim() : '';
-    const firstText = (nodes) => {
-      for (const node of nodes) {
-        const text = textOf(node);
-        if (text) return text;
-      }
-      return '';
-    };
-    // In the vinyl / comment layouts the footer collapses to 0px and its
-    // minibar title is empty; the same track is rendered outside the footer.
-    const title = firstText([
-      root.querySelector('[data-testid="tid_minibar_title"] .main-title'),
-      document.querySelector('[data-testid="tid_minibar_title"] .main-title'),
-      ...document.querySelectorAll('.main-title'),
-      ...document.querySelectorAll('[class*="TrackInfo"] .title')
-    ]).replace(/\s+VIP\s*$/i, '').trim();
-    const artist = firstText([
-      root.querySelector('[data-testid="tid_minibar_title"] .author'),
-      document.querySelector('[data-testid="tid_minibar_title"] .author'),
-      ...document.querySelectorAll('.author'),
-      ...document.querySelectorAll('[class*="TrackInfo"] .artist')
-    ]);
     const playButton = root.querySelector('button[data-testid="tid_playbar_play_btn"]')
       || document.querySelector('button[data-testid="tid_playbar_play_btn"]');
     const playIcon = playButton && playButton.querySelector('[role="img"]');
     const playLabel = playIcon ? playIcon.getAttribute('aria-label') : null;
-    const knownCovers = [
-      root.querySelector('[data-testid="tid_btn_pc_minibar_vinyl"] img'),
-      document.querySelector('[data-testid="tid_btn_pc_minibar_vinyl"] img'),
-      document.querySelector('[data-testid="tid_vinylcover_cover"] img'),
-      document.querySelector('[data-testid="tid_vinylcover_container"] img'),
-      document.querySelector('[class*="TrackInfo"] img')
-    ];
-    const fallbackCovers = Array.from(document.images).filter((image) => {
-      const rect = image.getBoundingClientRect();
-      const source = image.currentSrc || image.src || '';
-      return rect.width >= 40 && rect.height >= 40 && /music\.126\.net/.test(source);
-    });
-    const image = knownCovers.find((candidate) => {
-      if (!candidate) return false;
-      const rect = candidate.getBoundingClientRect();
-      return rect.width >= 1 && rect.height >= 1;
-    }) || fallbackCovers.find((candidate) => {
-      const source = candidate.currentSrc || candidate.src || '';
-      const parent = candidate.closest('[data-testid="tid_useravatar_click"], [data-testid="tid_comment_card"]');
-      return !parent && /music\.126\.net/.test(source);
-    }) || null;
-    let cover = '';
-    if (image) {
-      cover = String(image.currentSrc || image.src || '')
-        .replace(/^orpheus:\/\/cache\/\?/, '')
-        .replace(/^http:\/\//, 'https://')
-        .replace(/thumbnail=\d+y\d+/, 'thumbnail=300y300');
-      if (!/^https?:\/\//.test(cover)) cover = '';
-    }
     return {
-      title,
-      artist,
-      cover,
       position: range ? Number(range.value) : null,
       duration: range ? Number(range.max) : null,
       playing: playLabel === 'pause' ? true : (playLabel === 'play' ? false : null)
@@ -744,23 +351,25 @@ const CDP_STORE_HELPER: &str = r#"
   };
 "#;
 
-/// Full CDP snapshot for the no-SMTC case. Store values win when available;
-/// the player-bar DOM supplies the same fields after a page reload where the
-/// webpack require cache is no longer reachable.
+/// Full CDP snapshot for the no-SMTC case. Track, album and cover come from
+/// the webpack store; the player bar is only a progress/status fallback.
 #[allow(dead_code)] // called by `cdp_media` on every platform.
 const CDP_MEDIA_TEMPLATE: &str = r#"
 (async () => {
 __STORE_HELPER__
   const dom = domMedia();
   const position = (await readProgress()) ?? dom.position ?? null;
-  const effectiveTitle = storeTitle || dom.title || '';
-  const effectiveArtist = storeArtist || dom.artist || '';
+  // Track, album and cover come from the webpack store only. The player-bar
+  // DOM is used only for progress, playback status and the like control.
+  const effectiveTitle = storeTitle;
+  const effectiveArtist = storeArtist;
   const effectiveDuration = duration || dom.duration || null;
-  const effectiveCover = coverUrl || dom.cover || null;
+  const effectiveCover = coverUrl || null;
   const effectivePlaying = storePlaying === 2 ? true
     : storePlaying === 1 ? false : (dom.playing ?? null);
   const likeButton = pickLikeButton(false);
   return {
+    trackId: track.id ? String(track.id) : null,
     title: effectiveTitle,
     artist: effectiveArtist,
     album: storeAlbum,
@@ -1160,6 +769,7 @@ fn parse_cdp_track(value: &Value) -> Option<CdpTrack> {
         return None;
     }
     Some(CdpTrack {
+        track_id: Some(string("trackId")).filter(|value| !value.is_empty()),
         title,
         artist,
         album: string("album"),
@@ -1212,6 +822,7 @@ pub fn cdp_media() -> Option<Media> {
     // report a seekable timeline to the client.
     media.can_seek = false;
     media.thumbnail_url = track.cover_url;
+    media.track_id = track.track_id;
     media.liked = track.liked;
     media.can_like = track.can_like;
     media.can_set_liked = track.can_set_liked;
@@ -1300,7 +911,14 @@ fn parse_cdp_state(value: &Value) -> Option<CdpState> {
             .filter(|value| value.is_finite())
     };
     let flag = |key: &str| object.get(key).and_then(Value::as_bool).unwrap_or(false);
+    let track_id = object
+        .get("trackId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
     let state = CdpState {
+        track_id,
         position: number("position").filter(|value| *value >= 0.0),
         duration: number("duration").filter(|value| *value > 0.0),
         liked: object.get("liked").and_then(Value::as_bool),
@@ -1357,6 +975,7 @@ pub fn cdp_diagnostic() -> Value {
         Ok(state) => {
             let full = cdp_media().map(|media| {
                 json!({
+                    "trackId": media.track_id,
                     "title": media.title,
                     "artist": media.artist,
                     "album": media.album,
@@ -1377,6 +996,7 @@ pub fn cdp_diagnostic() -> Value {
             json!({
                 "ok": true,
                 "state": {
+                    "trackId": state.track_id,
                     "position": state.position,
                     "duration": state.duration,
                     "liked": state.liked,
@@ -1434,13 +1054,10 @@ pub fn merge(
     Some(media)
 }
 
-/// Whether the system branch has a usable, seek-capable timeline. Windows uses
-/// the catalog policy; MPRIS/Now Playing are accepted when they expose a real
-/// timeline and `CanSeek`.
+/// Whether the system branch has a usable, seek-capable timeline. The catalog
+/// policy is shared by every platform, so VerifyPosition applies everywhere.
 fn system_valid(_platform: Platform, media: &Media) -> bool {
-    // Vendor modules may call the selected platform's common system API
-    // directly; windows.rs/linux.rs/macos.rs supply the same validity rule.
-    super::super::platform::system_valid(media)
+    catalog::system_valid(media)
 }
 
 /// Resolve NetEase's progress/liked state. This is the single entry point each
@@ -1495,6 +1112,9 @@ fn apply_cdp(media: &mut Media, seekable_system: bool) -> bool {
     let Some(state) = cdp_state() else {
         return false;
     };
+    if media.track_id.is_none() {
+        media.track_id = state.track_id.clone();
+    }
     if seekable_system {
         // A complete SMTC/MPRIS session wins for metadata, playback state and
         // timeline. CDP is consulted only for the like control, which the
@@ -1570,7 +1190,7 @@ pub fn cdp_set_liked(liked: Option<bool>) -> Result<CdpState, String> {
         std::thread::sleep(Duration::from_millis(200));
         if let Ok(value) = connection.evaluate(&cdp_state_expression()) {
             if let Some(state) = parse_cdp_state(&value) {
-                last = state;
+                last = state.clone();
                 if state.liked == Some(target) {
                     return Ok(state);
                 }
@@ -1620,6 +1240,7 @@ mod tests {
     #[test]
     fn parses_cdp_progress_and_liked_state() {
         let value = json!({
+            "trackId": "42",
             "position": 21.012,
             "duration": 103.0,
             "liked": true,
@@ -1627,31 +1248,13 @@ mod tests {
             "canSetLiked": true
         });
         let state = parse_cdp_state(&value).unwrap();
+        assert_eq!(state.track_id.as_deref(), Some("42"));
         assert!((state.position.unwrap() - 21.012).abs() < 0.001);
         assert!((state.duration.unwrap() - 103.0).abs() < 0.001);
         assert_eq!(state.liked, Some(true));
         assert!(state.can_like);
         assert!(state.can_set_liked);
         assert!(parse_cdp_state(&json!({ "liked": null })).is_none());
-    }
-
-    fn fixture() -> Connection {
-        let connection = Connection::open_in_memory().unwrap();
-        connection
-            .execute_batch(
-                "create table historyTracks (playtime integer, id text, jsonStr text);
-                 create table dbTrack (id text, jsonStr text);
-                 create table historyPlaylists (playtime integer, id text, jsonStr text);
-                 create table playlistTrackIds (id text, jsonStr text);",
-            )
-            .unwrap();
-        connection
-    }
-
-    #[test]
-    fn normalizes_titles_for_matching() {
-        assert_eq!(normalize("  Hello (Live)  "), "hellolive");
-        assert_eq!(normalize("A  B\tC"), "abc");
     }
 
     #[test]
@@ -1663,102 +1266,9 @@ mod tests {
     }
 
     #[test]
-    fn netease_enrichment_never_grants_seek() {
-        let mut media = Media::new("cloudmusic.exe");
-        media.can_seek = false;
-        enrich(&mut media);
-        assert!(!media.can_seek);
-    }
-
-    #[test]
-    fn matches_history_track_and_duration() {
-        let connection = fixture();
-        connection
-            .execute(
-                "insert into historyTracks (playtime, id, jsonStr) values (?, ?, ?)",
-                rusqlite::params![
-                    10,
-                    "7",
-                    json_track("Tablear", "kuro", "2660424367", 200506.0)
-                ],
-            )
-            .unwrap();
-        let local = read_local_from(&connection, "Tablear", "kuro").unwrap();
-        assert_eq!(local.track_id.as_deref(), Some("2660424367"));
-        assert!((local.duration_seconds.unwrap() - 200.506).abs() < 0.001);
-    }
-
-    #[test]
-    fn unmatched_track_is_none() {
-        let connection = fixture();
-        assert!(find_track(&connection, "missing", "nobody").is_none());
-    }
-
-    #[test]
     fn identifies_netease_app_ids() {
         assert!(is_netease("cloudmusic.exe"));
         assert!(is_netease("com.netease.163music"));
         assert!(!is_netease("MSEdge"));
-    }
-
-    #[test]
-    fn reads_cover_from_statics_cache() {
-        let directory = util::TempDir::create("dsh-probe-netease-test").unwrap();
-        // Smallest useful PNG: a 1x1 transparent image.
-        let png: [u8; 66] = [
-            0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, b'I', b'H', b'D', b'R',
-            0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 0x1F, 0x15, 0xC4, 0x89, 0, 0, 0, 0x0A, b'I',
-            b'D', b'A', b'T', 0x78, 0x9C, 0x63, 0, 0, 0, 2, 0, 1, 0xE2, 0x21, 0xBC, 0x33, 0, 0, 0,
-            0, b'I', b'E', b'N', b'D', 0xAE, 0x42, 0x60, 0x82,
-        ];
-        let path = directory.path().join("cover.dat");
-        let mut bytes = png.to_vec();
-        bytes.resize(600, 0);
-        std::fs::write(&path, bytes).unwrap();
-        let cover = cover_from_directory(directory.path()).unwrap();
-        assert!(cover.starts_with("data:image/png;base64,"));
-    }
-
-    #[test]
-    fn ignores_non_image_cache_files() {
-        let directory = util::TempDir::create("dsh-probe-netease-test").unwrap();
-        std::fs::write(directory.path().join("index.dat"), vec![0u8; 4096]).unwrap();
-        assert!(cover_from_directory(directory.path()).is_none());
-    }
-
-    #[test]
-    #[ignore = "reads the local NetEase desktop client database"]
-    fn reads_live_netease_database() {
-        let latest = with_database(|connection| {
-            let columns = column_names(connection, "historyTracks");
-            let json_column = json_column(&columns)?;
-            let sql = format!(
-                "select \"{}\" from historyTracks order by playtime desc limit 1",
-                json_column.replace('"', "\"\"")
-            );
-            let json: String = connection.query_row(&sql, [], |row| row.get(0)).ok()?;
-            let track = parse_track(&json, true)?;
-            Some((
-                track.name,
-                track.artists.first().cloned().unwrap_or_default(),
-            ))
-        })
-        .flatten();
-        let Some((title, artist)) = latest else {
-            eprintln!("no NetEase history track found; skipping live assertions");
-            return;
-        };
-        let local = read_local(&title, &artist).expect("live track should match");
-        assert!(local.track_id.is_some(), "live track id");
-        assert!(
-            local.cover.is_some(),
-            "live cover should be found in Statics"
-        );
-        let mut media = Media::new("cloudmusic.exe");
-        media.title = title;
-        media.artist = artist;
-        media.end_time = 0.0;
-        enrich(&mut media);
-        assert!(media.track_id.is_some());
     }
 }

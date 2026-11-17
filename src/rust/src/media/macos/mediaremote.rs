@@ -1,8 +1,7 @@
 //! Minimal MediaRemote bridge for macOS.
 //!
-//! `nowplaying-cli` is an optional third-party helper; a normal installation
-//! should not need it. This module talks to the private `MediaRemote` framework
-//! directly through `dlopen`/`dlsym` and the Objective-C runtime.
+//! This module talks to the private `MediaRemote` framework directly through
+//! `dlopen`/`dlsym` and the Objective-C runtime.
 //!
 //! Everything is resolved at runtime: the framework only lives in the dyld
 //! shared cache on current macOS, and linking it would require a full Xcode SDK.
@@ -255,7 +254,7 @@ pub(super) fn available() -> bool {
     .unwrap_or(false)
 }
 
-/// Read the user-selected Now Playing session, or `None` when nothing is
+/// Read the user-selected media session, or `None` when nothing is
 /// playing / the private API is unavailable.
 pub(super) fn read() -> Option<Reading> {
     with_runtime(|rt| {

@@ -9,7 +9,7 @@ use super::catalog::{self, Tier};
 use super::{Media, ReadOptions};
 use crate::util;
 
-pub const BACKEND: &str = "rust-mpris";
+pub const BACKEND: &str = "linux-mpris";
 
 const MPRIS_PREFIX: &str = "org.mpris.MediaPlayer2.";
 const MPRIS_PATH: &str = "/org/mpris/MediaPlayer2";
@@ -96,6 +96,21 @@ fn choose_player(
         {
             return Some(partial.clone());
         }
+        if let Some(profile) =
+            catalog::profile_for_id(preferred).or_else(|| catalog::profile_for_process(preferred))
+        {
+            if let Some(name) = names.iter().find(|name| {
+                catalog::profile_for_id(name)
+                    .or_else(|| catalog::profile_for_process(name))
+                    .map(|candidate| candidate.app == profile.app)
+                    .unwrap_or(false)
+            }) {
+                return Some(name.clone());
+            }
+        }
+        // The caller asked for one player. Do not silently select another one
+        // just because it is playing or has a longer timeline.
+        return None;
     }
 
     let mut playing_without_identity = None;
@@ -198,36 +213,63 @@ fn artwork(media: &mut Media, art_url: &str) {
         return;
     }
     if art_url.starts_with("http://") || art_url.starts_with("https://") {
-        // The Node bridge downloads HTTP artwork (it already had this logic for
-        // the playerctl adapter) and fills `thumbnail`.
+        // The Node bridge downloads HTTP artwork and fills `thumbnail`.
         media.thumbnail_url = Some(art_url.to_string());
     }
 }
 
-/// System-branch validity exposed to vendor modules.
-pub(crate) fn system_valid(media: &Media) -> bool {
-    !media.title.trim().is_empty()
-        && media.playback_status != "Closed"
-        && media.end_time > media.start_time
-        && media.end_time > 0.0
-        && media.can_seek
-}
-
 pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
+    let preferred = preferred_app(options);
     let connection = match connection() {
         Ok(connection) => connection,
-        // No session bus / no MPRIS service: try the NetEase CDP page, then
-        // return an empty reading.
-        Err(_) => return Ok(crate::media::vendor::fallback_media()),
+        // No session bus / no MPRIS service: use the vendor fallback only when
+        // the caller did not ask for a specific player.
+        Err(_) => {
+            return Ok(if preferred.is_some() {
+                None
+            } else {
+                crate::media::vendor::fallback_media()
+            });
+        }
     };
     let names = match player_names(&connection) {
         Ok(names) => names,
-        Err(_) => return Ok(crate::media::vendor::fallback_media()),
+        Err(_) => {
+            return Ok(if preferred.is_some() {
+                None
+            } else {
+                crate::media::vendor::fallback_media()
+            });
+        }
     };
     let Some(name) = choose_player(&connection, &names, options) else {
-        return Ok(crate::media::vendor::fallback_media());
+        return Ok(if preferred.is_some() {
+            None
+        } else {
+            crate::media::vendor::fallback_media()
+        });
     };
-    let proxy = player_proxy(&connection, &name)?;
+    match media_for_player(&connection, &name, options)? {
+        Some(media) => Ok(Some(media)),
+        // An empty browser/player placeholder: the vendor layer decides whether
+        // the identified app still has a page-backed snapshot.
+        None => {
+            let app = catalog::profile_for_id(&name)
+                .or_else(|| catalog::profile_for_process(&name))
+                .map(|profile| profile.app);
+            Ok(crate::media::vendor::fallback_for_app(app))
+        }
+    }
+}
+
+/// Build one MPRIS snapshot. `Ok(None)` means the player exposes an empty
+/// placeholder rather than a real session.
+fn media_for_player(
+    connection: &Connection,
+    name: &str,
+    options: &ReadOptions,
+) -> Result<Option<Media>, String> {
+    let proxy = player_proxy(connection, name)?;
     let metadata = metadata_of(&proxy);
     let title = string_value(&metadata, "xesam:title");
     let artists: Vec<String> = string_array(&metadata, "xesam:artist")
@@ -244,23 +286,16 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
 
     // Browser MPRIS services often expose an empty placeholder entry while no
     // tab is playing. Only treat it as a real session when it is playing or has
-    // a track/duration; otherwise fall through to the NetEase CDP probe.
+    // a track/duration.
     if title.trim().is_empty() && artists.is_empty() && duration <= 0.0 && status != "Playing" {
-        let netease = catalog::profile_for_id(&name)
-            .map(|profile| profile.app == catalog::App::Netease)
-            .unwrap_or(false);
-        return Ok(if netease {
-            crate::media::vendor::fallback_media()
-        } else {
-            None
-        });
+        return Ok(None);
     }
 
     let position_micros = proxy.get_property::<i64>("Position").unwrap_or(0).max(0);
     let can_seek = proxy.get_property::<bool>("CanSeek").unwrap_or(false);
     let can_control = proxy.get_property::<bool>("CanControl").unwrap_or(true);
 
-    let mut media = Media::new(name.clone());
+    let mut media = Media::new(name.to_string());
     media.provider_detail = "mpris".to_string();
     media.title = if title.trim().is_empty() {
         "未命名媒体".to_string()
@@ -291,7 +326,7 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
     }
 
     // Vendor-first: identify the MPRIS player and let its adapter combine the
-    // system session with any private interface (NetEase CDP on Linux).
+    // system session with any private interface.
     let profile = catalog::profile_for_id(&media.app_id)
         .or_else(|| catalog::profile_for_process(&media.app_id));
     if let Some(profile) = profile {
@@ -310,8 +345,58 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
     Ok(Some(media))
 }
 
+/// Return every distinct MPRIS session, ordered by the same priority used for
+/// the active card. macOS has a single system session by design; Linux can
+/// enumerate all players.
 pub fn read_all(options: &ReadOptions) -> Result<Vec<Media>, String> {
-    Ok(read(options)?.into_iter().collect())
+    let connection = connection()?;
+    let names = player_names(&connection)?;
+    let preferred = preferred_app(options);
+    let mut ordered: Vec<(usize, usize, usize, Media)> = Vec::new();
+    for (order, name) in names.iter().enumerate() {
+        let Ok(Some(media)) = media_for_player(&connection, name, options) else {
+            continue;
+        };
+        let playing = if media.playback_status == "Playing" {
+            0
+        } else {
+            1
+        };
+        let priority = catalog::profile_for_id(&media.app_id)
+            .or_else(|| catalog::profile_for_process(&media.app_id))
+            .map(|profile| catalog::app_priority(profile.app))
+            .unwrap_or(catalog::APP_PRIORITY.len());
+        ordered.push((playing, priority, order, media));
+    }
+    ordered.sort_by_key(|(playing, priority, order, _)| (*playing, *priority, *order));
+    let mut result: Vec<Media> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for (_, _, _, media) in ordered {
+        let key = format!(
+            "{:?}\u{1f}{}\u{1f}{}\u{1f}{}",
+            catalog::profile_for_media(&media).map(|profile| profile.app),
+            media.app_id,
+            media.title,
+            media.artist
+        );
+        if seen.insert(key) {
+            result.push(media);
+        }
+    }
+    if result.is_empty() && preferred.is_none() {
+        if let Some(media) = crate::media::vendor::fallback_media() {
+            result.push(media);
+        }
+    }
+    Ok(result)
+}
+
+fn preferred_app(options: &ReadOptions) -> Option<&str> {
+    options
+        .app_id
+        .as_deref()
+        .or(options.player.as_deref())
+        .filter(|value| !value.is_empty())
 }
 
 fn requested_app(options: &ReadOptions, current: Option<&Media>) -> Option<catalog::App> {

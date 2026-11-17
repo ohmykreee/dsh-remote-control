@@ -318,8 +318,8 @@ dsh-probe version
 dsh-probe daemon                                  # Host 内部：stdin/stdout 按行请求
 dsh-probe media read [--app-id ID] [--player DEST] [--no-thumbnail] [--all]
 dsh-probe media playpause|next|previous|seek --position SECONDS [--app-id ID] [--player DEST]
-dsh-probe media like [--value true|false] [--app-id ID] [--player DEST]   # NetEase CDP
-dsh-probe media cdp                                                       # NetEase CDP diagnostics
+dsh-probe media like [--value true|false] [--app-id ID] [--player DEST]   # vendor private like
+dsh-probe media cdp                                                       # private-page diagnostics
 dsh-probe volume read
 dsh-probe volume set --value 0.0..1.0
 dsh-probe volume toggle
@@ -334,7 +334,7 @@ dsh-probe location request [--open-settings]    # 申请定位权限（Windows �
 
 ### 载荷
 
-- 媒体：基础字段（`appId`、`title`、`artist`、`album`、`albumArtist`、`trackNumber`、`playbackStatus`、`autoRepeatMode`、`shuffleActive`、`position`、`startTime` / `endTime`、`minSeekTime` / `maxSeekTime`、`lastUpdatedAt`）、控制位（`canPlayPause` / `canNext` / `canPrevious` / `canSeek`）、封面（`thumbnail`、`thumbnailType`、`thumbnailError`、`thumbnailUrl`）、来源（`provider` / `providerDetail`）与网易云 `liked` / `canLike` / `canSetLiked` / `trackId`。`media read --all` 另外返回按优先级排序的 `sessions` 数组；`media` 是第一项。
+- 媒体：基础字段（`appId`、`title`、`artist`、`album`、`albumArtist`、`trackNumber`、`playbackStatus`、`autoRepeatMode`、`shuffleActive`、`position`、`startTime` / `endTime`、`minSeekTime` / `maxSeekTime`、`lastUpdatedAt`）、控制位（`canPlayPause` / `canNext` / `canPrevious` / `canSeek`）、封面（`thumbnail`、`thumbnailType`、`thumbnailError`、`thumbnailUrl`）、来源（`provider` / `providerDetail`）与 `liked` / `canLike` / `canSetLiked` / `trackId`（字段通用，当前由网易云提供）。`media read --all` 另外返回按优先级排序的 `sessions` 数组；`media` 是第一项（macOS 只有系统当前会话，数组通常只有一条）。
 - 通知：`available`、`reason`、`source`、`liveOnly`、`notifications[]`（`id`、`appKey`、`appName`、`title`、`body`、`avatar`、`hasImage`、`receivedAt`、`isGroup`）、`apps[]`、`updatedAt`。Windows 的 `appName` 与 `appKey` 相同，中文名由 Node 映射生成。
 - 性能：`cpu`（`usage`、`model`、`cores`、`physicalCores`、`speedMhz`、`baseMhz`、`uptime`）、`memory`、`gpu`（`name`、`driver`、`adapters`、`utilization`、`memoryUsed` / `memoryTotal` / `memoryPercent`、核心 / 显存频率、`temperatureCelsius`、`powerPercent`、`fanRpm`）、`temperatures[]`、`backend`、`sampledAt`；不支持的字段为 `null`。
 - 位置：`ok`、`available`、`latitude`、`longitude`、`accuracy`、`source`、`error`；权限载荷另含 `access`、`allowed`、`lowIntegrity`、`openedSettings`、`reason`。
@@ -362,7 +362,7 @@ dsh-probe location request [--open-settings]    # 申请定位权限（Windows �
 | 能力 | Windows | Linux | macOS |
 |---|---|---|---|
 | 媒体读取 / 控制 | vendor-first → 未命中时 WinRT SMTC；UIA 仅只读兜底 | vendor-first；网易云 MPRIS+CDP，其他 MPRIS | vendor-first；MediaRemote（`MRNowPlayingController`）/ AppleScript |
-| 封面 | SMTC `Thumbnail` → data URL；网易云 SMTC 或 CDP URL | `file://` / `data:` 直接读取；HTTP(S) 由 Node 下载 | MediaRemote 不返回封面；`nowplaying-cli` 兜底时可取 artwork |
+| 封面 | SMTC `Thumbnail` → data URL；网易云 SMTC 或 CDP URL | `file://` / `data:` 直接读取；HTTP(S) 由 Node 下载 | MediaRemote 不返回封面；网易云 CDP 页面提供封面 URL |
 | 音量 | Core Audio | `wpctl` → `pactl` → `amixer` | `osascript`（已在 macOS 26 上进行初步测试） |
 | CPU / 内存 / 频率 | sysinfo + PDH + 注册表 | sysinfo + `/proc` + cpufreq | `host_statistics` + `sysctl`（已在 macOS 26 上进行初步测试） |
 | GPU / 温度 | DXGI + PDH + WDDM D3DKMT + 磁盘温度 | `nvidia-smi` 或 AMD/Intel sysfs + hwmon；Intel 利用率需可选 `intel-gpu-tools`（`intel_gpu_top`） | 不实现 |
@@ -385,19 +385,19 @@ Windows 只允许 Medium 完整性及以上的进程访问定位。插件目录�
 
 播放器滚动标题可能在 DOM 中出现两遍；`Media::finish()` 只折叠完全相同的重复两半（以及 ` - ` / ` · ` 等分隔形式），不影响正常的重复歌名。
 
-传输控制走 `vendor::control`：只有网易云 vendor 处理 CDP 传输，其他客户端及浏览器统一使用系统控制闭包。平台层必须先确认目标 app 与当前媒体/系统会话一致，不能因为目标没有 SMTC/MPRIS 就转而控制 Windows/macOS 的“当前”播放器。系统信息页的媒体详情直接显示后端返回的 `providerDetail`（无媒体时显示平台媒体后端），不做前端翻译。
+传输控制走 `vendor::control`：当前只有网易云 vendor 处理 CDP 传输，其他客户端及浏览器统一使用系统控制闭包；新增私有控制时在 `vendor::control` 加分派臂，不要改平台层。平台层必须先确认目标 app 与当前媒体/系统会话一致，不能因为目标没有 SMTC/MPRIS 就转而控制 Windows/macOS 的“当前”播放器。系统信息页的媒体详情直接显示后端返回的 `providerDetail`（无媒体时显示平台媒体后端），不做前端翻译。
 
-**不访问任何外部 Web API。** 封面来自 SMTC `Thumbnail`、MPRIS `mpris:artUrl`、网易云 CDP 歌曲数据里的封面 URL 或本地缓存；歌曲信息不通过网易云 / QQ 音乐等网络接口查询。
+**不访问任何外部 Web API。** 封面来自 SMTC `Thumbnail`、MPRIS `mpris:artUrl` 或网易云 CDP 歌曲数据里的封面 URL；歌曲信息不通过网易云 / QQ 音乐等网络接口查询，也不从客户端本地图片缓存补封面。
 
 适配思路参考 [Widdit/now-playing-service](https://github.com/Widdit/now-playing-service)（MIT）的 `GetMusicStatus` 实现；Rust 侧为独立实现。
 
 ### 代码结构
 
-- `src/rust/src/media/vendor/<client>.rs`：每个客户端的私有接口 / 窗口标题解析（`netease.rs` 还包含本地 SQLite 封面 / 时长缓存与 CDP 的进度、红心、完整媒体 / 控制桥；`apple_music.rs` 包含 Cider 的 `title.txt`）。vendor 可以直接调用平台模块暴露的系统辅助。
+- `src/rust/src/media/vendor/<client>.rs`：每个客户端的私有接口 / 窗口标题解析（`netease.rs` 包含文件内部实现的 CDP 协议栈、webpack store 读取与进度、红心、完整媒体 / 控制桥；`apple_music.rs` 包含 Cider 的 `title.txt`）。vendor 只通过 `vendor/mod.rs` 的参数拿到平台类型，不直接引用平台模块。
 - `src/rust/src/media/catalog.rs`：应用识别、进程 / AUMID 映射、进度文本解析、`SmtcPolicy` 和 seek 策略。
 - `src/rust/src/media/windows/`：SMTC、窗口 / 进程枚举、Core Audio 会话状态、UI Automation 文本树扫描。
 - `src/rust/src/media/linux.rs` / `macos.rs`：MPRIS / MediaRemote 系统接口及平台相关的无障碍兜底。通用 UIA/AX 扫描留在平台层。
-- `src/rust/src/media/macos/mediaremote.rs`：通过 `dlopen` + Objective-C runtime 调用私有 MediaRemote（`MRNowPlayingController`），不链接 Apple 框架，也不需要外部 `nowplaying-cli`。
+- `src/rust/src/media/macos/mediaremote.rs`：通过 `dlopen` + Objective-C runtime 调用私有 MediaRemote（`MRNowPlayingController`），不链接 Apple 框架。
 
 ### Seek 规则
 
@@ -430,6 +430,25 @@ Node 侧 `media-enrich.ts` 会再次校验 `provider === 'system'`、时间轴�
 「SMTC（需真实位置）」表示只有会话真的报告了位置时才当作完整系统会话；否则保留可用的 SMTC 元数据，改用私有窗口标题和 UIA 补进度，避免「进度条停在 0 却可以拖动」。
 
 Node 侧 `PublicMedia` 同步暴露 `provider` / `providerDetail`，并将 `timelineSource` 设为 `smtc` / `private` / `accessibility` / `none`，供界面判断只展示进度还是可拖动。
+
+### 未来 vendor 扩展点（高级控制）
+
+**规则：不要把“网易云”当成通用层的特例。** 任何客户端专属行为（CDP、红心、私有控制、页面身份、封面 URL）只能出现在 `media/vendor/<client>.rs` 与 `vendor/mod.rs` 的分派里；`media/mod.rs`、`windows.rs` / `linux.rs` / `macos.rs`、`catalog.rs`（除档案数据）、Node 侧都不得出现 `App::Xxx` 判断或直接 `use` 某个 vendor 模块。平台层只回答“当前是哪个 App”，能力问题通过 `vendor::*` 函数询问，不要按客户端名写分支。
+
+新增 QQ 音乐 / 酷狗音乐等高级控制（例如 like）时，按以下扩展点改，不要从一个客户端的现有实现反推通用层：
+
+1. `catalog.rs`：加 `App` 枚举值、`PROFILES` 条目（进程名 / id 关键字 / `SmtcPolicy` / 私有层 / UIA）和 `APP_PRIORITY` 顺序；`PROFILES` 的顺序同时是识别优先级。
+2. `media/vendor/<client>.rs`：实现该客户端自己的私有读取与控制。like 提供 `pub fn like(liked: Option<bool>) -> Result<...>`；页面型控制提供 `control` 与页面身份解析；不要改通用 `Media` 的字段语义。
+3. `vendor/mod.rs` 分派：`parse_title`、`resolve`、`control`、`fallback_for_app`、`handles_without_system_session`、`like`、`diagnostic` 各加一个 `App::Xxx` 分支。命令层与平台层保持不动。
+4. `Media` 已有通用字段：`liked` / `can_like` / `can_set_liked` / `track_id`；新客户端直接填这些字段，Node 的 `canSetLiked` 与 like 按钮无需按客户端改。
+5. `vendor::page_identity` / `PageIdentity`：系统 AUMID / bundle id 不可识别时，由 vendor 页面提供身份；新增页面型客户端时扩展这里，而不是在平台层写字符串匹配。
+6. 测试：在 `vendor/mod.rs` 的分派测试里加“已知 vendor / 未知 vendor / 无当前媒体”三种断言；不要在平台测试里写死客户端名。
+
+需要 CDP 类私有控制时，注意 **CDP 协议栈目前是 `netease.rs` 的文件内部实现**（`CdpConnection` / `cdp_evaluate` 等不对外导出），不是通用库。新增需要 CDP 的 vendor 时，不要直接假设可以复用，也不要把网易云的 CDP 逻辑上移到通用层：要么先把它抽成独立的通用 CDP 模块（属于架构改动，需要同步改本文件与评审），要么在目标 vendor 文件内实现自己的私有桥。客户端专属的 JS 表达式必须留在自己的 vendor 文件。
+
+从页面 webpack runtime 取 store 时，`webpackJsonp.push` 只传 `[[chunkId], { moduleId: factory }]` 不会执行 factory；必须再传第三参数 `[[moduleId]]`（webpack 4 的 executeModules），否则 `require` 永远拿不到。标题 / 歌手 / 专辑 / 封面 / trackId 只从 store 取，DOM 仅用于进度、播放状态和红心。封面也只能来自系统 API 或该客户端自己的页面数据，不从本地图片缓存补。
+
+评审时先问一句：**如果再加一个 QQ / 酷狗的 like，这次改动需要动几个文件？** 除 `catalog.rs`、`vendor/<client>.rs`、`vendor/mod.rs` 外还要动，就说明特例写错了层。
 
 ## 构建与产物
 
@@ -564,6 +583,7 @@ npm publish --access public --tag bootstrap
 - 不要在 `src/dsh/lib` 里重新引入 PowerShell / C# / playerctl / osascript 回退；探针缺失必须是显式错误状态。
 - 新增平台能力时同时更新：Rust 平台模块、`平台后端` 矩阵、载荷 / 限制、必要时的 `INSTALLATION.md` 依赖说明。
 - 新增客户端适配时：在 `media/catalog.rs` 注册 profile，在 `media/vendor/` 加解析，在本文件客户端表补一行；不要在媒体载荷里伪造进度。
+- 新增 vendor 或高级控制（like / 私有 seek / 页面控制）时，只改 `catalog.rs` 档案、`media/vendor/<client>.rs` 和 `vendor/mod.rs` 分派；不要在 `media/mod.rs` 或任何平台文件里写 `App::Xxx` 特例，也不要把“网易云”当作唯一的私有控制客户端。
 - 改设置字段时同时更新：`settings.ts` 的 normalize / default、`src/dsh/client` 的编辑 / 保存、`README.md` 菜单说明；保持旧 `settings.json` 可迁移。
 - 新增或修改用户可见文案时，同时更新三份扁平字典；不要写死中文。
 - 改协议消息时同时更新 `service.ts`、`src/svelte/lib/ws.ts` 和本文件的 WebSocket 表。

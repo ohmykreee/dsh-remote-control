@@ -5,13 +5,15 @@
 //! database, etc. Keep this folder for vendor-only code so the generic media /
 //! notification / performance probes stay platform-focused.
 
-use crate::media::catalog::{App, ParsedTitle};
+use serde_json::Value;
+
+use crate::media::catalog::{self, App, ParsedTitle, Profile};
 use crate::media::Media;
 
 /// Which system branch a vendor adapter is running on. Vendor modules use this
-/// to pick the matching system-API rule (WinRT SMTC, MPRIS, Now Playing) while
+/// to pick the matching system-API rule (WinRT SMTC, MPRIS, MediaRemote) while
 /// keeping all client-specific logic in one file.
-#[allow(dead_code)] // every platform constructs only its own variant.
+#[allow(dead_code, reason = "every platform constructs only its own variant")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Platform {
     Windows,
@@ -49,6 +51,50 @@ pub fn parse_title(app: App, raw: &str) -> Option<ParsedTitle> {
     }
 }
 
+/// A vendor page that can identify a system media session whose system app id
+/// is opaque (for example a generated Windows AUMID).
+#[allow(
+    dead_code,
+    reason = "constructed by page_identity; consumed by the Windows adapter"
+)]
+pub struct PageIdentity {
+    pub profile: &'static Profile,
+    pub title: String,
+    pub artist: String,
+}
+
+#[allow(dead_code, reason = "see PageIdentity")]
+impl PageIdentity {
+    /// True when the system session describes the same track as the page.
+    pub fn matches(&self, media: &Media) -> bool {
+        let title = media.title.trim();
+        if title.is_empty() || !title.eq_ignore_ascii_case(self.title.trim()) {
+            return false;
+        }
+        self.artist.trim().is_empty()
+            || media.artist.trim().is_empty()
+            || media.artist.trim().eq_ignore_ascii_case(self.artist.trim())
+    }
+}
+
+/// Ask the vendor layer whether a page can identify an unrecognised system
+/// session. Kept here so platform adapters never name a client module.
+#[allow(
+    dead_code,
+    reason = "used by Windows; every vendor may provide an identity"
+)]
+pub fn page_identity() -> Option<PageIdentity> {
+    let (title, artist) = netease::cdp_identity()?;
+    if title.trim().is_empty() {
+        return None;
+    }
+    Some(PageIdentity {
+        profile: catalog::profile_for_app(App::Netease)?,
+        title,
+        artist,
+    })
+}
+
 /// Vendor-first media resolution.
 ///
 /// The platform adapter identifies the application and passes the matching
@@ -59,7 +105,10 @@ pub fn parse_title(app: App, raw: &str) -> Option<ParsedTitle> {
 ///   session CDP supplies the complete media/transport; accessibility fallback;
 /// * other known clients: complete system session, else private title/UIA;
 /// * browser/unknown: the platform's system API only (handled by the caller).
-#[allow(dead_code)] // used by every platform adapter; kept cross-platform.
+#[allow(
+    dead_code,
+    reason = "used by every platform adapter; kept cross-platform"
+)]
 pub fn resolve(
     platform: Platform,
     app: App,
@@ -81,7 +130,10 @@ pub fn resolve(
 /// Only NetEase has a client-specific transport (CDP); every other client uses
 /// the platform closure, so QQ/Spotify/etc. never need client checks in the
 /// generic platform layer.
-#[allow(dead_code)] // used by every platform adapter; kept cross-platform.
+#[allow(
+    dead_code,
+    reason = "used by every platform adapter; kept cross-platform"
+)]
 pub fn control(
     platform: Platform,
     app: Option<App>,
@@ -97,15 +149,47 @@ pub fn control(
 }
 
 /// Last-resort vendor media when the platform has no system session at all.
-/// Only NetEase currently has such a path (CDP); platforms ask the vendor layer
-/// instead of naming the client themselves.
-#[allow(dead_code)] // used by Linux/macOS; kept cross-platform.
+/// Only call it when the caller did not request a specific app; a requested app
+/// that is not running must read as empty rather than as another vendor's page.
+#[allow(
+    dead_code,
+    reason = "used by Linux/macOS when no explicit player is requested"
+)]
 pub fn fallback_media() -> Option<Media> {
     netease::cdp_media()
 }
 
-/// Vendor-specific like control. Only NetEase exposes a red-heart control.
-#[allow(dead_code)] // used by every platform adapter; kept cross-platform.
+/// Vendor fallback for one identified app (for example an empty system
+/// placeholder that a page-backed client can still describe).
+#[allow(dead_code, reason = "used by Linux; kept cross-platform")]
+pub fn fallback_for_app(app: Option<App>) -> Option<Media> {
+    match app {
+        Some(App::Netease) => netease::cdp_media(),
+        _ => None,
+    }
+}
+
+/// Whether a vendor can act on its target without a matching system session.
+/// NetEase controls its own page over CDP; other clients need the system
+/// session. Add future page-backed vendors here, not in the platform layer.
+#[allow(dead_code, reason = "used by macOS; kept cross-platform")]
+pub fn handles_without_system_session(app: Option<App>) -> bool {
+    matches!(app, Some(App::Netease))
+}
+
+/// Vendor-specific private-page diagnostics used by `media cdp`.
+#[allow(dead_code, reason = "used by the command layer; kept cross-platform")]
+pub fn diagnostic() -> Value {
+    netease::cdp_diagnostic()
+}
+
+/// Vendor-specific like control. Only NetEase currently exposes a red-heart
+/// control; add future vendors as match arms here rather than in the platform
+/// or command layers.
+#[allow(
+    dead_code,
+    reason = "used by every platform adapter; kept cross-platform"
+)]
 pub fn like(app: Option<App>, liked: Option<bool>) -> Result<(), String> {
     match app {
         Some(App::Netease) => netease::cdp_set_liked(liked).map(|_| ()),
@@ -147,5 +231,13 @@ mod tests {
     fn only_netease_accepts_like_control() {
         assert!(like(None, Some(true)).is_err());
         assert!(like(Some(App::Spotify), Some(true)).is_err());
+    }
+
+    #[test]
+    fn future_vendors_opt_in_to_page_fallbacks() {
+        assert!(handles_without_system_session(Some(App::Netease)));
+        assert!(!handles_without_system_session(Some(App::QQMusic)));
+        assert!(!handles_without_system_session(Some(App::Spotify)));
+        assert!(!handles_without_system_session(None));
     }
 }

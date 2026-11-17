@@ -6,7 +6,6 @@
 //! fallback for systems where the private controller class is unavailable, and
 //! Cider's private title file covers that client.
 
-use std::path::Path;
 use std::time::Duration;
 
 use super::catalog::{self, Tier};
@@ -18,28 +17,12 @@ mod accessibility;
 #[path = "macos/mediaremote.rs"]
 mod mediaremote;
 
-pub const BACKEND: &str = "macos-mediaremote";
+pub const BACKEND: &str = "macos-media";
 
-const MAX_ARTWORK_BYTES: usize = 8 * 1024 * 1024;
-const NOWPLAYING_TIMEOUT: Duration = Duration::from_millis(6000);
 const APPLESCRIPT_TIMEOUT: Duration = Duration::from_millis(3000);
-const NOWPLAYING_PROPERTIES: [&str; 8] = [
-    "title",
-    "artist",
-    "album",
-    "duration",
-    "elapsedTime",
-    "playbackRate",
-    "artworkData",
-    "artworkMIMEType",
-];
 
-fn nowplaying_cli() -> Option<std::path::PathBuf> {
-    util::find_executable("nowplaying-cli")
-}
-
-/// Best-effort client identity for nowplaying, which does not expose the
-/// bundle id. This keeps the vendor-first dispatch working on macOS.
+/// Best-effort client identity for MediaRemote, which does not always expose
+/// the bundle id. This keeps the vendor-first dispatch working on macOS.
 fn playing_app_id() -> Option<&'static str> {
     for (process, app_id) in [
         ("Music", "Music"),
@@ -51,70 +34,6 @@ fn playing_app_id() -> Option<&'static str> {
         }
     }
     None
-}
-
-/// nowplaying-cli prints one raw value per requested property, in argv order,
-/// with the literal `null` for missing values. A positional parser is the only
-/// stable format across versions (the keys are not echoed).
-fn nowplaying_value(output: &str, index: usize) -> String {
-    output
-        .lines()
-        .nth(index)
-        .map(str::trim)
-        .filter(|value| !value.is_empty() && *value != "null")
-        .unwrap_or_default()
-        .to_string()
-}
-
-fn read_nowplaying(path: &Path) -> Result<Option<Media>, String> {
-    let program = path.to_string_lossy().into_owned();
-    let output =
-        util::command_output_timeout(&program, &NOWPLAYING_PROPERTIES, NOWPLAYING_TIMEOUT)?;
-    let title = nowplaying_value(&output, 0);
-    let artist = nowplaying_value(&output, 1);
-    if title.trim().is_empty() && artist.trim().is_empty() {
-        return Ok(None);
-    }
-    let duration = nowplaying_value(&output, 3).parse::<f64>().unwrap_or(0.0);
-    let position = nowplaying_value(&output, 4).parse::<f64>().unwrap_or(0.0);
-    let rate = nowplaying_value(&output, 5).parse::<f64>().unwrap_or(0.0);
-
-    let mut media = Media::new("macOS");
-    media.provider_detail = "nowplaying".to_string();
-    media.title = if title.trim().is_empty() {
-        "未命名媒体".to_string()
-    } else {
-        title
-    };
-    media.artist = artist;
-    media.album = nowplaying_value(&output, 2);
-    media.playback_status = if rate > 0.0 { "Playing" } else { "Paused" }.to_string();
-    media.position = position.max(0.0);
-    media.start_time = 0.0;
-    media.end_time = duration.max(0.0);
-    media.min_seek_time = 0.0;
-    media.max_seek_time = duration.max(0.0);
-    media.last_updated_at = util::now_ms();
-    media.can_play_pause = true;
-    media.can_next = true;
-    media.can_previous = true;
-    media.can_seek = catalog::seek_allowed(Tier::System, duration > 0.0, false);
-
-    let data = nowplaying_value(&output, 6);
-    if !data.is_empty() && data.len() < MAX_ARTWORK_BYTES {
-        let mime = nowplaying_value(&output, 7);
-        let mime = if mime.is_empty() {
-            "image/jpeg".to_string()
-        } else {
-            mime
-        };
-        media.thumbnail = Some(format!(
-            "data:{mime};base64,{}",
-            data.replace(char::is_whitespace, "")
-        ));
-        media.thumbnail_type = Some(mime);
-    }
-    Ok(Some(media))
 }
 
 fn applescript(script: &str) -> Result<String, String> {
@@ -226,15 +145,6 @@ fn read_cider() -> Option<Media> {
     Some(media)
 }
 
-/// System-branch validity exposed to vendor modules.
-pub(crate) fn system_valid(media: &Media) -> bool {
-    !media.title.trim().is_empty()
-        && media.playback_status != "Closed"
-        && media.end_time > media.start_time
-        && media.end_time > 0.0
-        && media.can_seek
-}
-
 fn media_from_mediaremote(reading: mediaremote::Reading) -> Media {
     let mut media = Media::new(reading.app_id);
     media.provider_detail = "mediaremote".to_string();
@@ -268,14 +178,16 @@ fn media_from_mediaremote(reading: mediaremote::Reading) -> Media {
 }
 
 pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
+    let preferred = options
+        .app_id
+        .as_deref()
+        .or(options.player.as_deref())
+        .filter(|value| !value.is_empty());
     let has_mediaremote = mediaremote::available();
     let mut media = if has_mediaremote {
-        // The private controller is the primary source on macOS 15.4+ and needs
-        // no external helper. `nowplaying-cli` stays as a fallback for older
-        // systems where the class does not exist.
+        // The private controller is the primary source and needs no external
+        // helper.
         mediaremote::read().map(media_from_mediaremote)
-    } else if let Some(path) = nowplaying_cli() {
-        read_nowplaying(&path).unwrap_or(None)
     } else {
         None
     };
@@ -289,8 +201,13 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
         media = read_cider();
     }
     if media.is_none() {
-        // No Now Playing/AppleScript/Cider source: try the NetEase CDP page.
-        return Ok(crate::media::vendor::fallback_media());
+        // No MediaRemote/AppleScript/Cider source: use the vendor fallback only
+        // when the caller did not ask for a specific player.
+        return Ok(if preferred.is_some() {
+            None
+        } else {
+            crate::media::vendor::fallback_media()
+        });
     }
     if let Some(media) = media.as_mut() {
         if media.app_id == "macOS" {
@@ -321,7 +238,7 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
         }
 
         // Vendor-first: map the macOS app id to the catalog and let the vendor
-        // combine the Now Playing/AppleScript session with CDP when applicable.
+        // combine the MediaRemote/AppleScript session with CDP when applicable.
         let profile = catalog::profile_for_id(&media.app_id)
             .or_else(|| catalog::profile_for_process(&media.app_id))
             .or_else(|| match media.app_id.to_ascii_lowercase().as_str() {
@@ -340,6 +257,17 @@ pub fn read(options: &ReadOptions) -> Result<Option<Media>, String> {
                     *media = resolved;
                 }
             }
+        }
+    }
+    // macOS has one system media session; an explicit target must match
+    // it (a vendor page fallback is still matched by its app id).
+    if let Some(preferred) = preferred {
+        if !media
+            .as_ref()
+            .map(|media| catalog::media_matches_preferred(media, preferred))
+            .unwrap_or(false)
+        {
+            return Ok(None);
         }
     }
     Ok(media)
@@ -380,43 +308,52 @@ pub fn control(action: &str, position: f64, options: &ReadOptions) -> Result<(),
         .or_else(|| current.as_ref().and_then(catalog::profile_for_media))
         .map(|profile| profile.app);
     if let Some(preferred) = preferred {
-        if let Some(media) = current.as_ref() {
-            if target_app != Some(catalog::App::Netease)
-                && !catalog::media_matches_preferred(media, preferred)
-            {
-                return Err(
-                    "the requested player is not the current Now Playing session".to_string(),
-                );
-            }
-        } else if target_app != Some(catalog::App::Netease) {
-            return Err("the requested player is not the current Now Playing session".to_string());
+        let matches = current
+            .as_ref()
+            .map(|media| catalog::media_matches_preferred(media, preferred))
+            .unwrap_or(false);
+        if !crate::media::vendor::handles_without_system_session(target_app) && !matches {
+            return Err("the requested player is not the current macOS media session".to_string());
         }
     }
+    // The system closure may only act on the current system session. A vendor
+    // page that is not backed by a system session (for example CDP-only) must
+    // never fall back to controlling whatever macOS currently reports.
+    let system_target_matches = match (preferred, current.as_ref()) {
+        (None, Some(media)) => media.provider == "system",
+        (Some(_), Some(media)) => {
+            media.provider == "system"
+                && catalog::profile_for_media(media).map(|profile| profile.app) == target_app
+        }
+        _ => false,
+    };
+    // Seeking is only valid for a complete system timeline, exactly like the
+    // Windows/Linux closures.
+    let seek_allowed = current.as_ref().map(catalog::system_valid).unwrap_or(false);
     crate::media::vendor::control(
         crate::media::vendor::Platform::MacOS,
         target_app,
         action,
         position,
         current.as_ref(),
-        || system_control(action, position),
+        || {
+            if preferred.is_some() && !system_target_matches {
+                return Err("no matching macOS system session for the requested player".to_string());
+            }
+            if action == "seek" && !seek_allowed {
+                return Err(
+                    "this player only reports progress; seek requires a complete system timeline"
+                        .to_string(),
+                );
+            }
+            system_control(action, position)
+        },
     )
 }
 
 fn system_control(action: &str, position: f64) -> Result<(), String> {
     if mediaremote::available() {
         return mediaremote::control(action, position);
-    }
-    if let Some(path) = nowplaying_cli() {
-        let args: Vec<String> = match action {
-            "playpause" => vec!["togglePlayPause".to_string()],
-            "next" => vec!["next".to_string()],
-            "previous" => vec!["previous".to_string()],
-            "seek" => vec!["seek".to_string(), position.max(0.0).to_string()],
-            other => return Err(format!("unsupported media action: {other}")),
-        };
-        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        util::run_path_command(&path, &refs)?;
-        return Ok(());
     }
 
     let command = match action {
@@ -463,21 +400,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_nowplaying_output_by_position() {
-        let output = "Song\nArtist\nAlbum\n120.5\n42.25\n1\nnull\nnull";
-        assert_eq!(nowplaying_value(output, 0), "Song");
-        assert_eq!(nowplaying_value(output, 3), "120.5");
-        assert_eq!(nowplaying_value(output, 6), "");
-        assert_eq!(nowplaying_value("null\nnull\n", 1), "");
-    }
-
-    #[test]
     fn control_target_must_match_the_current_media() {
         let media = Media::new("Music");
         assert!(catalog::media_matches_preferred(&media, "Music"));
         assert!(!catalog::media_matches_preferred(&media, "Spotify"));
-        assert!(!catalog::profile_for_media(&media)
-            .map(|profile| profile.app == catalog::App::Netease)
-            .unwrap_or(false));
     }
 }

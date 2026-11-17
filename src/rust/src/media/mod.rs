@@ -1,8 +1,7 @@
 //! Media metadata + transport control.
 //!
 //! The JSON shape intentionally mirrors the old PowerShell SMTC result so
-//! `lib/media.js` can keep its progress smoothing, NetEase enrichment and seek
-//! rules unchanged.
+//! `lib/media.js` can keep its progress smoothing and seek rules unchanged.
 
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -62,19 +61,20 @@ pub struct Media {
     /// HTTP(S) artwork reference (Linux MPRIS). The Node bridge downloads it and
     /// turns it into `thumbnail` so the sidecar needs no HTTP client.
     pub thumbnail_url: Option<String>,
-    /// NetEase liked state from CDP. `Some(true)`/`Some(false)` when the
-    /// remote-debugging page reports the heart state, `None` when CDP is
-    /// unavailable or the state is unknown.
+    /// Liked state reported by a vendor's private interface. `Some(true)` /
+    /// `Some(false)` when that interface exposes the state, `None` when it is
+    /// unavailable or unknown.
     pub liked: Option<bool>,
     /// Display-only flag: the current app supports liked state.
     pub can_like: bool,
     /// Whether the liked state can be changed through the current provider.
     pub can_set_liked: bool,
+    /// Vendor track id when the private interface exposes one.
     pub track_id: Option<String>,
     /// Which layer produced this payload: `system`, `private` or
     /// `accessibility`. Only `system` may expose transport seeking.
     pub provider: String,
-    /// Concrete provider within the layer (`smtc`, `mpris`, `nowplaying`,
+    /// Concrete provider within the layer (`smtc`, `mpris`, `mediaremote`,
     /// `window-title`, `cider-title`, `uia`, `atspi`, `ax`, ...).
     pub provider_detail: String,
 }
@@ -119,7 +119,6 @@ impl Media {
             self.last_updated_at = util::now_ms();
         }
         self.title = collapse_repeated_title(&self.title);
-        crate::media::vendor::netease::enrich(&mut self);
         self
     }
 }
@@ -161,23 +160,10 @@ fn collapse_repeated_title(title: &str) -> String {
 /// Options shared by read and control commands.
 #[derive(Debug, Clone, Default)]
 pub struct ReadOptions {
-    /// Windows/Linux only; the macOS MediaRemote session has no per-read app
-    /// filter, so the field is intentionally unread there.
-    #[cfg_attr(
-        all(target_os = "macos", not(test)),
-        expect(
-            dead_code,
-            reason = "macOS reads the system session and ignores --app-id"
-        )
-    )]
+    /// Optional target player, matched against each platform's own session
+    /// model. An explicit target that is not running reads as empty.
     pub app_id: Option<String>,
-    #[cfg_attr(
-        target_os = "macos",
-        expect(
-            dead_code,
-            reason = "macOS MediaRemote does not expose per-player selection"
-        )
-    )]
+    /// Alias for `app_id`.
     pub player: Option<String>,
     pub thumbnail: bool,
 }
@@ -225,7 +211,8 @@ pub fn read(options: &ReadOptions) -> Value {
 
 /// Read all distinct sessions, ordered by the same priority as the active card.
 /// The first session is also returned as `media` for callers that only need the
-/// selected player.
+/// selected player. Platforms expose whatever their system API can enumerate;
+/// macOS has a single current session.
 pub fn read_all(options: &ReadOptions) -> Value {
     let started_at = util::now_ms();
     match platform::read_all(options) {
@@ -243,8 +230,8 @@ pub fn read_all(options: &ReadOptions) -> Value {
             })
         }
         Err(error) => json!({
-            "ok": true,
-            "available": true,
+            "ok": false,
+            "available": false,
             "media": null,
             "sessions": [],
             "error": error,
@@ -287,9 +274,9 @@ pub fn control(action: &str, position: f64, options: &ReadOptions) -> Value {
     }
 }
 
-/// Change the liked state through the provider's private interface (NetEase
-/// CDP). The client is re-read after the action so the caller gets the new
-/// snapshot. `liked = None` toggles.
+/// Change the liked state through the vendor's private interface. The client is
+/// re-read after the action so the caller gets the new snapshot. `liked = None`
+/// toggles.
 pub fn like(liked: Option<bool>, options: &ReadOptions) -> Value {
     let started_at = util::now_ms();
     match platform::like(liked, options) {
@@ -342,9 +329,9 @@ pub fn cli(args: &[String], _started_at: i64) -> CliResult {
             });
             Ok(like(liked, &options))
         }
-        "cdp" => Ok(crate::media::vendor::netease::cdp_diagnostic()),
+        "cdp" => Ok(crate::media::vendor::diagnostic()),
         other => Err(CliError::usage(format!(
-            "unsupported media action: {other} (expected read, playpause, next, previous, seek, like)"
+            "unsupported media action: {other} (expected read [--all], playpause, next, previous, seek, like, cdp)"
         ))),
     }
 }
