@@ -31,7 +31,6 @@ GROUPS = {
     "media": ("music", "performance"),
     "quickqa": ("quickqa", "answer"),
 }
-PAGES = tuple(dict.fromkeys(page for pair in GROUPS.values() for page in pair))
 
 
 def diagonal(dark_path: Path, light_path: Path) -> Image.Image:
@@ -57,8 +56,16 @@ def main() -> int:
     parser.add_argument("--output", required=True, help="directory for the grouped composites and pages/")
     parser.add_argument("--prefix", default="", help="input filename prefix, e.g. en-")
     parser.add_argument("--gap", type=int, default=24, help="transparent gap between grouped pages")
+    parser.add_argument(
+        "--only",
+        action="append",
+        choices=tuple(GROUPS),
+        help="compose only this group (repeatable); default composes all groups",
+    )
     args = parser.parse_args()
 
+    selected = {name: GROUPS[name] for name in (args.only or GROUPS)}
+    pages = tuple(dict.fromkeys(page for pair in selected.values() for page in pair))
     source = Path(args.input)
     target = Path(args.output)
     pages_dir = target / "pages"
@@ -73,9 +80,9 @@ def main() -> int:
         image.save(pages_dir / f"{page}.png", optimize=True)
         return image
 
-    tiles = {page: composite(page) for page in PAGES}
+    tiles = {page: composite(page) for page in pages}
 
-    for name, pair in GROUPS.items():
+    for name, pair in selected.items():
         left = tiles[pair[0]]
         right = tiles[pair[1]]
         width, height = left.size
@@ -85,7 +92,7 @@ def main() -> int:
         group.save(target / f"{name}.png", optimize=True)
         print(f"wrote {target / f'{name}.png'} ({group.width}x{group.height})")
 
-    print(f"wrote {pages_dir}/{{{','.join(PAGES)}}}.png")
+    print(f"wrote {pages_dir}/{{{','.join(pages)}}}.png")
     return 0
 
 

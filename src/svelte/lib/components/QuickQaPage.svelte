@@ -342,8 +342,6 @@
 </script>
 
 <div class="quickqa-page">
-  <div class="quickqa-aurora" aria-hidden="true"></div>
-
   {#if answerMode}
     <div class="quickqa-answer-mode">
       <Panel class="quickqa-conversation">
@@ -585,24 +583,16 @@
 </div>
 
 <style>
+  :global(body[data-page='quickqa']) {
+    background: var(--background);
+  }
+
   .quickqa-page {
     position: relative;
     isolation: isolate;
     width: 100%;
     height: 100%;
     overflow: hidden;
-  }
-
-  .quickqa-aurora {
-    position: absolute;
-    inset: -10%;
-    z-index: 0;
-    background:
-      radial-gradient(44% 56% at 24% 46%, color-mix(in srgb, var(--brand) 18%, transparent), transparent 70%),
-      radial-gradient(36% 46% at 72% 24%, color-mix(in srgb, var(--success) 9%, transparent), transparent 72%),
-      radial-gradient(52% 58% at 68% 82%, color-mix(in srgb, var(--warn) 8%, transparent), transparent 70%);
-    filter: blur(18px);
-    pointer-events: none;
   }
 
   .quickqa-layout {
@@ -685,12 +675,11 @@
     padding: 0 17px;
     border-radius: 999px;
     border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
-    background: color-mix(in srgb, var(--card) 92%, transparent);
+    background: var(--card);
     color: var(--danger);
     font-size: 16px;
     font-weight: 600;
     box-shadow: none;
-    backdrop-filter: blur(14px);
     transform: translateX(-50%);
   }
 
@@ -758,18 +747,17 @@
     place-items: center;
     width: 100%;
     height: 100%;
-    padding: clamp(14px, 2.6vw, 30px);
+    padding: clamp(6px, 1.2vw, 12px);
   }
 
   :global(.quickqa-conversation) {
     display: flex;
-    width: min(920px, 96%);
-    height: min(72vh, 650px);
+    width: 96%;
+    height: 90vh;
     flex-direction: column;
     padding: 24px 28px;
     border-radius: 28px;
-    background: color-mix(in srgb, var(--card) 92%, transparent);
-    backdrop-filter: blur(20px);
+    background: var(--card);
   }
 
   .quickqa-conversation-body {
@@ -981,8 +969,7 @@
     gap: 14px;
     padding: 20px;
     border-radius: 26px;
-    background: color-mix(in srgb, var(--card) 88%, transparent);
-    backdrop-filter: blur(20px);
+    background: var(--card);
   }
 
   .quickqa-workspace-title {
@@ -1076,7 +1063,7 @@
     }
 
     .quickqa-mic-shell { width: clamp(150px, 27vh, 200px); height: clamp(150px, 27vh, 200px); }
-    :global(.quickqa-conversation) { height: min(82vh, 560px); padding: 20px 22px; }
+    :global(.quickqa-conversation) { height: 90vh; padding: 20px 22px; }
     :global(.quickqa-workspace-card) { padding: 16px; max-height: calc(100% - 4px); }
     :global(.quickqa-workspace-item) { min-height: 58px; padding: 10px 12px; }
   }
