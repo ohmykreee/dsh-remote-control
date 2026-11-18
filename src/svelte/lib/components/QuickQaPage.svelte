@@ -36,7 +36,7 @@
   const locked = $derived(Boolean(quickQa.sessionId));
   const phase = $derived(quickQa.phase);
   const followUpActive = $derived(Boolean(quickQa.sessionId) && (phase === 'capturing' || phase === 'transcribing'));
-  const answerMode = $derived(phase === 'thinking' || phase === 'streaming' || phase === 'done' || followUpActive);
+  const answerMode = $derived(phase === 'thinking' || phase === 'streaming' || phase === 'done' || phase === 'transcribing' || followUpActive);
 
   type MicPermissionState = 'unknown' | 'prompt' | 'granted' | 'denied';
   type StandbyHint = 'idle' | 'canceled' | 'noSpeech' | 'short' | 'noMic';
@@ -515,9 +515,6 @@
           {#if phase === 'error'}
             <div class="quickqa-error" role="alert">
               <p>{quickQa.error || t('quickQaError')}</p>
-              <button type="button" class="quickqa-text-button" onclick={() => { quickQa.phase = 'idle'; quickQa.error = ''; }}>
-                {t('quickQaRetry')}
-              </button>
             </div>
           {/if}
         {:else}
@@ -647,7 +644,7 @@
 
   :global(.quickqa-mic:active),
   :global(.quickqa-mic.is-holding) {
-    transform: scale(0.985);
+    transform: none;
   }
 
   :global(.quickqa-cancel) {
@@ -684,9 +681,14 @@
   }
 
   .quickqa-mic-sub {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
     margin: 0;
     color: var(--muted-foreground);
     font-size: 15px;
+    white-space: nowrap;
+    transform: translateX(-50%);
   }
 
   .quickqa-status-block {
