@@ -429,6 +429,11 @@ export const CSS = `
   background: var(--dsw-alias-label-primary-foreground, #fff);
 }
 
+.drc-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .drc-seg {
   display: inline-grid;
   grid-auto-flow: column;

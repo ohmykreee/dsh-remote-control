@@ -358,7 +358,7 @@ export function buildSavePatch(input: SavePatchInput): SavePatch {
       certPath: draft.certPath,
       keyPath: draft.keyPath,
       advanced: {
-        wakeLock: settings.tls?.advanced?.wakeLock === true,
+        wakeLock: settings.tls?.enabled === true && settings.tls?.advanced?.wakeLock === true,
       },
     },
     weather: nextWeather,

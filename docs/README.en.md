@@ -76,7 +76,6 @@ The agent installs the plugin, reads both documents, builds the component and te
 - You can allow only selected network interfaces / subnets.
 - Optional HTTPS: provide certificate and private-key file paths. If the certificate is invalid the console stays on HTTP and shows the error on the connection page.
 - When HTTPS is active and the certificate carries a concrete DNS name (SAN or CN), the pairing link and QR code use that domain instead of the interface IP; wildcard-only or IP-only certificates keep the LAN address.
-- With HTTPS enabled, an **Advanced features** card appears below the HTTPS settings; turn on **Wake lock** to keep the phone screen awake while the console page is open.
 - If the port is taken, another available port is chosen automatically. The connection page always shows the actual address.
 
 ## Settings
@@ -85,7 +84,7 @@ The **Remote control** sidebar has these groups:
 
 | Group | Contents |
 |---|---|
-| Connection | QR code, console address, allowed interfaces, access verification, HTTPS, and HTTPS-gated advanced features (wake lock) |
+| Connection | QR code, console address, allowed interfaces, access verification, HTTPS, and advanced features (disabled while HTTPS is off) |
 | Preferences | Plugin language, temperature unit, theme, page order and toggles, navigation position |
 | Pomodoro / countdown | Enable switch (mutually exclusive), focus / break lengths, countdown presets, alert sound |
 | Weather | Data provider, location mode, city search, QWeather JWT credentials and monthly limit, call-count sync, hourly / 7-day display, location access |

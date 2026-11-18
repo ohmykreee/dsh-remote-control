@@ -13,6 +13,7 @@ export interface ToggleProps {
   checked?: boolean;
   onChange: (checked: boolean) => void;
   label: string;
+  disabled?: boolean;
 }
 
 export interface SegProps {
@@ -67,12 +68,14 @@ export interface StatusRowProps {
   pendingLabel: string;
 }
 
-export function Toggle({ checked, onChange, label }: ToggleProps): React.ReactElement {
+export function Toggle({ checked, onChange, label, disabled = false }: ToggleProps): React.ReactElement {
   return h('button', {
     type: 'button',
     role: 'switch',
     'aria-checked': checked,
     'aria-label': label,
+    'aria-disabled': disabled || undefined,
+    disabled,
     className: `drc-toggle${checked ? ' is-on' : ''}`,
     onClick: () => onChange(!checked),
   }, h('i'));
