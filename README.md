@@ -42,15 +42,21 @@
 | 性能 | CPU / 内存与 GPU / 显存圆环、频率与运行时间、最高温度与传感器列表 |
 
 <p align="center">
-  <img src="docs/screenshots/zh/overview.png" alt="首页、会话、音乐与性能" width="1000">
+  <img src="docs/screenshots/zh/overview.png" alt="主页与会话" width="1000">
   <br>
-  <em>首页 / 会话 / 音乐 / 性能（左上 / 右上 / 左下 / 右下）。每张截图沿右上到左下分割：上方暗色，下方亮色。</em>
+  <em>主页与会话。每张截图沿右上到左下分割：上方暗色，下方亮色。</em>
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/zh/question.png" alt="远程提问" width="640">
+  <img src="docs/screenshots/zh/media.png" alt="音乐与性能" width="1000">
   <br>
-  <em>远程提问：选项、推荐标记与自定义回复。</em>
+  <em>音乐与性能。</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/zh/quickqa.png" alt="快速问答与回答结果" width="1000">
+  <br>
+  <em>快速问答：长按说话与选择工作区；右侧为回答完成后的结果。</em>
 </p>
 
 - 五页可左右循环滑动，一次手势最多前进 / 后退一页；页面顺序、开关与导航栏位置在 DSH 设置页配置。

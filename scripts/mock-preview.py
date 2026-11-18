@@ -51,6 +51,10 @@ def ago(seconds: int) -> int:
 # English preview.
 DEMO_EN = {
     "演示城区": "Demo City",
+    "演示工作区": "Demo workspace",
+    "产品文档": "Product docs",
+    "客户端应用": "Client app",
+    "基础设施": "Infrastructure",
     "日历": "Calendar",
     "产品评审会": "Product review",
     "今天 18:30，线上会议 · 预计 45 分钟": "Today 18:30, online meeting · ~45 min",
@@ -397,13 +401,15 @@ def demo_payloads(locale: str = "zh", timer: str = "pomodoro", theme: str = "dar
     return translate_demo(messages, locale)
 
 
-def mock_socket_script(messages: list[dict]) -> str:
+def mock_socket_script(messages: list[dict], locale: str) -> str:
     return (
         """
 (function () {
   const params = new URLSearchParams(location.search);
   const wantSheet = params.get('sheet') === '1';
   const MESSAGES = __MESSAGES__;
+  const MOCK_LOCALE = __LOCALE__;
+  const copy = (zh, en) => MOCK_LOCALE === 'en' ? en : zh;
   class MockSocket {
     static CONNECTING = 0;
     static OPEN = 1;
@@ -479,6 +485,28 @@ def mock_socket_script(messages: list[dict]) -> str:
                 }
                 push({ type: 'quickqa-delta', text: text.slice(index, index + 6), sessionId });
                 index += 6;
+              }, 20);
+            } else if (quickDemo === 'result') {
+              state('thinking', copy('请把今天的安排整理成一个简短的执行顺序。', 'Turn today’s schedule into a short execution order.'));
+              state('streaming');
+              const text = [
+                copy('### 今日执行顺序', '### Today’s execution order'),
+                '',
+                copy('1. **18:30 产品评审会**：提前 10 分钟整理演示材料。', '1. **18:30 Product review**: prepare the demo 10 minutes early.'),
+                copy('2. **19:30 设计交接**：确认组件清单与间距规范。', '2. **19:30 Design handoff**: confirm the component list and spacing spec.'),
+                copy('3. **21:00 收尾**：整理待办，安排明天优先级。', '3. **21:00 Wrap-up**: tidy the to-do list and set tomorrow’s priorities.'),
+                '',
+                copy('先完成评审材料，再处理设计交接；其余任务可以顺延到明天。', 'Finish the review material first, then the design handoff; the rest can move to tomorrow.'),
+              ].join(String.fromCharCode(10));
+              let index = 0;
+              const timer = setInterval(() => {
+                if (index >= text.length) {
+                  clearInterval(timer);
+                  state('done');
+                  return;
+                }
+                push({ type: 'quickqa-delta', text: text.slice(index, index + 2), sessionId });
+                index += 2;
               }, 20);
             } else if (quickDemo === 'second') {
               const stream = (value, after) => {
@@ -570,7 +598,7 @@ def mock_socket_script(messages: list[dict]) -> str:
   window.WebSocket = MockSocket;
 })();
 """
-    ).replace("__MESSAGES__", json.dumps(messages, ensure_ascii=False))
+    ).replace("__MESSAGES__", json.dumps(messages, ensure_ascii=False)).replace("__LOCALE__", json.dumps(locale, ensure_ascii=False))
 
 
 def cover_svg() -> str:
@@ -639,7 +667,7 @@ def prepare(
     index = (out_dir / "index.html").read_text(encoding="utf-8")
     injection = (
         "<script>\n"
-        + mock_socket_script(demo_payloads(locale, timer, theme))
+        + mock_socket_script(demo_payloads(locale, timer, theme), locale)
         + "\n</script>\n"
         + '<img src="/slow.png" alt="" aria-hidden="true" style="position:fixed;width:1px;height:1px;opacity:0;pointer-events:none">\n'
     )

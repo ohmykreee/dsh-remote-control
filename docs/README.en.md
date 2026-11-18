@@ -42,15 +42,21 @@ Five pages, each with one job:
 | Performance | CPU / memory and GPU / VRAM rings, clocks and uptime, hottest temperature and sensor list |
 
 <p align="center">
-  <img src="screenshots/en/overview.png" alt="Home, sessions, music and performance" width="1000">
+  <img src="screenshots/en/overview.png" alt="Home and sessions" width="1000">
   <br>
-  <em>Home / Sessions / Music / Performance (top-left / top-right / bottom-left / bottom-right). Each capture is split from top-right to bottom-left: dark above, light below.</em>
+  <em>Home and Sessions. Each capture is split from top-right to bottom-left: dark above, light below.</em>
 </p>
 
 <p align="center">
-  <img src="screenshots/en/question.png" alt="Remote question" width="640">
+  <img src="screenshots/en/media.png" alt="Music and performance" width="1000">
   <br>
-  <em>Remote question: options, the recommended marker and a custom reply.</em>
+  <em>Music and Performance.</em>
+</p>
+
+<p align="center">
+  <img src="screenshots/en/quickqa.png" alt="Quick Q&amp;A and the completed answer" width="1000">
+  <br>
+  <em>Quick Q&amp;A: hold to talk and choose a workspace; the completed answer on the right.</em>
 </p>
 
 - The five pages loop horizontally, one page per gesture; page order, enablement and the navigation rail position are configured on the DSH settings page.

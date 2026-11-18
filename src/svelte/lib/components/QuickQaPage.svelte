@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { tweened } from 'svelte/motion';
+  import { Tween } from 'svelte/motion';
   import { cubicOut } from 'svelte/easing';
   import Mic from '@lucide/svelte/icons/mic';
   import Plus from '@lucide/svelte/icons/plus';
@@ -44,7 +44,7 @@
   let standbyHint = $state<StandbyHint>('idle');
   let conversationBodyEl = $state<HTMLElement | null>(null);
   let scrollFrame = 0;
-  const waveLevel = tweened(0, { duration: 140, easing: cubicOut });
+  const waveLevel = new Tween(0, { duration: 140, easing: cubicOut });
   let permissionBusy = $state(false);
 
   let captureHandle: QuickQaCapture | null = null;
@@ -406,7 +406,7 @@
               {/if}
               <div class="quickqa-follow-shell">
                 {#if phase === 'capturing'}
-                  <span class="quickqa-ring" style="--level:{$waveLevel}"></span>
+                  <span class="quickqa-ring" style="--level:{waveLevel.current}"></span>
                 {/if}
                 <Button
                   size="icon"
@@ -472,7 +472,7 @@
 
             {#if phase === 'capturing' || phase === 'idle' || phase === 'error'}
               <div class="quickqa-mic-shell" class:is-capturing={phase === 'capturing'}>
-                <span class="quickqa-ring" style={`--level:${$waveLevel}`}></span>
+                <span class="quickqa-ring" style={`--level:${waveLevel.current}`}></span>
                 <Button
                   size="icon"
                   class={cn(

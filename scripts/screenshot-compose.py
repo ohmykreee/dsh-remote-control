@@ -6,16 +6,17 @@ captures the whole device screen, never a headless browser viewport):
 
     <input>/<prefix>dark-home.png
     <input>/<prefix>light-home.png
-    ... sessions / music / performance / question
+    ... sessions / music / performance / quickqa / answer
 
-Output:
+Each page is blended diagonally: the dark theme above the
+top-right-to-bottom-left diagonal, the light theme below it.
 
-    <output>/pages/<page>.png   diagonal per-page composite
-    <output>/overview.png       2x2 overview with transparent gaps
-    <output>/question.png       diagonal question composite
+Output groups (two pages side by side, transparent gap between them):
 
-Every composite keeps the dark theme above the top-right-to-bottom-left
-diagonal and the light theme below it.
+    <output>/overview.png   home + sessions
+    <output>/media.png      music + performance
+    <output>/quickqa.png    quick input + completed answer
+    <output>/pages/<page>.png   individual diagonal composites
 """
 
 from __future__ import annotations
@@ -25,8 +26,12 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-PAGES = ("home", "sessions", "music", "performance", "question")
-OVERVIEW = ("home", "sessions", "music", "performance")
+GROUPS = {
+    "overview": ("home", "sessions"),
+    "media": ("music", "performance"),
+    "quickqa": ("quickqa", "answer"),
+}
+PAGES = tuple(dict.fromkeys(page for pair in GROUPS.values() for page in pair))
 
 
 def diagonal(dark_path: Path, light_path: Path) -> Image.Image:
@@ -49,9 +54,9 @@ def diagonal(dark_path: Path, light_path: Path) -> Image.Image:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--input", required=True, help="directory containing dark-*.png / light-*.png")
-    parser.add_argument("--output", required=True, help="directory for overview.png, question.png and pages/")
+    parser.add_argument("--output", required=True, help="directory for the grouped composites and pages/")
     parser.add_argument("--prefix", default="", help="input filename prefix, e.g. en-")
-    parser.add_argument("--gap", type=int, default=24, help="transparent gap between overview tiles")
+    parser.add_argument("--gap", type=int, default=24, help="transparent gap between grouped pages")
     args = parser.parse_args()
 
     source = Path(args.input)
@@ -70,17 +75,16 @@ def main() -> int:
 
     tiles = {page: composite(page) for page in PAGES}
 
-    width, height = tiles["home"].size
-    overview = Image.new("RGBA", (width * 2 + args.gap, height * 2 + args.gap), (0, 0, 0, 0))
-    overview.paste(tiles["home"], (0, 0))
-    overview.paste(tiles["sessions"], (width + args.gap, 0))
-    overview.paste(tiles["music"], (0, height + args.gap))
-    overview.paste(tiles["performance"], (width + args.gap, height + args.gap))
-    overview.save(target / "overview.png", optimize=True)
+    for name, pair in GROUPS.items():
+        left = tiles[pair[0]]
+        right = tiles[pair[1]]
+        width, height = left.size
+        group = Image.new("RGBA", (width * 2 + args.gap, height), (0, 0, 0, 0))
+        group.paste(left, (0, 0))
+        group.paste(right, (width + args.gap, 0))
+        group.save(target / f"{name}.png", optimize=True)
+        print(f"wrote {target / f'{name}.png'} ({group.width}x{group.height})")
 
-    tiles["question"].convert("RGBA").save(target / "question.png", optimize=True)
-    print(f"wrote {target / 'overview.png'} ({overview.width}x{overview.height})")
-    print(f"wrote {target / 'question.png'}")
     print(f"wrote {pages_dir}/{{{','.join(PAGES)}}}.png")
     return 0
 

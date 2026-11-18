@@ -312,7 +312,7 @@ window.__ModuleLoader__.load({
 - 分页：每页 `scroll-snap-stop: always`，一次手势最多前进 / 后退一页；页面顺序与开关来自设置，关闭的页面不渲染、不轮询。
 - 字体：`@fontsource-variable/inter`、`noto-sans-sc`、`jetbrains-mono` 由 Vite 打进 `web/assets/`，不依赖手机系统字体；许可见 `web/fonts/LICENSE.txt`。
 - 手机端只读会话；`pushQuestions` 开启后才显示回答入口。
-- 快速问答页：左侧只有大的圆形麦克风与「长按说话」（未授权时在圆钮上方显示红色授权按钮），右侧是默认 / 置顶工作区选择；按钮统一使用 shadcn-svelte `Button` / `Panel`，不引入 hover 过渡。麦克风使用默认输入设备，录音转成 16 kHz 单声道 PCM16 WAV 后上传。按住时用 Svelte `tweened`（`cubicOut`）驱动半透明实心圆环，取消按钮位于圆钮上方；追问时录音控制保留在聊天卡底部的小圆钮上，继续追问与新会话左右并排，按下后两个按钮位置不变，取消按钮浮在追问圆钮上方，不会回到初始界面；AI 输出期间底部按钮隐藏，回答完成后再出现；流式内容会自动滚到聊天卡底部，按钮出现时不会遮住最后一段回答；取消、过短或没有清晰语音时，圆钮下方提示会切换为对应状态。进入回答模式后隐藏语音与工作区，只保留一张居中的大聊天卡：显示识别出的用户问题、之前轮次的上下文、模型回答与底部继续追问 / 新会话按钮。
+- 快速问答页：左侧只有大的圆形麦克风与「长按说话」（未授权时在圆钮上方显示红色授权按钮），右侧是默认 / 置顶工作区选择；按钮统一使用 shadcn-svelte `Button` / `Panel`，不引入 hover 过渡。麦克风使用默认输入设备，录音转成 16 kHz 单声道 PCM16 WAV 后上传。按住时用 Svelte `Tween`（`cubicOut`）驱动半透明实心圆环，取消按钮位于圆钮上方；追问时录音控制保留在聊天卡底部的小圆钮上，继续追问与新会话左右并排，按下后两个按钮位置不变，取消按钮浮在追问圆钮上方，不会回到初始界面；AI 输出期间底部按钮隐藏，回答完成后再出现；流式内容会自动滚到聊天卡底部，按钮出现时不会遮住最后一段回答；取消、过短或没有清晰语音时，圆钮下方提示会切换为对应状态。进入回答模式后隐藏语音与工作区，只保留一张居中的大聊天卡：显示识别出的用户问题、之前轮次的上下文、模型回答与底部继续追问 / 新会话按钮。
 
 ## DSH 侧边栏（React）
 
@@ -559,8 +559,8 @@ pnpm build:rust
 | 工具 | 用途 |
 |---|---|
 | `scripts/mock-preview.py` | 生成带演示数据的预览；`--locale zh/en`、`--theme dark/light`、`--freeze-clock` |
-| `scripts/screenshot-device.sh` | 在目标设备上以 kiosk 浏览器显示 URL，再截整屏（KDE 用 Spectacle，wlroots 用 grim，X11 用 ImageMagick `import`） |
-| `scripts/screenshot-compose.py` | 把 dark/light 整屏截图按右上→左下对角合成，并输出 `overview.png`、`question.png` 与 `pages/*.png` |
+| `scripts/screenshot-device.sh` | 在目标设备上以 kiosk 浏览器显示 URL，再截整屏（KDE 用 Spectacle，wlroots 用 grim，X11 用 ImageMagick `import`）；`MIC_PERMISSION=1` 预授权麦克风 |
+| `scripts/screenshot-compose.py` | 把 dark/light 整屏截图按右上→左下对角合成，并输出 `overview.png`（主页 + 会话）、`media.png`（音乐 + 性能）、`quickqa.png`（快速问答 + 回答结果）与 `pages/*.png` |
 
 流程：
 
@@ -571,9 +571,9 @@ pnpm build:rust
    python scripts/mock-preview.py --web web --out .mock-web/light --port 4174 --locale zh --theme light --freeze-clock
    ```
    英文换成 `--locale en`，输出目录也换成英文专用目录。
-3. 在设备上逐页截两张整屏图：`URL='http://HOST:4173/?page=home' OUT=shots/dark-home.png bash scripts/screenshot-device.sh`；亮色换 `4174`，问题页 URL 加 `&sheet=1`。会话 / 音乐 / 性能同样各截一对。
-4. 合成：`python scripts/screenshot-compose.py --input shots --output docs/screenshots/zh`；英文加 `--prefix en-` 并输出到 `docs/screenshots/en`。
-5. README 只引用分组后的 `overview.png` 与 `question.png`；分组图里各 tile 之间保留透明间隔。
+3. 在设备上逐页截两张整屏图：`URL='http://HOST:4173/?page=home' OUT=shots/dark-home.png bash scripts/screenshot-device.sh`；亮色换 `4174`。对应页面为 home / sessions / music / performance / quickqa / answer，其中 answer 使用 `&quickqa=result`。快速问答页加 `MIC_PERMISSION=1` 预授权麦克风，避免文档图出现授权按钮。
+4. 合成：`python scripts/screenshot-compose.py --input shots --output docs/screenshots/zh`；英文加 `--prefix en-` 并输出到 `docs/screenshots/en`。脚本生成 overview / media / quickqa 三组。
+5. README 只引用分组后的 `overview.png`、`media.png` 与 `quickqa.png`；分组图里两页之间保留透明间隔。
 
 通过 SSH 在设备上运行时，调用方自己提供会话环境（`XDG_RUNTIME_DIR`、`WAYLAND_DISPLAY`、`DBUS_SESSION_BUS_ADDRESS`）。脚本不保存主机名、账号或密码。
 

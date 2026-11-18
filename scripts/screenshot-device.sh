@@ -14,6 +14,7 @@
 #   SETTLE=6          seconds to wait after opening the kiosk browser
 #   CAPTURE=auto      auto | spectacle | grim | import
 #   BROWSER=firefox   browser used for the kiosk window
+#   MIC_PERMISSION=1  pre-grant microphone permission in the temporary profile
 #
 # When run over SSH into a Wayland desktop, export the session's
 # XDG_RUNTIME_DIR, WAYLAND_DISPLAY and DBUS_SESSION_BUS_ADDRESS first.
@@ -31,6 +32,12 @@ settle="${SETTLE:-6}"
 workdir="${WORKDIR:-$(mktemp -d)}"
 profile="$workdir/profile"
 mkdir -p "$profile" "$(dirname "$OUT")"
+if [ "${MIC_PERMISSION:-0}" = "1" ]; then
+  cat >"$profile/user.js" <<'EOF'
+user_pref("permissions.default.microphone", 1);
+user_pref("media.navigator.permission.disabled", true);
+EOF
+fi
 
 cleanup() {
   pkill -f "firefox.*${profile}" 2>/dev/null || true
