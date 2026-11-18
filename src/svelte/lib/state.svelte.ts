@@ -1,69 +1,23 @@
 import { setLocale, t } from './i18n.svelte';
-import { DEFAULT_ORDER, enabledOrder, normalizeOrder } from './pages';
+import { DEFAULT_ORDER, normalizeOrder } from './pages';
 import { handleQuickQaMessage, quickQaPendingSession, quickQaSyncSettings } from './quickqa.svelte';
+import {
+  DEFAULT_COUNTDOWN_PRESETS,
+  normalizeCountdown,
+  normalizeNavPosition,
+  normalizePomodoro,
+} from './settings-normalize';
 import { setWakeLockEnabled } from './wake-lock';
 import { configureLive, connectLive, disposeLive, isLiveOpen, sendLive } from './ws';
 import type {
-  AccountData,
   ConsoleSettings,
   ConsoleState,
-  CountdownSettings,
   MediaPayload,
-  NavPosition,
-  NotificationsData,
   OverviewData,
-  PerformanceData,
-  PomodoroSettings,
   QuestionAnswerItem,
   ServerMessage,
   SessionItem,
-  WeatherData,
 } from './types';
-
-const NAV_POSITIONS: readonly NavPosition[] = ['left', 'right', 'top', 'bottom'];
-
-export const COUNTDOWN_PRESET_LIMIT = 5;
-export const COUNTDOWN_MAX_SECONDS = 86_400;
-/** Presets a fresh profile starts with; the user may keep one to five. */
-export const DEFAULT_COUNTDOWN_PRESETS = [60, 300, 600];
-
-export function normalizeNavPosition(value: unknown): NavPosition {
-  return NAV_POSITIONS.includes(value as NavPosition) ? (value as NavPosition) : 'left';
-}
-
-export function normalizePomodoro(input: Partial<PomodoroSettings> | undefined, base: PomodoroSettings): PomodoroSettings {
-  const minutes = (value: unknown, fallback: number, max: number): number => {
-    const number = Number(value);
-    return Number.isFinite(number) ? Math.max(0.1, Math.min(max, Math.round(number * 100) / 100)) : fallback;
-  };
-  return {
-    enabled: input?.enabled === true,
-    focusMinutes: minutes(input?.focusMinutes, base.focusMinutes, 180),
-    breakMinutes: minutes(input?.breakMinutes, base.breakMinutes, 120),
-    soundPath: typeof input?.soundPath === 'string' ? input.soundPath : base.soundPath,
-    loopAlarm: input?.loopAlarm === true,
-  };
-}
-
-export function normalizeCountdown(
-  input: Partial<CountdownSettings> | undefined,
-  base: CountdownSettings,
-): CountdownSettings {
-  const source = Array.isArray(input?.presets) ? input.presets : [];
-  const fallbackPresets = base.presets.length > 0 ? base.presets : DEFAULT_COUNTDOWN_PRESETS;
-  const presets: number[] = [];
-  for (const entry of source.slice(0, COUNTDOWN_PRESET_LIMIT)) {
-    const seconds = Math.round(Number(entry));
-    if (!Number.isFinite(seconds)) continue;
-    presets.push(Math.max(1, Math.min(COUNTDOWN_MAX_SECONDS, seconds)));
-  }
-  return {
-    enabled: input?.enabled === true,
-    presets: presets.length > 0
-      ? presets
-      : fallbackPresets.slice(0, COUNTDOWN_PRESET_LIMIT),
-  };
-}
 
 /**
  * Shared live state for the mobile console.
@@ -106,7 +60,6 @@ export const app: ConsoleState = $state({
   volumeDragging: false,
   volumeInput: 0.2,
   volumeTarget: 0.2,
-  volumeHoldUntil: 0,
 
   toastVisible: false,
   toastMessage: '',
@@ -215,6 +168,21 @@ export function submitQuestionAnswer(
   });
 }
 
+/**
+ * Fail every in-flight answer. Once the socket is gone the `answer-result`
+ * frame can no longer arrive, so waiting for the 12 s timeout would leave the
+ * inquiry sheet disabled behind a spinner.
+ */
+function failAnswerWaiters(): void {
+  if (answerWaiters.size === 0) return;
+  const error = new Error(t('connectionLost'));
+  for (const waiter of answerWaiters.values()) {
+    clearTimeout(waiter.timer);
+    waiter.reject(error);
+  }
+  answerWaiters.clear();
+}
+
 export function applyTheme(theme: string): void {
   app.theme = theme === 'light' ? 'light' : 'dark';
 }
@@ -249,14 +217,23 @@ export function applySettings(settings: ConsoleSettings | undefined): void {
       spendWindow: settings.balance.spendWindow === 'rolling' ? 'rolling' : 'calendar',
     };
   }
+  // Every settings push carries the full page configuration, so only a real
+  // change may bump the revision: bumping unconditionally re-runs the pager's
+  // scroll reconciliation while the user may be swiping.
   let pageChanged = false;
   if (settings.pageOrder) {
-    app.pageOrder = normalizeOrder(settings.pageOrder);
-    pageChanged = true;
+    const nextOrder = normalizeOrder(settings.pageOrder);
+    if (nextOrder.join('|') !== app.pageOrder.join('|')) {
+      app.pageOrder = nextOrder;
+      pageChanged = true;
+    }
   }
   if (settings.pageEnabled) {
-    app.pageEnabled = { ...app.pageEnabled, ...settings.pageEnabled };
-    pageChanged = true;
+    const nextEnabled = { ...app.pageEnabled, ...settings.pageEnabled };
+    if (DEFAULT_ORDER.some((key) => (nextEnabled[key] ? true : false) !== app.pageEnabled[key])) {
+      app.pageEnabled = nextEnabled;
+      pageChanged = true;
+    }
   }
   if (pageChanged) app.pageRevision += 1;
 }
@@ -297,32 +274,30 @@ function handleMessage(message: ServerMessage): void {
       break;
     case 'overview':
       setOnline(true);
-      applyOverview(message.data as OverviewData | undefined);
+      applyOverview(message.data);
       break;
     case 'weather':
-      app.weather = (message.data as WeatherData | undefined) ?? null;
+      app.weather = message.data ?? null;
       break;
     case 'notifications':
-      app.notifications = (message.data as NotificationsData | undefined) ?? null;
+      app.notifications = message.data ?? null;
       break;
     case 'sessions':
-      app.sessions = withQuickQaSession(
-        Array.isArray(message.data) ? (message.data as SessionItem[]) : [],
-      );
+      app.sessions = withQuickQaSession(Array.isArray(message.data) ? message.data : []);
       app.sessionsError = null;
       break;
     case 'account':
-      app.account = (message.data as AccountData | undefined) ?? null;
+      app.account = message.data ?? null;
       break;
     case 'media':
       setOnline(true);
-      applyMedia(message.data as MediaPayload | undefined);
+      applyMedia(message.data);
       break;
     case 'performance':
-      app.performance = (message.data as PerformanceData | undefined) ?? null;
+      app.performance = message.data ?? null;
       break;
     case 'settings':
-      applySettings(message.data as ConsoleSettings | undefined);
+      applySettings(message.data);
       break;
     case 'action-result':
       if (!message.ok) toast(message.error || t('actionFailed'));
@@ -359,6 +334,7 @@ export function startLive(): void {
     onMessage: handleMessage,
     onClose() {
       setOnline(false);
+      failAnswerWaiters();
     },
   });
   connectLive();
@@ -366,6 +342,7 @@ export function startLive(): void {
 
 export function stopLive(): void {
   disposeLive();
+  failAnswerWaiters();
 }
 
 /** One shared second tick for the clock; media progress is owned by SeekBar. */
@@ -392,5 +369,3 @@ export function restoreUrl(): void {
 export function exposeState(): void {
   window.__DSH_REMOTE__ = app;
 }
-
-export { enabledOrder, normalizeOrder };

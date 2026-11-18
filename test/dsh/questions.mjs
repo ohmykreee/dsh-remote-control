@@ -7,7 +7,7 @@ const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-rc-questions-'));
 process.env.DSH_PROFILE_DIR = profile;
 process.env.DSH_REMOTE_CONTROL_PORT = '0';
 
-const { createRemoteControlService } = await import('../lib/service.js');
+const { createRemoteControlService } = await import('../../lib/service.js');
 
 const sessionId = 'session-question';
 const continuedId = 'session-continued';

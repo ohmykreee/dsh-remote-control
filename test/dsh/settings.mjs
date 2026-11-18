@@ -18,8 +18,8 @@ const {
   createSettingsStore,
   normalizeDshLocale,
   resolveLocale,
-} = await import('../lib/settings/index.js');
-const { zh, en, hostMessage } = await import('../lib/i18n/index.js');
+} = await import('../../lib/settings/index.js');
+const { zh, en, hostMessage } = await import('../../lib/i18n/index.js');
 
 /* ---------------------------------------------------------------- locale */
 

@@ -5,9 +5,9 @@
 </script>
 
 {#if app.toastVisible}
-  <div class="toast-layer">
+  <div class="toast-layer" role="status" aria-live="polite">
     <Alert class="flex w-auto items-center gap-2.5 rounded-full border-border bg-popover/95 px-4 py-2.5 text-[15px] text-foreground shadow-lg backdrop-blur-md">
-      <CircleAlert class="size-[19px] text-brand" strokeWidth={1.8} />
+      <CircleAlert class="size-[19px] text-brand" strokeWidth={1.8} aria-hidden="true" />
       <span>{app.toastMessage}</span>
     </Alert>
   </div>

@@ -7,7 +7,7 @@ const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-rc-quickqa-'));
 process.env.DSH_PROFILE_DIR = profile;
 process.env.DSH_REMOTE_CONTROL_PORT = '0';
 
-const { createRemoteControlService } = await import('../lib/service.js');
+const { createRemoteControlService } = await import('../../lib/service.js');
 
 const workspaces = [
   { id: 'ws-default', title: '默认工作区', path: 'D:\\demo\\default' },

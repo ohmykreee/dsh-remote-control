@@ -1,15 +1,49 @@
-<script lang="ts">
+<script lang="ts" module>
   import { marked } from 'marked';
+
+  // Module-level configuration: every message bubble shares the same parser.
+  marked.setOptions({ gfm: true, breaks: true });
+</script>
+
+<script lang="ts">
   import DOMPurify from 'dompurify';
 
   let { content = '' } = $props();
 
-  marked.setOptions({ gfm: true, breaks: true });
-  const html = $derived(
-    DOMPurify.sanitize(marked.parse(content, { async: false }), {
+  // Streaming appends a delta at a time; re-parsing and re-sanitizing the whole
+  // answer on every frame is quadratic on long replies, so batch updates.
+  const RENDER_INTERVAL_MS = 90;
+
+  let html = $state('');
+  let lastText = '';
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  function render(text: string): void {
+    lastText = text;
+    html = DOMPurify.sanitize(marked.parse(text, { async: false }), {
       USE_PROFILES: { html: true },
-    }),
-  );
+    });
+  }
+
+  $effect(() => {
+    const text = content;
+    if (text === lastText) return;
+    // The first render (mount or a brand new bubble) must be immediate.
+    if (!lastText) {
+      render(text);
+      return;
+    }
+    if (timer !== null) return;
+    timer = setTimeout(() => {
+      timer = null;
+      render(content);
+    }, RENDER_INTERVAL_MS);
+  });
+
+  $effect(() => () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  });
 </script>
 
 <div class="quickqa-markdown">{@html html}</div>

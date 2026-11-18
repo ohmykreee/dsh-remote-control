@@ -1,4 +1,5 @@
 import { app } from './state.svelte';
+import { createTimerEngine } from './timer-engine';
 import {
   cancelScheduledAlarm,
   claimScheduledAlarm,
@@ -44,8 +45,6 @@ export const pomodoro = $state<PomodoroRuntime>({
   alarmActive: false,
 });
 
-let refs = 0;
-let timer: ReturnType<typeof setInterval> | null = null;
 let durationSignature = '';
 
 function settings(): PomodoroSettings {
@@ -95,22 +94,6 @@ function resetRuntime(): void {
 function startEngine(): void {
   durationSignature = `${settings().focusMinutes}/${settings().breakMinutes}`;
   if (!pomodoro.running && !pomodoro.finished) pomodoro.remainingMs = phaseDurationMs();
-  if (timer) return;
-  timer = setInterval(tick, 250);
-  document.addEventListener('visibilitychange', handleVisibility);
-  (window as unknown as { __DSH_POMODORO__?: PomodoroRuntime }).__DSH_POMODORO__ = pomodoro;
-}
-
-function stopEngine(): void {
-  if (timer) clearInterval(timer);
-  timer = null;
-  document.removeEventListener('visibilitychange', handleVisibility);
-  cancelScheduledAlarm();
-  resetRuntime();
-}
-
-function handleVisibility(): void {
-  if (!document.hidden) tick();
 }
 
 function tick(): void {
@@ -130,17 +113,19 @@ function tick(): void {
   pomodoro.remainingMs = remaining;
 }
 
+const engine = createTimerEngine({
+  tickMs: 250,
+  onStart: startEngine,
+  onTick: tick,
+  onStop() {
+    cancelScheduledAlarm();
+    resetRuntime();
+  },
+});
+
 /** Reference-counted lifecycle; the card (and its clone) both acquire it. */
 export function acquirePomodoro(): () => void {
-  refs += 1;
-  if (refs === 1) startEngine();
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    refs = Math.max(0, refs - 1);
-    if (refs === 0) stopEngine();
-  };
+  return engine.acquire();
 }
 
 export function startPomodoro(): void {

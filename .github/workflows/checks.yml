@@ -72,8 +72,11 @@ jobs:
       - name: Build plugin and phone console
         run: pnpm build
 
-      - name: Node tests
+      - name: Host integration tests
         run: pnpm test
+
+      - name: Phone console unit tests
+        run: pnpm test:unit
 
       - name: Build the native probe
         run: node scripts/build-rust.mjs

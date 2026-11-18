@@ -37,10 +37,13 @@
 
   const tariff = $derived(tariffPeriod(new Date(app.clockNow)));
   const showTariff = $derived(app.balanceDisplay.showPeakValley);
+  // Derived from the shared clock, so the holiday fetch below only reruns when
+  // the Beijing year actually rolls over instead of once per second.
+  const holidayYear = $derived(beijingYear(new Date(app.clockNow)));
 
   let loadedHolidayYear = 0;
   $effect(() => {
-    const year = beijingYear(new Date(app.clockNow));
+    const year = holidayYear;
     if (year === loadedHolidayYear) return;
     loadedHolidayYear = year;
     void ensureHolidayYear(year);

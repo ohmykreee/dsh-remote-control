@@ -96,7 +96,8 @@ export interface WeatherAirQuality {
 export interface WeatherData {
   ok?: boolean;
   provider?: string;
-  location?: { name?: string };
+  /** `nameFallback` means the Host could not resolve a real place name. */
+  location?: { name?: string; nameFallback?: boolean };
   current?: WeatherCurrent;
   daily?: WeatherDaily;
   hourly?: WeatherHour[];
@@ -312,7 +313,6 @@ export interface ConsoleState {
   volumeDragging: boolean;
   volumeInput: number;
   volumeTarget: number;
-  volumeHoldUntil: number;
 
   toastVisible: boolean;
   toastMessage: string;
@@ -333,25 +333,48 @@ export type ClientMessage =
   | { type: 'quickqa-ask'; text: string; workspaceId?: string; sessionId?: string }
   | { type: 'quickqa-reset' };
 
-export interface ServerMessage {
-  type?: string;
-  data?: unknown;
-  settings?: ConsoleSettings;
-  ok?: boolean;
-  error?: string;
-  sessionId?: string;
-  requestId?: string;
-  phase?: string;
-  text?: string;
-  workspaceId?: string;
-  question?: string;
-  empty?: boolean;
-  clear?: boolean;
-  kind?: string;
-  header?: string;
-  detail?: string;
-  answerable?: boolean;
-  count?: number;
-  questions?: SessionQuestion[];
-  pushEnabled?: boolean;
-}
+/** Phase of one quick Q&A turn, as pushed by the Host. */
+export type QuickQaPhase = 'idle' | 'capturing' | 'transcribing' | 'thinking' | 'streaming' | 'done' | 'error';
+
+/**
+ * Every frame the Host pushes over `/ws`, discriminated by `type` so a protocol
+ * change fails to type-check instead of silently producing `undefined` data.
+ */
+export type ServerMessage =
+  | { type: 'welcome'; settings: ConsoleSettings }
+  | { type: 'overview'; data: OverviewData }
+  | { type: 'sessions'; data: SessionItem[] }
+  | { type: 'notifications'; data: NotificationsData | null }
+  | { type: 'account'; data: AccountData | null }
+  | { type: 'weather'; data: WeatherData | null }
+  | { type: 'media'; data: MediaPayload }
+  | { type: 'performance'; data: PerformanceData | null }
+  | { type: 'clients'; data: unknown[] }
+  | { type: 'settings'; data: ConsoleSettings }
+  | { type: 'action-result'; ok: boolean; action?: string; error?: string }
+  | { type: 'answer-result'; ok: boolean; sessionId?: string; requestId?: string; error?: string }
+  | {
+      type: 'quickqa-state';
+      phase?: QuickQaPhase;
+      sessionId?: string;
+      workspaceId?: string;
+      question?: string;
+      empty?: boolean;
+      error?: string;
+    }
+  | { type: 'quickqa-delta'; text?: string }
+  | {
+      type: 'quickqa-pending';
+      clear?: boolean;
+      kind?: string;
+      question?: string;
+      header?: string;
+      detail?: string;
+      requestId?: string;
+      answerable?: boolean;
+      count?: number;
+      questions?: SessionQuestion[];
+      pushEnabled?: boolean;
+    }
+  | { type: 'error'; error?: string }
+  | { type: 'pong' };

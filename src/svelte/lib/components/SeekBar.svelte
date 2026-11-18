@@ -51,6 +51,7 @@
   let now = $state(Date.now());
   let dragging = $state(false);
   let dragValue = $state(0);
+  let rootEl = $state<HTMLDivElement | null>(null);
   let trackEl = $state<HTMLDivElement | null>(null);
   let trackWidth = $state(0);
   let anchor = 0;
@@ -203,11 +204,29 @@
     now = timestamp;
   });
 
-  onMount(() => {
+  // Only tick while the bar is on screen: the pager keeps off-screen pages
+  // mounted (and clones the first/last one), so an always-on 10 Hz clock would
+  // keep re-rendering invisible bars. `position` derives from the anchor and
+  // this clock, so it catches up as soon as the bar becomes visible again.
+  let visible = $state(true);
+
+  $effect(() => {
+    if (!visible) return;
+    now = Date.now();
     const timer = setInterval(() => {
       now = Date.now();
     }, 100);
     return () => clearInterval(timer);
+  });
+
+  onMount(() => {
+    const element = rootEl;
+    if (!element || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver((entries) => {
+      visible = entries.some((entry) => entry.isIntersecting);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
   });
 
   function valueFromPointer(clientX: number): number {
@@ -307,7 +326,7 @@
   </svg>
 {/snippet}
 
-<div class={cn('seek-bar', className)} bind:clientWidth={trackWidth}>
+<div class={cn('seek-bar', className)} bind:this={rootEl} bind:clientWidth={trackWidth}>
   {#if seekable}
     <div
       bind:this={trackEl}

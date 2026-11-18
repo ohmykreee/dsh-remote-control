@@ -12,6 +12,7 @@ let scheduled: { endsAt: number; nodes: OscillatorNode[] } | null = null;
 let loopTimer: ReturnType<typeof setTimeout> | null = null;
 let loopActive = false;
 let alarmAudio: HTMLAudioElement | null = null;
+let alarmStopTimer: ReturnType<typeof setTimeout> | null = null;
 let activeChimeNodes: OscillatorNode[] = [];
 let vibrationTimer: ReturnType<typeof setInterval> | null = null;
 let alerting = false;
@@ -171,7 +172,11 @@ export function playAlarmOnce(soundPath: string): void {
       audio.addEventListener('error', fallback, { once: true });
       const playing = audio.play();
       if (playing && typeof playing.catch === 'function') playing.catch(fallback);
-      setTimeout(() => {
+      // Safety stop for a file that never fires `ended`; tracked so a dismiss
+      // also cuts the tail off.
+      if (alarmStopTimer) clearTimeout(alarmStopTimer);
+      alarmStopTimer = setTimeout(() => {
+        alarmStopTimer = null;
         try {
           audio.pause();
         } catch {
@@ -291,6 +296,10 @@ export function stopAlarmSound(): void {
   loopActive = false;
   stopLoopTimer();
   stopLoopingVibration();
+  if (alarmStopTimer) {
+    clearTimeout(alarmStopTimer);
+    alarmStopTimer = null;
+  }
   if (alarmAudio) {
     try {
       alarmAudio.pause();

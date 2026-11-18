@@ -6,7 +6,7 @@ import path from 'node:path';
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-rc-smoke-'));
 process.env.DSH_PROFILE_DIR = profile;
 
-const { createRemoteControlService, certificateDomain } = await import('../lib/service.js');
+const { createRemoteControlService, certificateDomain } = await import('../../lib/service.js');
 
 // Public test certificate only; no private key is stored in the repository.
 const certificate = `-----BEGIN CERTIFICATE-----

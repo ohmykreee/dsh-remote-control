@@ -85,6 +85,9 @@ export function setWakeLockEnabled(enabled: boolean): void {
   }
   requested = next;
   if (!visibilityBound) {
+    // The console mounts App exactly once for the page lifetime, so this
+    // listener is intentionally never removed; `releaseWakeLock()` only drops
+    // the lock itself.
     document.addEventListener('visibilitychange', handleVisibility);
     visibilityBound = true;
   }

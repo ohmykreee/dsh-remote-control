@@ -236,6 +236,8 @@ export interface WeatherLocation {
   latitude: number;
   longitude: number;
   source: string;
+  /** `name` is a placeholder because no real place name could be resolved. */
+  nameFallback?: boolean;
   province?: string;
   country?: string;
 }

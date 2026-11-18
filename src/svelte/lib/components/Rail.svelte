@@ -69,11 +69,12 @@
           <span
             class="rail-badge"
             class:is-error={errorCount > 0}
+            role="img"
             aria-label={errorCount > 0 ? t('errorSessions') : t('pendingQuestions')}
           ></span>
         {/if}
         {#if key === 'home' && timerAlert}
-          <span class="rail-badge is-timer" aria-label={t('timerAlert')}></span>
+          <span class="rail-badge is-timer" role="img" aria-label={t('timerAlert')}></span>
         {/if}
       </Button>
     {/each}

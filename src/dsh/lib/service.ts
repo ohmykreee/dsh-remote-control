@@ -7,6 +7,7 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { shutdownProbeDaemon } from './probe/index.js';
 import { createQuickQaService } from './quickqa/index.js';
 import type { QuickQaService } from './quickqa/index.js';
 import { certificateDomain } from './server/http.js';
@@ -207,6 +208,7 @@ export function createRemoteControlService(
       state.pending.dispose();
       state.adapters.dispose();
       state.appMapping.dispose();
+      shutdownProbeDaemon();
       state.cache.flush();
       void remote.stop();
     },

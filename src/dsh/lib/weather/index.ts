@@ -58,6 +58,12 @@ const GEOCODE_TTL_MS = 10 * 60 * 1000;
 const GEOCODE_CACHE_LIMIT = 64;
 const WEATHER_CACHE_LIMIT = 32;
 
+/**
+ * Label used when coordinates cannot be named. Clients localize the label via
+ * `WeatherLocation.nameFallback`; never compare this string elsewhere.
+ */
+const FALLBACK_LOCATION_NAME = '当前位置';
+
 interface TimezoneFallback {
   name: string;
   latitude: number;
@@ -213,6 +219,7 @@ function weatherLocation(value: ProviderLocation): WeatherLocation {
     latitude: value.latitude,
     longitude: value.longitude,
     source: value.source,
+    ...(value.nameFallback ? { nameFallback: true } : {}),
     ...(value.province ? { province: value.province } : {}),
     ...(value.country ? { country: value.country } : {}),
   };
@@ -298,7 +305,7 @@ export function createWeatherService(options: WeatherServiceOptions): WeatherSer
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
     if (nativeLocation) {
       const cacheEntry = cache.geocode();
-      const systemName = nativeLocation.name?.trim() && nativeLocation.name.trim() !== '当前位置'
+      const systemName = nativeLocation.name?.trim() && nativeLocation.name.trim() !== FALLBACK_LOCATION_NAME
         ? nativeLocation.name.trim()
         : '';
       let place: ReverseGeocodeResult | null = null;
@@ -338,8 +345,10 @@ export function createWeatherService(options: WeatherServiceOptions): WeatherSer
           });
         }
       }
+      const resolvedName = place?.name || FALLBACK_LOCATION_NAME;
       locationCache = {
-        name: place?.name || '当前位置',
+        name: resolvedName,
+        ...(place?.name ? {} : { nameFallback: true }),
         latitude: nativeLocation.latitude,
         longitude: nativeLocation.longitude,
         timezone,
@@ -354,9 +363,10 @@ export function createWeatherService(options: WeatherServiceOptions): WeatherSer
 
     const fallback = timezoneFallback(timezone);
     locationCache = fallback
-      ? { ...fallback, name: '当前位置', timezone, source: 'timezone' }
+      ? { ...fallback, name: FALLBACK_LOCATION_NAME, nameFallback: true, timezone, source: 'timezone' }
       : {
-          name: '当前位置',
+          name: FALLBACK_LOCATION_NAME,
+          nameFallback: true,
           latitude: 31.2304,
           longitude: 121.4737,
           timezone,
@@ -425,7 +435,7 @@ export function createWeatherService(options: WeatherServiceOptions): WeatherSer
       const resolved = await resolveLocation();
       // Automatic mode deliberately does not reverse-geocode the system
       // coordinates, so NMC cannot map them to a station by name.
-      if (resolved.name === '当前位置') return null;
+      if (resolved.nameFallback) return null;
       if (resolved.country && !isChinaCountry(resolved.country)) return null;
       const city = await resolveNmcCity(resolved.name, resolved.province, cache, { log, locale: locale() });
       if (!city) return null;
@@ -487,6 +497,7 @@ export function createWeatherService(options: WeatherServiceOptions): WeatherSer
     }
     return {
       name: resolved.name,
+      ...(resolved.nameFallback ? { nameFallback: true } : {}),
       latitude: resolved.latitude,
       longitude: resolved.longitude,
       source: resolved.source,
@@ -679,12 +690,20 @@ export function createWeatherService(options: WeatherServiceOptions): WeatherSer
       const message = serializeError(error);
       const fallbackLocation: WeatherLocation = location
         ? weatherLocation(location)
-        : {
-            name: weather.name || '当前位置',
-            latitude: 0,
-            longitude: 0,
-            source: weather.mode === 'manual' ? 'manual' : 'auto',
-          };
+        : weather.name
+          ? {
+              name: weather.name,
+              latitude: 0,
+              longitude: 0,
+              source: weather.mode === 'manual' ? 'manual' : 'auto',
+            }
+          : {
+              name: FALLBACK_LOCATION_NAME,
+              nameFallback: true,
+              latitude: 0,
+              longitude: 0,
+              source: weather.mode === 'manual' ? 'manual' : 'auto',
+            };
       const payload = failedPayload(provider, requested, switched, fallbackLocation, message);
       if (key) weatherCache.set(key, { at: Date.now(), value: payload, error: true });
       lastWeather = payload;

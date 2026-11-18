@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 /* ------------------------------------------------------- media enrichment */
 
-const { createMediaEnrichment } = await import('../lib/media/enrich.js');
+const { createMediaEnrichment } = await import('../../lib/media/enrich.js');
 
 const enrichment = createMediaEnrichment();
 const t0 = Date.now();
@@ -163,7 +163,7 @@ assert.equal(m.timelineSource, 'accessibility');
 process.env.DSH_RC_PROBE = path.join(os.tmpdir(), 'dsh-rc-missing-probe-binary');
 delete process.env.DSH_RC_DISABLE_RUST_PROBE;
 
-const { probeInfo, probeStatus, runProbe, resetProbeCache, shutdownProbeDaemon } = await import('../lib/probe/index.js');
+const { probeInfo, probeStatus, runProbe, resetProbeCache, shutdownProbeDaemon } = await import('../../lib/probe/index.js');
 
 const info = probeInfo();
 assert.equal(info.available, false);
@@ -175,7 +175,7 @@ await assert.rejects(() => runProbe(['version']), /native probe not built|native
 
 // Runtime diagnostics must report the missing probe without fabricating a
 // version, while the Node.js half stays available.
-const { readNodeCapability, readProbeCapability } = await import('../lib/shared/runtime.js');
+const { readNodeCapability, readProbeCapability } = await import('../../lib/shared/runtime.js');
 const probeCapability = await readProbeCapability();
 assert.equal(probeCapability.available, false);
 assert.equal(probeCapability.ok, false);
@@ -189,7 +189,7 @@ assert.ok(nodeCapability.memory.rss > 0);
 assert.ok(nodeCapability.uptimeSeconds >= 0);
 
 // A missing sidecar must fail cleanly: no JavaScript fallback adapter exists.
-const { createProbeMediaAdapter } = await import('../lib/probe/adapter.js');
+const { createProbeMediaAdapter } = await import('../../lib/probe/adapter.js');
 const adapter = createProbeMediaAdapter({ label: 'test' });
 const state = await adapter.getState();
 assert.equal(state.media.ok, false);
@@ -208,6 +208,7 @@ await assert.rejects(() => adapter.control('like'), /不支持修改红心|nativ
 const BINARY = process.platform === 'win32' ? 'dsh-probe.exe' : 'dsh-probe';
 const binary = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
+  '..',
   '..',
   'native',
   'bin',

@@ -341,7 +341,7 @@ export interface WeatherCapability {
   providerSwitched?: boolean;
   quota?: WeatherQuota;
   configured?: boolean;
-  location?: { name?: string; latitude?: number; longitude?: number; source?: string } | null;
+  location?: { name?: string; nameFallback?: boolean; latitude?: number; longitude?: number; source?: string } | null;
   console?: QWeatherConsoleSnapshot | null;
   error?: string | null;
 }

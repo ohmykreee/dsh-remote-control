@@ -11,7 +11,7 @@ import path from 'node:path';
 /* ------------------------------------------------------------ app mapping */
 
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-rc-notifications-'));
-const { createAppMapping, defaultAppName } = await import('../lib/apps/index.js');
+const { createAppMapping, defaultAppName } = await import('../../lib/apps/index.js');
 
 // Built-in names for well-known Windows apps.
 assert.equal(defaultAppName('QQ'), 'QQ');
@@ -87,8 +87,8 @@ migrated.dispose();
 process.env.DSH_RC_PROBE = path.join(os.tmpdir(), 'dsh-rc-missing-probe-binary');
 delete process.env.DSH_RC_DISABLE_RUST_PROBE;
 
-const { normalizeNotificationPayload, createNotificationService } = await import('../lib/notifications/index.js');
-const { resetProbeCache } = await import('../lib/probe/index.js');
+const { normalizeNotificationPayload, createNotificationService } = await import('../../lib/notifications/index.js');
+const { resetProbeCache } = await import('../../lib/probe/index.js');
 
 const raw = {
   ok: true,

@@ -606,7 +606,7 @@ function locationGroup(api: PanelApi): React.ReactElement {
   const autoLocation = capability?.location;
   const systemAutoLocation = Boolean(autoLocation && isSystemLocationSource(autoLocation.source));
   const autoName = autoLocation?.name?.trim();
-  const hasAutoName = Boolean(autoName && autoName !== '当前位置');
+  const hasAutoName = Boolean(autoName && autoLocation?.nameFallback !== true);
   const qweather: QWeatherSettings = {
     apiHost: draft.qweatherApiHost,
     credentialId: draft.qweatherCredentialId,

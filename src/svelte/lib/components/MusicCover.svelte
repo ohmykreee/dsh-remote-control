@@ -7,13 +7,10 @@
 
   const thumbnail = $derived(media?.thumbnail || media?.thumbnailUrl || '');
   const fallbackText = $derived(media ? t('nowPlaying') : t('nothingPlaying'));
-  let failed = $state(false);
-  const showArt = $derived(Boolean(thumbnail) && !failed);
-
-  $effect(() => {
-    void thumbnail;
-    failed = false;
-  });
+  // Remember which URL failed instead of a boolean: a new cover then resets the
+  // placeholder by itself, with no effect watching the source.
+  let failedSrc = $state('');
+  const showArt = $derived(Boolean(thumbnail) && thumbnail !== failedSrc);
 </script>
 
 <div class="cover-shell" class:has-art={showArt}>
@@ -30,7 +27,7 @@
       alt={t('albumCover')}
       draggable="false"
       referrerpolicy="no-referrer"
-      onerror={() => (failed = true)}
+      onerror={() => (failedSrc = thumbnail)}
     />
   {/if}
 </div>

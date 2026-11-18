@@ -52,12 +52,10 @@
     return hour >= 6 && hour < 18;
   }
 
-  /** The Host may fill generic fallback names; localize those, keep real cities. */
-  function locationName(name: string | undefined): string {
-    const value = String(name || '').trim();
-    if (!value || value === '当前位置') return t('currentLocation');
-    if (value === '自定义位置') return t('customLocation');
-    return value;
+  /** The Host marks placeholder names, so they are localized instead of shown raw. */
+  function locationName(location: WeatherData['location']): string {
+    if (!location || location.nameFallback) return t('currentLocation');
+    return String(location.name || '').trim() || t('currentLocation');
   }
 </script>
 
@@ -93,7 +91,7 @@
         </span>
         <div class="min-w-0">
           <p class="truncate text-[20px] font-semibold text-foreground">{info?.label}</p>
-          <p class="mt-0.5 truncate text-[14px] text-muted-foreground">{locationName(weather?.location?.name)}</p>
+          <p class="mt-0.5 truncate text-[14px] text-muted-foreground">{locationName(weather?.location)}</p>
         </div>
       </div>
 

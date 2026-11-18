@@ -30,12 +30,33 @@
   const previousDisabled = $derived(media ? !media.canPrevious : loaded);
   const nextDisabled = $derived(media ? !media.canNext : loaded);
 
+  // The Host echoes the system volume on the next media snapshot, which can lag
+  // the commit by a full push interval; hold the optimistic value locally for a
+  // moment so the slider never snaps back to a stale level.
+  const VOLUME_HOLD_MS = 2200;
+  let holdActive = $state(false);
+  let holdTimer: ReturnType<typeof setTimeout> | null = null;
+
   const displayVolume = $derived.by(() => {
     if (app.volumeDragging) return clampVolume(app.volumeInput);
-    if (Date.now() < app.volumeHoldUntil) return clampVolume(app.volumeTarget);
+    if (holdActive) return clampVolume(app.volumeTarget);
     return volume ? clampVolume(volume.volume ?? 0.5) : 0.5;
   });
   const volumePercent = $derived(Math.round(displayVolume * 100));
+
+  function holdVolumeTarget(): void {
+    holdActive = true;
+    if (holdTimer) clearTimeout(holdTimer);
+    holdTimer = setTimeout(() => {
+      holdTimer = null;
+      holdActive = false;
+    }, VOLUME_HOLD_MS);
+  }
+
+  $effect(() => () => {
+    if (holdTimer) clearTimeout(holdTimer);
+    holdTimer = null;
+  });
 
   function handleVolumeInput(value: number): void {
     app.volumeDragging = true;
@@ -45,7 +66,7 @@
   function handleVolumeCommit(value: number): void {
     app.volumeDragging = false;
     app.volumeTarget = clampVolume(value / 100);
-    app.volumeHoldUntil = Date.now() + 2200;
+    holdVolumeTarget();
     sendAction('volume', app.volumeTarget);
   }
 

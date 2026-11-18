@@ -8,9 +8,7 @@
 import { t } from './i18n.svelte';
 import { app, toast } from './state.svelte';
 import { isLiveOpen, sendLive } from './ws';
-import type { QuickQaPending, ServerMessage, SessionItem } from './types';
-
-export type QuickQaPhase = 'idle' | 'capturing' | 'transcribing' | 'thinking' | 'streaming' | 'done' | 'error';
+import type { QuickQaPending, QuickQaPhase, ServerMessage, SessionItem } from './types';
 
 export interface QuickQaChatMessage {
   role: 'user' | 'assistant';
@@ -49,10 +47,6 @@ function archiveCurrentAnswer(): void {
 
 export function quickQaBusy(): boolean {
   return BUSY_PHASES.includes(quickQa.phase);
-}
-
-export function quickQaHasSession(): boolean {
-  return Boolean(quickQa.sessionId);
 }
 
 export function quickQaWorkspaces(): Array<{ id: string; title: string; path: string }> {
@@ -186,7 +180,7 @@ export function quickQaPendingSession(): SessionItem | null {
 export function handleQuickQaMessage(message: ServerMessage): void {
   switch (message.type) {
     case 'quickqa-state': {
-      const phase = message.phase as QuickQaPhase | undefined;
+      const phase = message.phase;
       if (message.sessionId) quickQa.sessionId = message.sessionId;
       if (message.workspaceId) quickQa.workspaceId = message.workspaceId;
       if (message.error) {

@@ -11,8 +11,6 @@ import type { PageKey } from './types';
 
 export type LocaleCode = 'zh' | 'en';
 
-export const SUPPORTED_LOCALES: readonly LocaleCode[] = ['zh', 'en'];
-
 export const zh = {
   // Shell
   offline: '正在重新连接…',

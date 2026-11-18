@@ -82,7 +82,7 @@ Host 与浏览器端（侧边栏）通过 DSH 自带 `webServer` 的环回路由
 | `src/dsh/lib/` | Host 逻辑按功能分目录：`service.ts`（组合根）、`server/`（HTTP / 路由 / 快照 / hub / WS）、`quickqa/`（语音问答）、`settings/`、`sessions/`、`account/`、`apps/`、`cache/`、`weather/`、`probe/`（`index` / `daemon` / `adapter`）、`media/`、`notifications/`、`performance/`、`platform/`、`i18n/`、`shared/`（`types` / `util` / `runtime` / `qr`） |
 | `src/svelte/` | 手机端（Svelte 5 + Tailwind v4，`lib/components/` 为页面与卡片） |
 | `src/rust/src/` | 探针：`media/`（catalog + 平台 + vendor）、`perf/`、`notifications/`、`volume/`、`location/` |
-| `test/` | 7 个按功能分组的 Node 集成测试 |
+| `test/` | `dsh/` 下 7 个按功能分组的 Host 集成测试，`svelte/` 下手机端纯函数单元测试 |
 | `static/` | Vite 公共资源（图标、manifest、字体许可） |
 | `docs/` | 英文 README 与截图 |
 
@@ -280,7 +280,7 @@ window.__ModuleLoader__.load({
 ### 其他 Host 服务
 
 - `account/index.ts`：DSH 账户余额与用量，支持「本周 / 最近 7 天」窗口和低余额标记。
-- `weather/index.ts`：系统定位（Windows WinRT / Linux GeoClue2，经探针）→ 时区兜底；自动模式使用系统 API 的坐标，地名按当前提供商决定：系统 API 自带名称优先；选中的是 QWeather 且可用时用 QWeather GeoAPI 反查；选中的是 NMC / Open-Meteo，或 QWeather 未配置 / 额度不足时用原有的 BigDataCloud 免费反向地理接口兜底（不新增天气提供商）；失败显示「当前位置」。提供商按 `nmc` / `open-meteo` / `qweather` 调度，手动位置与自动位置共用一套解析，三个提供商各自保存经纬度 / 站点 / Location ID。QWeather 只走 JWT（API Host + 凭据 ID + 项目 ID + 开发者 ID + Ed25519 私钥，短期 token 自动续签）；每次请求先写入 `cache.json` 的自然月计数并预留调用数，达到上限才切换到 NMC（中国城市）或 Open-Meteo（国外 / NMC 无站点），普通请求失败不切换。开启控制台同步时，在 QWeather 天气查询前读取 `finance/v1/summary` 与 `metrics/v1/stats`，最多每 3 小时一次，并把这次两次控制台请求计入本地月计数；财务汇总的 `availableResourcePlans[].utilized` 只是资源包已用量，免费额度没有自然月接口，因此本月计数以本地累计为准，控制台能返回月用量时作为参考显示，返回不了则在设置页提示。Open-Meteo / QWeather / NMC 的当天空气质量统一归一化为 `airQuality`，没有数据时为 null。
+- `weather/index.ts`：系统定位（Windows WinRT / Linux GeoClue2，经探针）→ 时区兜底；自动模式使用系统 API 的坐标，地名按当前提供商决定：系统 API 自带名称优先；选中的是 QWeather 且可用时用 QWeather GeoAPI 反查；选中的是 NMC / Open-Meteo，或 QWeather 未配置 / 额度不足时用原有的 BigDataCloud 免费反向地理接口兜底（不新增天气提供商）；失败显示「当前位置」（载荷带 `location.nameFallback: true`，手机端与侧边栏据此本地化兜底名，不再比较中文文案）。提供商按 `nmc` / `open-meteo` / `qweather` 调度，手动位置与自动位置共用一套解析，三个提供商各自保存经纬度 / 站点 / Location ID。QWeather 只走 JWT（API Host + 凭据 ID + 项目 ID + 开发者 ID + Ed25519 私钥，短期 token 自动续签）；每次请求先写入 `cache.json` 的自然月计数并预留调用数，达到上限才切换到 NMC（中国城市）或 Open-Meteo（国外 / NMC 无站点），普通请求失败不切换。开启控制台同步时，在 QWeather 天气查询前读取 `finance/v1/summary` 与 `metrics/v1/stats`，最多每 3 小时一次，并把这次两次控制台请求计入本地月计数；财务汇总的 `availableResourcePlans[].utilized` 只是资源包已用量，免费额度没有自然月接口，因此本月计数以本地累计为准，控制台能返回月用量时作为参考显示，返回不了则在设置页提示。Open-Meteo / QWeather / NMC 的当天空气质量统一归一化为 `airQuality`，没有数据时为 null。
 - `weather/open-meteo.ts` / `weather/qweather.ts` / `weather/nmc.ts` / `weather/shared.ts`：三个提供商、公共 HTTP / 天气代码映射 / AQI 归一化；天气载荷与 `WeatherService` 契约统一放在 `shared/types.ts`。NMC 城市目录缓存在 `cache.json`，首次整表抓取后复用 30 天。
 - `cache/index.ts`：通用运行时缓存，文件 `cache.json`；保存 QWeather 自然月调用计数、NMC 城市目录、控制台快照与最近一次反向地理结果；坐标变化小于约 0.01° 且 30 天内复用，桌面侧边栏刷新按钮会清除并重新反查。并保留旧 `notification-cache.json` 的 `apps` 数据用于迁移。
 - `performance/index.ts`：只采用 Rust `performance` 载荷；探针缺失时仅用 `os.cpus()` / `os.totalmem()`。
@@ -302,7 +302,7 @@ window.__ModuleLoader__.load({
 - Vite `root = src/svelte`，`publicDir = static`，`build.outDir = web`，`assetsDir = assets`，`emptyOutDir = true`，`target = es2022`。
 - 技术栈：Svelte 5 runes + Vite 8 + Tailwind CSS v4 + shadcn-svelte（bits-ui）+ Lucide。图标一律使用 Lucide。AI 回答用 `marked` 解析、`DOMPurify` 清洗后以 `{@html}` 渲染，支持标题、列表、代码块、表格与链接。
 - 页面：`HomePage`、`SessionsPage`、`QuickQaPage`、`MusicPage`、`PerformancePage`；导航 `Rail`；业务组件包括时钟、天气、通知、余额、消费、CPU/内存、GPU、温度、计时、会话列表、问询对话框（`QuestionSheet`）、Toast 等。
-- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`quickqa.svelte.ts` 持有快速问答阶段、选区、流式回答与问询浮层，`quickqa-audio.ts` 负责默认麦克风采集、电平、WAV 转换与转写上传；`pomodoro.svelte.ts` / `countdown.svelte.ts` 各自持有计时并共用 `timer-alarm.svelte.ts`（页面标题 / favicon 提示、`tabAlert` 响应式状态，以及循环响铃时的持续振动）；`wake-lock.ts` 按 `settings.tls.advanced.wakeLock` 在 HTTPS 页面申请屏幕唤醒锁，页面隐藏时释放、回到前台重新申请；`billing.svelte.ts` 负责峰谷与节假日；`format.ts` / `weather.ts` / `pages.ts` 为纯工具。
+- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`quickqa.svelte.ts` 持有快速问答阶段、选区、流式回答与问询浮层，`quickqa-audio.ts` 负责默认麦克风采集、电平、WAV 转换与转写上传；`pomodoro.svelte.ts` / `countdown.svelte.ts` 各自持有计时状态机，共用 `timer-engine.ts`（引用计数的区间引擎：首尾页克隆各持一个引用，最后一个释放才停表）与 `timer-alarm.svelte.ts`（页面标题 / favicon 提示、`tabAlert` 响应式状态，以及循环响铃时的持续振动）；`wake-lock.ts` 按 `settings.tls.advanced.wakeLock` 在 HTTPS 页面申请屏幕唤醒锁，页面隐藏时释放、回到前台重新申请；设置归一化在纯函数 `settings-normalize.ts`（导航位置 / 番茄钟 / 倒计时预设），节假日与峰谷在 `billing.svelte.ts`（日历，含网络与缓存），北京时区与价格窗口等纯规则在 `billing.ts`；`format.ts` / `weather.ts` / `pages.ts` 为纯工具。
 - i18n：`applySettings()` 从 `settings.locale` 调 `setLocale()`；所有组件和 `format.ts` / `weather.ts` 通过 `t()` 取文案，日期格式化使用 `localeTag()`，切换语言无需刷新。`zh` 为基准字典。
 - 视觉：`Panel` 包装 shadcn Card 作为统一容器；按钮、Badge、Slider、Dialog、ScrollArea 优先用 `$lib/components/ui`；只在组件原有 class 上覆盖样式，无 hover 过渡 / 缩放。
 - 性能页占用率使用 `RadialGauge` 圆环；右侧温度保留大号最高温度与热区背景列表。
@@ -531,9 +531,10 @@ pnpm shot -- --timer countdown --out .mock-web/countdown.png
 # 快速问答状态：thinking / streaming / question / approval / done / second（第二轮）
 # http://HOST:4173/?page=quickqa&quickqa=done（长回答，用于滚动与底部按钮占位检查）
 
-pnpm check                      # tsc（Host + 浏览器端）+ svelte-check
+pnpm check                      # tsc（Host + 浏览器端 + 单元测试）+ svelte-check
 pnpm build                      # src/dsh + src/svelte
-pnpm test                       # 下面 7 个按功能分组的 Node 测试
+pnpm test                       # test/dsh/ 下 7 个按功能分组的 Host 集成测试
+pnpm test:unit                  # test/svelte/ 下手机端纯函数单元测试（vitest run）
 cargo fmt --manifest-path src/rust/Cargo.toml -- --check
 cargo test --manifest-path src/rust/Cargo.toml
 cargo check --manifest-path src/rust/Cargo.toml --features macos-check
@@ -542,7 +543,9 @@ pnpm build:rust
 
 ### 测试覆盖
 
-一个测试文件对应一类功能，新增断言优先并入已有文件，不要再按单个特性拆新脚本。
+一个测试文件对应一类功能，新增断言优先并入已有文件，不要再按单个特性拆新脚本。测试按运行侧分两个目录：`test/dsh/`（Host 集成测试，`pnpm test`）与 `test/svelte/`（手机端纯函数单元测试，`pnpm test:unit` → `vitest run`，配置在 `vitest.config.ts`：`environment: node`、只扫 `test/svelte/**/*.test.ts`、`$lib` 别名指向 `src/svelte/lib`）。
+
+Host 集成测试（`test/dsh/`）：
 
 - `smoke.mjs`：临时 `DSH_PROFILE_DIR` 启动服务；令牌页面、`/assets/`、图片 CSP、WebSocket welcome/overview、证书域名提取；旧 HTTP overview 路由不存在。
 - `questions.mjs`：推送问询开关、远程回答往返、关闭后剥离与拒绝。
@@ -551,6 +554,14 @@ pnpm build:rust
 - `media.mjs`：进度平滑与 seek 规则；探针缺失显式报错；真实 daemon 的并发、重启、禁用与平台能力。探针路径缓存在同一进程内切换时用 `resetProbeCache()`（测试专用）。
 - `notifications.mjs`：通知字段归一化与数量限制、应用名称推导与旧缓存迁移、Linux 流式监视。
 - `weather.mjs`：v1 → v2 天气设置迁移、按提供商分开的 locations、QWeather 凭据与刷新间隔下限、`cache.json` 迁移 / 月调用计数 / NMC 城市缓存、JWT 结构与 Ed25519 签名校验、密钥对生成、天气代码 / AQI 归一化、NMC 城市匹配。
+
+手机端单元测试（`test/svelte/`，只测无 runes、无 DOM 的纯函数，导入源码时写 `.ts` 后缀）：
+
+- `session-tree.test.ts`：父子分组、孤儿 / 自指 / 环路兜底、按状态与活跃时间排序、缺 id 时的位置兜底。
+- `pages.test.ts`：页面顺序归一化（未知值、去重、补全、上限）与启用过滤（全关时回退首页）。
+- `media.test.ts`：播放状态判定、可 seek 条件、时长 / seek 上限的钳制、音量钳制。
+- `billing.test.ts`：北京时区取时、跨日 / 跨年、峰谷窗口边界、周末与节假日。
+- `settings-normalize.test.ts`：导航位置白名单、番茄钟两位小数与上下限、倒计时预设数量 / 四舍五入 / 钳制 / 回退。
 
 ### 文档截图
 
@@ -585,7 +596,7 @@ pnpm build:rust
 
 - 固定 Node `26.7.0`、pnpm `12.8.1`、Rust `1.99.1`（含 rustfmt）；
 - 缓存 cargo registry（key 为 `src/rust/Cargo.lock` 哈希）；
-- 步骤：`pnpm ci` → `pnpm check` → `pnpm build` → `pnpm test` → `node scripts/build-rust.mjs` → `cargo fmt --all -- --check` → `cargo check --all-targets` → `cargo test --all-targets`；
+- 步骤：`pnpm ci` → `pnpm check` → `pnpm build` → `pnpm test` → `pnpm test:unit` → `node scripts/build-rust.mjs` → `cargo fmt --all -- --check` → `cargo check --all-targets` → `cargo test --all-targets`；
 - `push` 只监听分支（`branches: ['**']`）；标签由发布流程负责，避免同一个标签把门禁跑两遍；
 - Windows / macOS 行为仍以本地验证为准；macOS 已在 macOS 26 上进行初步测试，目前没有 CI。
 
@@ -623,7 +634,7 @@ npm publish --access public --tag bootstrap
 - 改设置字段时同时更新：`settings/index.ts` 的 normalize / default、`src/dsh/client` 的编辑 / 保存、`README.md` 菜单说明；保持旧 `settings.json` 可迁移。
 - 新增或修改用户可见文案时，同时更新三份扁平字典；不要写死中文。
 - 改协议消息时同时更新 `server/hub.ts`、`server/remote.ts`、`src/svelte/lib/ws.ts`、`src/svelte/lib/state.svelte.ts` 和本文件的 WebSocket 表。
-- 提交前至少跑：`pnpm check`、`pnpm build`、`pnpm test`；改 Rust 再跑 `cargo fmt --check`、`cargo test`。
+- 提交前至少跑：`pnpm check`、`pnpm build`、`pnpm test`、`pnpm test:unit`；改 Rust 再跑 `cargo fmt --check`、`cargo test`。
 
 ## 许可证
 

@@ -41,6 +41,7 @@
   let jumpTimer: ReturnType<typeof setTimeout> | null = null;
   let suppressScrollUntil = 0;
   let appliedOrderSignature = '';
+  let pagerInitialized = false;
   let revisionSeen = 0;
   let scrollFrame = 0;
 
@@ -79,8 +80,16 @@
     scrollToKey(key, smooth);
   }
 
+  /** First-frame placement: pick the page, remember the applied order, scroll. */
+  function initPager(): void {
+    const initial = app.initialKey && order.includes(app.initialKey) ? app.initialKey : order[0];
+    app.activeKey = initial;
+    appliedOrderSignature = order.join('|');
+    pagerInitialized = true;
+    void tick().then(() => scrollToKey(initial, false));
+  }
+
   function applyPageOrder(): void {
-    if (revisionSeen === 0) return;
     const signature = order.join('|');
     const same = signature === appliedOrderSignature;
     const previousKey = app.activeKey;
@@ -96,9 +105,12 @@
     }
   }
 
+  // `initPager()` owns first-frame placement; this effect only reconciles later
+  // order changes. The two must stay in sync — running the effect before the
+  // initial placement would leave `appliedOrderSignature` meaningless.
   $effect(() => {
     const revision = app.pageRevision;
-    if (revision === revisionSeen) return;
+    if (!pagerInitialized || revision === revisionSeen) return;
     revisionSeen = revision;
     applyPageOrder();
   });
@@ -213,10 +225,7 @@
 
   onMount(() => {
     const stopTicks = startTicks();
-    const initial = app.initialKey && order.includes(app.initialKey) ? app.initialKey : order[0];
-    app.activeKey = initial;
-    appliedOrderSignature = order.join('|');
-    void tick().then(() => scrollToKey(initial, false));
+    initPager();
     startLive();
     exposeState();
     restoreUrl();
@@ -257,7 +266,6 @@
     {#each displayPages as item (item.uid)}
       <section
         class="page page-{item.key}"
-        class:page-clone={item.clone !== null}
         data-page-key={item.clone ? (item.clone === 'first' ? '__first-clone' : '__last-clone') : item.key}
         data-source-key={item.clone ? item.key : undefined}
         aria-label={pageLabel(item.key)}

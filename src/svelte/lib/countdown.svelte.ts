@@ -8,6 +8,8 @@ import {
   stopAlarmSound,
 } from './timer-alarm.svelte';
 import { app } from './state.svelte';
+import { COUNTDOWN_MAX_SECONDS } from './settings-normalize';
+import { createTimerEngine } from './timer-engine';
 import type { CountdownSettings } from './types';
 
 /**
@@ -18,8 +20,6 @@ import type { CountdownSettings } from './types';
  * pages never loses time. There is no loop option: once the time is up the
  * alarm keeps ringing until the console user confirms it.
  */
-
-export const COUNTDOWN_MAX_SECONDS = 86_400;
 
 export interface CountdownRuntime {
   /** Index into the configured preset list. */
@@ -44,8 +44,6 @@ export const countdown = $state<CountdownRuntime>({
   alarmActive: false,
 });
 
-let refs = 0;
-let timer: ReturnType<typeof setInterval> | null = null;
 let presetSignature = '';
 
 function settings(): CountdownSettings {
@@ -122,22 +120,6 @@ function startEngine(): void {
     countdown.durationMs = presetDurationMs();
     countdown.remainingMs = countdown.durationMs;
   }
-  if (timer) return;
-  timer = setInterval(tick, 250);
-  document.addEventListener('visibilitychange', handleVisibility);
-  (window as unknown as { __DSH_COUNTDOWN__?: CountdownRuntime }).__DSH_COUNTDOWN__ = countdown;
-}
-
-function stopEngine(): void {
-  if (timer) clearInterval(timer);
-  timer = null;
-  document.removeEventListener('visibilitychange', handleVisibility);
-  cancelScheduledAlarm();
-  resetRuntime();
-}
-
-function handleVisibility(): void {
-  if (!document.hidden) tick();
 }
 
 function tick(): void {
@@ -156,17 +138,19 @@ function tick(): void {
   countdown.remainingMs = remaining;
 }
 
+const engine = createTimerEngine({
+  tickMs: 250,
+  onStart: startEngine,
+  onTick: tick,
+  onStop() {
+    cancelScheduledAlarm();
+    resetRuntime();
+  },
+});
+
 /** Reference-counted lifecycle; the card (and its clone) both acquire it. */
 export function acquireCountdown(): () => void {
-  refs += 1;
-  if (refs === 1) startEngine();
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    refs = Math.max(0, refs - 1);
-    if (refs === 0) stopEngine();
-  };
+  return engine.acquire();
 }
 
 /** Quick-select one preset while the timer is idle or paused. */

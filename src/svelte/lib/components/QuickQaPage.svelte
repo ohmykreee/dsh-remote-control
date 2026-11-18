@@ -48,6 +48,8 @@
   let permissionBusy = $state(false);
 
   let captureHandle: QuickQaCapture | null = null;
+  /** Set on teardown: no async continuation may touch the UI or send a prompt. */
+  let disposed = false;
   let holding = false;
   let releasePending = false;
   let pointerId: number | null = null;
@@ -79,6 +81,7 @@
   });
 
   onDestroy(() => {
+    disposed = true;
     cancelAnimationFrame(scrollFrame);
     void cancelCapture(false);
   });
@@ -239,6 +242,7 @@
       unbindWindow();
       stopFrame();
       settlePhase();
+      if (disposed) return;
       standbyHint = 'noMic';
       const message = error instanceof Error ? error.message : String(error);
       toast(
@@ -281,6 +285,10 @@
   }
 
   async function finishCapture(handle: QuickQaCapture): Promise<void> {
+    if (disposed) {
+      await handle.cancel();
+      return;
+    }
     const durationMs = performance.now() - startedAt;
     if (durationMs < 700 || maxLevel < 0.02 || voicedMs < 260) {
       await handle.cancel();
@@ -294,6 +302,9 @@
       const recording = await handle.stop();
       const wav = await recordingToWav(recording.blob);
       const text = await transcribeQuickQaWav(wav);
+      // The page can be closed while the upload is in flight; sending the
+      // question then would create a DSH session the user never asked for.
+      if (disposed) return;
       if (!text) {
         settlePhase();
         toast(t('quickQaEmptyText'));
@@ -303,6 +314,7 @@
       if (!quickQaAsk(text)) settlePhase();
     } catch (error) {
       settlePhase();
+      if (disposed) return;
       const message = error instanceof Error ? error.message : String(error);
       toast(
         message === 'voice-input-not-ready' || message === 'voice-input-unavailable'

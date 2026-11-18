@@ -3,7 +3,8 @@
  *
  * The console decides this in the browser: weekdays in 09:00–12:00 and
  * 14:00–18:00 Beijing time are peak; everything else — including weekends and
- * statutory holidays all day — is off-peak.
+ * statutory holidays all day — is off-peak. The clock rules themselves live in
+ * the pure `billing.ts`; this module only owns the holiday calendar.
  *
  * Holiday dates come exclusively from the timor.tech API, fetched by this
  * browser. There is deliberately no local holiday calendar: holiday policy can
@@ -11,9 +12,12 @@
  * still follows the time/weekend rules, using only cached API data if present.
  */
 
-export type TariffPeriod = 'peak' | 'offpeak';
+import { beijingDateKey, beijingYear, tariffPeriodFor } from './billing';
+import type { TariffPeriod } from './billing';
 
-const BEIJING_TIME_ZONE = 'Asia/Shanghai';
+export type { BeijingParts, TariffPeriod } from './billing';
+export { beijingDateKey, beijingParts, beijingYear, tariffPeriodFor } from './billing';
+
 const HOLIDAY_API = 'https://timor.tech/api/holiday/year';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const RETRY_MS = 10 * 60 * 1000;
@@ -34,57 +38,8 @@ export const holidayState = $state<HolidayState>({
   version: 0,
 });
 
-interface BeijingParts {
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-  weekday: number;
-}
-
-let dateTimeFormatter: Intl.DateTimeFormat | null = null;
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function getFormatter(): Intl.DateTimeFormat {
-  dateTimeFormatter ??= new Intl.DateTimeFormat('en-US', {
-    timeZone: BEIJING_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    weekday: 'short',
-    hourCycle: 'h23',
-  });
-  return dateTimeFormatter;
-}
-
-const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-
-export function beijingParts(now: Date = new Date()): BeijingParts {
-  const parts = getFormatter().formatToParts(now);
-  const get = (type: Intl.DateTimeFormatPartTypes): string => parts.find((part) => part.type === type)?.value || '';
-  return {
-    year: Number(get('year')),
-    month: Number(get('month')),
-    day: Number(get('day')),
-    hour: Number(get('hour')),
-    minute: Number(get('minute')),
-    weekday: WEEKDAY_INDEX[get('weekday')] ?? 0,
-  };
-}
-
-export function beijingDateKey(now: Date = new Date()): string {
-  const parts = beijingParts(now);
-  return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
-}
-
-export function beijingYear(now: Date = new Date()): number {
-  return beijingParts(now).year;
 }
 
 /** Only API-provided holiday data is authoritative; unknown days are not holidays. */
@@ -97,11 +52,7 @@ export function isStatutoryHoliday(now: Date = new Date()): boolean {
 
 /** Peak only on a non-holiday weekday inside the two Beijing price windows. */
 export function tariffPeriod(now: Date = new Date()): TariffPeriod {
-  const parts = beijingParts(now);
-  if (parts.weekday === 0 || parts.weekday === 6) return 'offpeak';
-  if (isStatutoryHoliday(now)) return 'offpeak';
-  const minutes = parts.hour * 60 + parts.minute;
-  return (minutes >= 9 * 60 && minutes < 12 * 60) || (minutes >= 14 * 60 && minutes < 18 * 60) ? 'peak' : 'offpeak';
+  return tariffPeriodFor(now, isStatutoryHoliday(now));
 }
 
 function storageKey(year: number): string {
@@ -214,15 +165,4 @@ export function ensureHolidayYear(year: number): Promise<void> {
   })();
   inflight.set(year, task);
   return task;
-}
-
-if (typeof window !== 'undefined') {
-  (window as unknown as { __DSH_BILLING__?: unknown }).__DSH_BILLING__ = {
-    beijingDateKey,
-    beijingParts,
-    ensureHolidayYear,
-    holidayState,
-    isStatutoryHoliday,
-    tariffPeriod,
-  };
 }
