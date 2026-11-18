@@ -18,6 +18,7 @@ export const THEME_URL = '/dsh-remote-control/api/theme';
 export const LOCALE_URL = '/dsh-remote-control/api/locale';
 export const TOKEN_URL = '/dsh-remote-control/api/token/rotate';
 export const DISCONNECT_URL = '/dsh-remote-control/api/disconnect';
+export const QUICKQA_OPTIONS_URL = '/dsh-remote-control/api/quickqa';
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

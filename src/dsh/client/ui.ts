@@ -53,6 +53,20 @@ export interface TextAreaProps {
   mono?: boolean;
 }
 
+export interface SelectOption {
+  value: string;
+  label: string;
+  disabled?: boolean;
+}
+
+export interface SelectProps {
+  label: string;
+  value: string;
+  options: SelectOption[];
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}
+
 export interface RowProps {
   title: string;
   description?: string;
@@ -129,8 +143,23 @@ export function TextArea({ label, value, onChange, placeholder, rows = 4, disabl
   );
 }
 
-export function Row({ title, description, children }: RowProps): React.ReactElement {
-  return h('div', { className: 'drc-row' },
+export function Select({ label, value, options, onChange, disabled = false }: SelectProps): React.ReactElement {
+  const known = options.some((option) => option.value === value);
+  return h('label', { className: 'drc-field' },
+    h('span', null, label),
+    h('select', {
+      value: known ? value : '',
+      disabled,
+      onChange: (event: React.ChangeEvent<HTMLSelectElement>) => onChange(event.target.value),
+    }, options.map((option) => h('option', {
+      key: option.value,
+      value: option.value,
+      disabled: option.disabled || undefined,
+    }, option.label))),
+  );
+}
+
+export function Row({ title, description, children }: RowProps): React.ReactElement {  return h('div', { className: 'drc-row' },
     h('div', { className: 'drc-row-main' },
       h('div', { className: 'drc-row-title' }, title),
       description ? h('div', { className: 'drc-row-desc' }, description) : null,

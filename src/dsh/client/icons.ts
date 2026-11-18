@@ -43,6 +43,7 @@ export const MENU_ICONS: Record<string, string> = {
   bell: '<path d="M6 10a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6ZM10 20h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
   apps: '<rect x="3.5" y="3.5" width="7.2" height="7.2" rx="1.8" stroke="currentColor" stroke-width="1.7"/><rect x="13.3" y="3.5" width="7.2" height="7.2" rx="1.8" stroke="currentColor" stroke-width="1.7"/><rect x="3.5" y="13.3" width="7.2" height="7.2" rx="1.8" stroke="currentColor" stroke-width="1.7"/><rect x="13.3" y="13.3" width="7.2" height="7.2" rx="1.8" stroke="currentColor" stroke-width="1.7"/>',
   timer: '<circle cx="12" cy="13.5" r="7" stroke="currentColor" stroke-width="1.7"/><path d="M12 9.5v4l2.8 1.7M9 2.8h6M12 2.8v2.2M18.8 6.2l1.5-1.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
+  mic: '<rect x="9" y="2.8" width="6" height="11.4" rx="3" stroke="currentColor" stroke-width="1.7"/><path d="M5 11.2a7 7 0 0 0 14 0M12 18.2v3M8.5 21.2h7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
   info: '<circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><path d="M12 11v6M12 7.2v.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
 };
 

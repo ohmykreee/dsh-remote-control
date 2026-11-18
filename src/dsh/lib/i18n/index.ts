@@ -13,7 +13,7 @@
  * (session fallbacks, answer validation, the pre-app pairing page).
  */
 
-import type { PluginLocale } from './settings.js';
+import type { PluginLocale } from '../settings/index.js';
 
 export const zh = {
   answerWaiting: '正在等待你的回答',
@@ -37,6 +37,19 @@ export const zh = {
   turnBlocked: '本轮被阻止',
   pairingTitle: '需要配对',
   pairingBody: '请从 DSH 侧边栏的远程控制台重新扫码。',
+  quickqaEmptyText: '没有识别到可用的文字',
+  quickqaVoiceNotReady: 'DSH 语音输入未就绪，请先启用插件并准备好语音模型',
+  quickqaBusy: '上一个问题还在回答中',
+  quickqaUnknownSession: '这个会话已失效，请重新开始',
+  quickqaUnsupported: '当前 DSH 不支持快速问答',
+  quickqaFollowUnsupported: '当前 DSH 不支持持续接收回答',
+  quickqaCreateFailed: '无法创建会话：{error}',
+  quickqaPromptFailed: '无法发送给模型',
+  quickqaRunFailed: '回答过程中出错',
+  quickqaTurnStopped: '本轮回答已停止',
+  quickqaTranscribeFailed: '语音转写失败',
+  quickqaTranscribeEmpty: '没有识别到语音内容',
+  quickqaTranscribeTooLarge: '录音太长了，请缩短后重试',
 } as const;
 
 export type HostMessageKey = keyof typeof zh;
@@ -63,6 +76,19 @@ export const en: Record<HostMessageKey, string> = {
   turnBlocked: 'This turn was blocked',
   pairingTitle: 'Pairing required',
   pairingBody: 'Scan the QR code again from the Remote control panel in the DSH sidebar.',
+  quickqaEmptyText: 'No usable text was recognized',
+  quickqaVoiceNotReady: 'DSH voice input is not ready. Enable the plugin and prepare its speech model first.',
+  quickqaBusy: 'The previous question is still being answered',
+  quickqaUnknownSession: 'This conversation has expired. Start a new one.',
+  quickqaUnsupported: 'Quick Q&A is not available in this DSH build',
+  quickqaFollowUnsupported: 'Streaming answers are not available in this DSH build',
+  quickqaCreateFailed: 'Could not create a conversation: {error}',
+  quickqaPromptFailed: 'Could not send the question to the model',
+  quickqaRunFailed: 'The answer failed',
+  quickqaTurnStopped: 'This answer was stopped',
+  quickqaTranscribeFailed: 'Speech transcription failed',
+  quickqaTranscribeEmpty: 'No speech was recognized',
+  quickqaTranscribeTooLarge: 'The recording is too long; shorten it and try again',
 };
 
 /** Every shipped dictionary, keyed by locale code. */

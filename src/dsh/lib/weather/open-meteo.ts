@@ -6,10 +6,10 @@ import type {
   GeocodePlace,
   ProviderLocation,
   WeatherPayload,
-} from '../types.js';
-import { isRecord } from '../types.js';
-import type { JsonRecord } from '../types.js';
-import { finiteNumber, safeString } from '../util.js';
+} from '../shared/types.js';
+import { isRecord } from '../shared/types.js';
+import type { JsonRecord } from '../shared/types.js';
+import { finiteNumber, safeString } from '../shared/util.js';
 
 const HAN_CITY_NAME = /^[\u4e00-\u9fff]{2,}$/u;
 

@@ -8,10 +8,10 @@
  * the full directory.
  */
 
-import { NMC_CITY_TTL_MS, type NmcCity, type PluginCacheStore } from '../cache.js';
-import { isRecord } from '../types.js';
-import type { JsonRecord } from '../types.js';
-import { safeString } from '../util.js';
+import { NMC_CITY_TTL_MS, type NmcCity, type PluginCacheStore } from '../cache/index.js';
+import { isRecord } from '../shared/types.js';
+import type { JsonRecord } from '../shared/types.js';
+import { safeString } from '../shared/util.js';
 import {
   arrayOf,
   errorDetail,
@@ -26,7 +26,7 @@ import type {
   GeocodePlace,
   ProviderLocation,
   WeatherPayload,
-} from '../types.js';
+} from '../shared/types.js';
 
 const NMC_BASE = 'https://www.nmc.cn/rest';
 const NMC_HEADERS = {

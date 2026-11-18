@@ -10,10 +10,10 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import * as readline from 'node:readline';
-import { probeInfo, runProbe } from './probe.js';
-import { isRecord } from './types.js';
-import type { JsonRecord, NotificationApp, NotificationItem, NotificationPayload } from './types.js';
-import { finiteNumber, safeString, serializeError } from './util.js';
+import { probeInfo, runProbe } from '../probe/index.js';
+import { isRecord } from '../shared/types.js';
+import type { JsonRecord, NotificationApp, NotificationItem, NotificationPayload } from '../shared/types.js';
+import { finiteNumber, safeString, serializeError } from '../shared/util.js';
 
 const POLL_TTL_MS = 2500;
 const ERROR_TTL_MS = 6000;

@@ -1,9 +1,9 @@
 /** Shared helpers for the weather providers: HTTP, condition codes, AQI. */
 
-import { isRecord } from '../types.js';
-import type { JsonRecord } from '../types.js';
-import { safeString, serializeError } from '../util.js';
-import type { AirQuality } from '../types.js';
+import { isRecord } from '../shared/types.js';
+import type { JsonRecord } from '../shared/types.js';
+import { safeString, serializeError } from '../shared/util.js';
+import type { AirQuality } from '../shared/types.js';
 
 export const WEATHER_USER_AGENT = 'dsh-remote-control/1.0 (+local smart display)';
 

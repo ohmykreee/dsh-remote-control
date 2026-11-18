@@ -8,8 +8,8 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createRemoteControlService } from './lib/service.js';
-import { shutdownProbeDaemon } from './lib/probe.js';
-import type { DshContext, DshLogger } from './lib/types.js';
+import { shutdownProbeDaemon } from './lib/probe/index.js';
+import type { DshContext, DshLogger } from './lib/shared/types.js';
 import {
   APP_NAMES_PATH,
   DISCONNECT_PATH,
@@ -22,11 +22,12 @@ import {
   QWEATHER_JWT_PATH,
   QWEATHER_KEYPAIR_PATH,
   QWEATHER_SYNC_PATH,
+  QUICKQA_OPTIONS_PATH,
   WEATHER_REFRESH_PATH,
   SETTINGS_PATH,
   THEME_PATH,
   TOKEN_ROTATE_PATH,
-} from './lib/util.js';
+} from './lib/shared/util.js';
 
 export const inject: string[] = ['webServer'];
 
@@ -98,6 +99,7 @@ export async function apply(ctx: DshContext): Promise<void> {
       [LOCALE_PATH, (req, res) => service.handleLocale(req, res), 'locale sync'],
       [TOKEN_ROTATE_PATH, (req, res) => service.handleTokenRotate(req, res), 'token rotation'],
       [DISCONNECT_PATH, (req, res) => service.handleDisconnect(req, res), 'device disconnect'],
+      [QUICKQA_OPTIONS_PATH, (req, res) => service.handleQuickQaOptions(req, res), 'Quick Q&A options'],
     ];
     for (const [routePath, handler, label] of routes) {
       ctx.effect?.(

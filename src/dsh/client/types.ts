@@ -144,6 +144,100 @@ export interface CountdownSettings {
   presets?: number[];
 }
 
+export interface QuickQaModelSelection {
+  provider?: string;
+  model?: string;
+  reasoningEffort?: string;
+}
+
+export interface QuickQaWorkspaceProfile {
+  agentPreset?: string;
+  permissionPreset?: string;
+}
+
+export interface QuickQaSettings {
+  model?: QuickQaModelSelection;
+  defaultWorkspaceId?: string;
+  pinnedWorkspaceIds?: string[];
+  profiles?: Record<string, QuickQaWorkspaceProfile>;
+}
+
+export interface QuickQaReasoningEffort {
+  id: string;
+  name: string;
+}
+
+export interface QuickQaModelOption {
+  id: string;
+  name: string;
+  description?: string;
+  reasoning: {
+    efforts: QuickQaReasoningEffort[];
+    defaultEffort?: string;
+  } | null;
+}
+
+export interface QuickQaModelGroup {
+  id: string;
+  name: string;
+  models: QuickQaModelOption[];
+}
+
+export interface QuickQaModelCatalog {
+  default?: QuickQaModelSelection;
+  groups?: QuickQaModelGroup[];
+  failures?: Array<{ id: string; name: string; message: string }>;
+}
+
+export interface QuickQaWorkspaceOption {
+  id: string;
+  title: string;
+  path: string;
+}
+
+export interface QuickQaModeOption {
+  id: string;
+  name: string;
+  description?: string;
+  broken?: string;
+}
+
+export interface QuickQaPermissionOption {
+  value: string;
+  name: string;
+  description?: string;
+}
+
+/** Live catalogs used by the Quick Q&A settings section. */
+export interface QuickQaOptionsPayload {
+  ok?: boolean;
+  voice?: {
+    ready?: boolean;
+    providerName?: string;
+    language?: string;
+  };
+  model?: QuickQaModelCatalog;
+  workspaces?: QuickQaWorkspaceOption[];
+  modes?: QuickQaModeOption[];
+  permissions?: {
+    options?: QuickQaPermissionOption[];
+    defaultPreset?: string;
+  };
+  settings?: QuickQaSettings;
+  pushQuestions?: boolean;
+  errors?: string[];
+  updatedAt?: number;
+}
+
+/** Quick Q&A settings exposed to the phone console. */
+export interface RemoteQuickQaSettings {
+  voiceReady?: boolean;
+  defaultWorkspaceId?: string;
+  defaultWorkspaceTitle?: string;
+  pinned?: Array<{ id: string; title: string; path: string }>;
+  pushQuestions?: boolean;
+}
+
 /** Settings object from `/api/settings`; every section is optional on the wire. */
 export interface RemoteSettings {
   tokenEnabled: boolean;
@@ -157,6 +251,7 @@ export interface RemoteSettings {
   navPosition?: string;
   pomodoro?: PomodoroSettings;
   countdown?: CountdownSettings;
+  quickqa?: QuickQaSettings;
   pageOrder?: string[];
   pageEnabled?: Record<string, boolean>;
   weather?: WeatherSettings;
@@ -317,6 +412,7 @@ export interface StagedSettings {
   navPosition?: string;
   pomodoro?: PomodoroSettings;
   countdown?: CountdownSettings;
+  quickqa?: QuickQaSettings;
   pageOrder?: string[];
   pageEnabled?: Record<string, boolean>;
   tls?: TlsSettings;
@@ -335,6 +431,7 @@ export interface SavePatch {
   navPosition: string;
   pomodoro: { enabled: boolean; focusMinutes: number; breakMinutes: number; soundPath: string; loopAlarm: boolean };
   countdown: { enabled: boolean; presets: number[] };
+  quickqa: QuickQaSettings;
   pageOrder: string[];
   pageEnabled?: Record<string, boolean>;
   tls: {
@@ -422,6 +519,9 @@ export interface PanelApi {
   copied: boolean;
   order: string[];
   labels: Record<string, string>;
+  quickQaOptions: QuickQaOptionsPayload | null;
+  quickQaBusy: boolean;
+  refreshQuickQaOptions: (force?: boolean) => Promise<void>;
   draggingKey: string | null;
   dragIndex: number | null;
   selectedInterfaces: string[];

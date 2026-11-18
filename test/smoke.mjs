@@ -152,8 +152,14 @@ assert.equal(overview.data.settings.temperatureUnit, 'celsius');
 assert.equal(overview.data.sessions.length, 0);
 assert.equal(overview.data.account.signedIn, false);
 assert.ok(overview.data.weather);
-assert.deepEqual(overview.data.settings.pageOrder, ['home', 'sessions', 'music', 'performance']);
-assert.deepEqual(overview.data.settings.pageEnabled, { home: true, sessions: true, music: true, performance: true });
+assert.deepEqual(overview.data.settings.pageOrder, ['home', 'sessions', 'quickqa', 'music', 'performance']);
+assert.deepEqual(overview.data.settings.pageEnabled, {
+  home: true,
+  sessions: true,
+  quickqa: true,
+  music: true,
+  performance: true,
+});
 
 const changedUnit = service.settingsStore.update({ temperatureUnit: 'fahrenheit' });
 assert.equal(changedUnit.temperatureUnit, 'fahrenheit');

@@ -15,7 +15,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { isRecord } from './types.js';
+import { isRecord } from '../shared/types.js';
 
 /** Where an application id was observed. */
 export type AppSource = 'notification' | 'music';

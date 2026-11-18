@@ -12,6 +12,7 @@
   import MusicPage from './lib/components/MusicPage.svelte';
   import PerformancePage from './lib/components/PerformancePage.svelte';
   import QuestionSheet from './lib/components/QuestionSheet.svelte';
+  import QuickQaPage from './lib/components/QuickQaPage.svelte';
   import Rail from './lib/components/Rail.svelte';
   import SessionsPage from './lib/components/SessionsPage.svelte';
   import Toast from './lib/components/Toast.svelte';
@@ -266,6 +267,8 @@
           <HomePage />
         {:else if item.key === 'sessions'}
           <SessionsPage />
+        {:else if item.key === 'quickqa'}
+          <QuickQaPage />
         {:else if item.key === 'music'}
           <MusicPage />
         {:else if item.key === 'performance'}

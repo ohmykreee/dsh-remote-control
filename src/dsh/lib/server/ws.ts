@@ -10,8 +10,8 @@ import type {
   WebSocketClientInfo,
   WebSocketHub,
   WebSocketHubOptions,
-} from './types.js';
-import { isRecord } from './types.js';
+} from '../shared/types.js';
+import { isRecord } from '../shared/types.js';
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const MAX_MESSAGE_BYTES = 256 * 1024;

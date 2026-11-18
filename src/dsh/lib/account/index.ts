@@ -1,7 +1,7 @@
 /** Balance and Platform usage (today / current week) for the active DSH account. */
 
-import { isRecord } from './types.js';
-import type { DshContext, JsonRecord } from './types.js';
+import { isRecord } from '../shared/types.js';
+import type { DshContext, JsonRecord } from '../shared/types.js';
 import {
   finiteNumber,
   localTimezoneOffsetSeconds,
@@ -9,7 +9,7 @@ import {
   startOfLocalDay,
   startOfLocalWeek,
   VERSION,
-} from './util.js';
+} from '../shared/util.js';
 
 const BALANCE_TTL_MS = 60_000;
 const BALANCE_ERROR_TTL_MS = 20_000;

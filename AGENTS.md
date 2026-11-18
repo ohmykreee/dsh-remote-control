@@ -57,8 +57,10 @@ DSH Desktop / dsh web
 └─ profile bundle: dsh-remote-control
    ├─ index.js（Host 入口，inject webServer）
    │  ├─ lib/service.js ── LAN HTTP + WebSocket :38765 ── web/（手机 Svelte）
-   │  ├─ lib/settings.js ── DSH_HOME（或 DSH_PROFILE_DIR）/remote-control/settings.json
-   │  └─ lib/probe.js ── child_process ── native/bin/<platform>-<arch>/dsh-probe
+   │  ├─ lib/server/remote.js ── 鉴权 / 静态资源 / /api/quickqa/transcribe
+   │  ├─ lib/quickqa/index.js ── 语音转写 → DSH 会话 / 模型 / 提问
+   │  ├─ lib/settings/index.js ── DSH_HOME（或 DSH_PROFILE_DIR）/remote-control/settings.json
+   │  └─ lib/probe/index.js ── child_process ── native/bin/<platform>-<arch>/dsh-probe
    └─ client.js（DSH 侧边栏 React 页面）── /dsh-remote-control/api/*
 ```
 
@@ -76,11 +78,11 @@ Host 与浏览器端（侧边栏）通过 DSH 自带 `webServer` 的环回路由
 | `scripts/mock-preview.py` / `browser-shot.mjs` | 本地演示页与无头验证 |
 | `scripts/screenshot-device.sh` / `screenshot-compose.py` | 实机整屏采集与对角/分组合成 |
 | `src/dsh/index.ts` | Host 入口（`inject` / `apply`） |
-| `src/dsh/client/` | 侧边栏（React，`sections/` 为八个设置节，`types.ts` 为线格式） |
-| `src/dsh/lib/` | Host 逻辑：`service` `settings` `sessions` `account` `weather.ts` + `weather/`（`open-meteo` / `qweather` / `nmc` / `shared`）`types` `cache` `media-enrich` `probe*` `notifications` `app-mapping` `i18n` |
+| `src/dsh/client/` | 侧边栏（React，`sections/` 为九个设置节，`types.ts` 为线格式） |
+| `src/dsh/lib/` | Host 逻辑按功能分目录：`service.ts`（组合根）、`server/`（HTTP / 路由 / 快照 / hub / WS）、`quickqa/`（语音问答）、`settings/`、`sessions/`、`account/`、`apps/`、`cache/`、`weather/`、`probe/`（`index` / `daemon` / `adapter`）、`media/`、`notifications/`、`performance/`、`platform/`、`i18n/`、`shared/`（`types` / `util` / `runtime` / `qr`） |
 | `src/svelte/` | 手机端（Svelte 5 + Tailwind v4，`lib/components/` 为页面与卡片） |
 | `src/rust/src/` | 探针：`media/`（catalog + 平台 + vendor）、`perf/`、`notifications/`、`volume/`、`location/` |
-| `test/` | 6 个按功能分组的 Node 集成测试 |
+| `test/` | 7 个按功能分组的 Node 集成测试 |
 | `static/` | Vite 公共资源（图标、manifest、字体许可） |
 | `docs/` | 英文 README 与截图 |
 
@@ -137,7 +139,8 @@ Host 与浏览器端（侧边栏）通过 DSH 自带 `webServer` 的环回路由
 | GET | `/dsh-remote-control/api/info` | 服务状态、地址、二维码路径、能力 |
 | GET/HEAD | `/dsh-remote-control/qr.svg` | 配对二维码（SVG） |
 | GET | `/dsh-remote-control/api/settings` | 设置 + 网卡 + 应用映射 + 诊断 + 能力 |
-| POST | `/dsh-remote-control/api/settings` | 批量应用设置 |
+| POST | `/dsh-remote-control/api/settings` | 批量应用设置（语音输入未就绪时丢弃 `quickqa` 部分） |
+| GET/POST | `/dsh-remote-control/api/quickqa` | 快速问答实时目录：语音输入就绪状态、模型与思考强度、工作区、模式、权限行为（`?refresh=1` 绕过缓存） |
 | POST | `/dsh-remote-control/api/apps` | 应用改名 / 恢复默认 |
 | POST | `/dsh-remote-control/api/location` | 调探针 `location request`，成功则清定位缓存 |
 | GET/POST | `/dsh-remote-control/api/geocode` | 城市检索；GET 使用已保存的提供商，POST 携带当前编辑中的 provider / 和风天气凭据 |
@@ -170,7 +173,7 @@ window.__ModuleLoader__.load({
 ### 本地化
 
 - 插件元信息：`locale/en.json`、`locale/zh.json`，由 `@deepseek-ai/dsh-client-locale` 注入。
-- 三份运行时字典结构一致（每种语言一个扁平 `key -> 文案` 对象 + `DICTS`）：`src/dsh/client/i18n.ts`（侧边栏，`en` 必须覆盖 `zh`）、`src/dsh/lib/i18n.ts`（Host 发给手机端的文案）、`src/svelte/lib/i18n.svelte.ts`（手机端，`en` 用 `Record<keyof typeof zh, string>` 声明，漏译是编译错误）。
+- 三份运行时字典结构一致（每种语言一个扁平 `key -> 文案` 对象 + `DICTS`）：`src/dsh/client/i18n.ts`（侧边栏，`en` 必须覆盖 `zh`）、`src/dsh/lib/i18n/index.ts`（Host 发给手机端的文案）、`src/svelte/lib/i18n.svelte.ts`（手机端，`en` 用 `Record<keyof typeof zh, string>` 声明，漏译是编译错误）。
 - `settings.language` 为 `dsh` / `zh` / `en`，默认 `dsh`。`dsh` 精确匹配 DSH 当前 locale id（`zh`、`en`），未命中（如 `ja`、`zh-CN`）回退英语；`resolveLocale()` 在 Host 与面板各有一份同规则实现。
 - 侧边栏 `apply()` 订阅 `ctx.locale` 并 `POST /api/locale` 写入 `settings.dshLocale`；Host 的 `public()` 输出解析后的 `settings.locale`，随 `welcome` / `overview` / `settings` 推给手机端。
 - 侧边栏用 `useTranslator()` 渲染；手机端 `applySettings()` 调 `setLocale(settings.locale)`，`t()` 读取 `$state` 中的当前语言。修改文案后必须重新构建 `client.js` / `web/`。
@@ -181,21 +184,29 @@ window.__ModuleLoader__.load({
 
 - `service.start()`：读取设置、创建适配器、启动 LAN HTTP/HTTPS、启动 WebSocket hub、启动推送循环；`dispose()` 关闭服务器、hub、适配器和定时器。`index.ts` 用 `ctx.effect()` 绑定，DSH 卸载 / 重载插件时自动清理。
 - 数据目录：`DSH_PROFILE_DIR/remote-control`（优先）或 `DSH_HOME/remote-control`，否则 `~/.dsh/remote-control`；文件为 `settings.json` 与通用 `cache.json`（临时文件 + rename 原子写）。旧 `notification-cache.json` 在首次启动时迁移为 `cache.json`。
-- 当前 schema 版本 `2`，字段包括 token、允许网卡、主题、插件语言（`language` / `dshLocale`）、温度单位、天气（提供商 `provider`、共享名称 `name`、按提供商分开的 `locations`、和风天气 `qweather` JWT 凭据 / 月上限 / 刷新间隔）、余额、通知、TLS（`tls.advanced.wakeLock` 控制 HTTPS 下的手机唤醒锁）、导航位置、番茄钟与倒计时（互斥，番茄钟分钟允许两位小数、计时四舍五入到秒，倒计时 1–5 个按分/秒填写的预设）、页面顺序 / 开关。
+- 当前 schema 版本 `3`，字段包括 token、允许网卡、主题、插件语言（`language` / `dshLocale`）、温度单位、天气（提供商 `provider`、共享名称 `name`、按提供商分开的 `locations`、和风天气 `qweather` JWT 凭据 / 月上限 / 刷新间隔）、余额、通知、TLS（`tls.advanced.wakeLock` 控制 HTTPS 下的手机唤醒锁）、导航位置、番茄钟与倒计时（互斥，番茄钟分钟允许两位小数、计时四舍五入到秒，倒计时 1–5 个按分/秒填写的预设）、快速问答（`quickqa.model`、`defaultWorkspaceId`、`pinnedWorkspaceIds`、`profiles`；`profiles` 只为默认 / 置顶工作区保存 `agentPreset` 与 `permissionPreset`）、页面顺序 / 开关。
 - 天气旧字段 `weather.latitude` / `weather.longitude` 在 normalize 时迁移到三个提供商的 `locations`，共享 `name` 只保存一次；`qweather.apiHost` 会去掉协议与路径。
 - `normalize()` 对每个字段做白名单 / 范围校验，缺失时回落默认值；`update(patch)` 浅合并 + 嵌套对象合并；令牌 24 字节随机 `base64url`，`rotateToken()` 后由 service 断开所有设备。
 - 设置对象不含 token；`/api/info`（以及 `/api/settings` 的 `info`）会带配对 URL 和二维码路径，token 只出现在 URL query 中（客户端另存为 cookie）。
 
 ### LAN HTTP 服务
 
-`src/dsh/lib/service.ts`：
+`src/dsh/lib/server/`：
+
+- `state.ts`：创建 settings / cache / appMapping / pending / weather / performance / adapters / account 并保存运行时状态。
+- `http.ts`：JSON / 文本响应、body 读取、cookie、CIDR / IP、同源检查、证书域名。
+- `remote.ts`：LAN HTTP/HTTPS 生命周期、鉴权、静态资源、计时器提示音、快速问答音频上传、`getInfo()`。
+- `snapshots.ts`：`welcome` / `overview` / `settings` 及通知、天气、余额、性能、媒体快照。
+- `hub.ts`：WebSocket 连接、初始快照、推送循环、动作 / 回答 / 快速问答消息、语音输入就绪状态变化时重推设置。
+- `routes.ts`：侧边栏环回路由。
+- `service.ts`：组合根，串起上述模块并实现 `applySettings()` / `dispose()`。
 
 - 默认端口 `38765`，可用 `DSH_REMOTE_CONTROL_PORT` 覆盖；绑定 `0.0.0.0`；端口占用时回退随机可用端口。
 - 可选 HTTPS：读取 PEM 证书 / 私钥；配置无效时回退 HTTP，并在 `info.tls.error` 报告。HTTPS 生效后从证书 SAN（回退 CN）取第一个具体域名作为 `primaryUrl`，扫码与配对链接优先使用该域名；`urls` 仍保留各网卡 IP 供诊断。
 - 静态文件：`web/` 下的页面、`/assets/`、字体、`/manifest.webmanifest`、`/icon.svg`。
 - 鉴权：`tokenEnabled` 时，`/`、静态资源和 `/ws` 需要 `?token=` 或 `dsh_rc` cookie；失败返回 401 页面；`/api/pomodoro/sound` 只对已授权页面开放。
 - 网卡限制：`allowedInterfaces` 为 null 表示全部；否则按 CIDR 匹配来源 IP，回环地址始终放行。
-- 请求体上限 64 KiB；JSON 响应带 `no-store`。
+- 请求体上限 64 KiB（`/api/quickqa/transcribe` 例外，接受受限大小的 `audio/wav` 二进制体，硬上限 8 MiB，并受官方语音 Remote 的 `maxAudioBytes` 约束）；JSON 响应带 `no-store`。
 - 媒体 / 音量动作通过 `adapters.media.control()` 发给探针，结果以 `action-result` 回给发起端，然后广播新的 `media` 快照。
 
 ### WebSocket 协议
@@ -210,9 +221,12 @@ window.__ModuleLoader__.load({
 | `overview` | 会话、天气、通知、余额、性能、设置聚合 |
 | `clients` | 已连接设备列表 |
 | `sessions` / `notifications` / `account` / `weather` / `media` / `performance` | 增量快照 |
-| `settings` | 设置变化 |
+| `settings` | 设置变化（含 `quickqa` 语音就绪状态；官方语音插件就绪状态变化时也会重推） |
 | `action-result` | 媒体 / 音量动作结果 |
 | `answer-result` | 远程回答结果 |
+| `quickqa-state` | 快速问答阶段：`thinking` / `streaming` / `done` / `error`，可带 `sessionId`、`workspaceId`、`question`（本次识别文本）、`error`、`empty` |
+| `quickqa-delta` | 最终回答的流式文本片段 |
+| `quickqa-pending` | 快速问答中的用户问询 / 权限询问；`clear: true` 表示已结束 |
 | `error` | 初始化失败 |
 | `pong` | 心跳回应 |
 
@@ -222,6 +236,8 @@ window.__ModuleLoader__.load({
 |---|---|
 | `action` | `playpause` / `next` / `previous` / `seek` / `like` / `volume` / `mute`，可带 `value` |
 | `answer-question` | `sessionId`、`requestId`、结构化答案 |
+| `quickqa-ask` | `text`；新会话带 `workspaceId`，追问带 `sessionId` |
+| `quickqa-reset` | 放弃当前快速问答会话 |
 | `refresh` | 重发初始快照 |
 | `settings` | 请求设置快照 |
 | `ping` | 心跳 |
@@ -236,12 +252,13 @@ window.__ModuleLoader__.load({
 | account | 30 s | `pageEnabled.sessions` |
 | weather | 5 min | `pageEnabled.home` |
 | performance | 2.5 s | `pageEnabled.performance` |
+| 语音输入就绪状态 | 4 s 检查，变化时重推 `settings` | — |
 
 没有客户端时循环停止；页面关闭时跳过对应推送。`sendInitial()` 在连接时发送 `welcome`、`overview`、已启用页面的 `media` / `performance`、`clients`。
 
 ### 会话与远程问询
 
-`src/dsh/lib/sessions.ts` 依赖 DSH 的 `sessions`、`agents`、`sessionTitle`、`userQuestions` 服务，并监听 `user-questions/request`、`approval/request` 瀑布事件：
+`src/dsh/lib/sessions/index.ts` 依赖 DSH 的 `sessions`、`agents`、`sessionTitle`、`userQuestions` 服务，并监听 `user-questions/request`、`approval/request` 瀑布事件：
 
 - `collectSessions()` 把 DSH 会话投影成手机端结构：标题、cwd、状态、运行起始时间、子代理父子关系、待回答 / 待审批信息、错误。
 - `createPendingTracker()` 在 `user-questions/request` 上以 `prepend` 注册处理器，把问题转发给手机端；已超时但仍可回答的 continued 提问通过 `userQuestions.answer(agent, callId, answer)` 提交；从会话日志重建的待处理项通过 `adopt()` 补登记。
@@ -249,21 +266,32 @@ window.__ModuleLoader__.load({
 - 远程回答只处理 DSH 的正常用户问题（`ask_user_question`）；工具审批不提供远程按钮，仍需在 DSH 中处理。
 - DSH 自己的提问卡片仍会显示，远程回答后可能需要手动关闭，这是 DSH Web 客户端当前行为。
 
+### 快速问答
+
+`src/dsh/lib/quickqa/` 把手机录音变成一次 DSH 会话：
+
+- `voice.ts`：读取官方 `speechToText` 服务的快照；只有选中 provider 的 `preparation.phase` 为 `ready` 或 `standby` 才算就绪，其余状态一律不可用。`transcribeAudio()` 先 `resolve()` 再 `transcribe()`，不提供其他 provider 回退。
+- `catalog.ts`：读取 `sessionController.modelCatalog()`（缺失时回退 `llm` + `agentDefaultModel`）、`workspaceRegistry`、`agentPresets.list()`、`permissionPresets.catalog()`；目录缓存 15 s，语音就绪状态每次实时读取。
+- `index.ts`：每个 WebSocket 客户端一个运行态。新问题用 `sessionController.create({ workspaceId, agentPreset })` 建会话，`agent.model.select()` 只改该会话的模型（不写 DSH 默认值），`permissionPresets.set(session, name)` 设权限行为，然后 `sessionController.prompt({ mode: 'queue', content: [{ type: 'text', text }] }, signal)`（第二个 `AbortSignal` 参数是必需的），再 `follow()`。`follow()` 只取最终 `assistant/message` 的文本块；带 `tool-call` 的步骤一律丢弃，思考内容与工具过程不发送。结果在轮次结束后按块流式发给手机，因此页面只经历“模型思考中”和最终回答；`quickqa-state` 的 `question` 字段回显本次识别文本，供手机聊天卡展示用户问题与多轮上下文。
+- 问询：运行期间每 500 ms 读取 `pending.snapshot(sessionId)`，通过 `quickqa-pending` 推送；`pushQuestions` 关闭时只发通用提示，不泄露问题内容。用户问题可直接用既有 `answer-question` 通道回答；权限询问仅展示，仍需在 DSH 处理。
+- 音频上传：LAN `POST /api/quickqa/transcribe` 接受受限 `audio/wav`（16 kHz 单声道 PCM16），调用官方 `speechToText`，转写后的文字再由手机发回 `quickqa-ask`。
+- 语音未就绪时：侧边栏 `/api/quickqa` 返回未就绪，设置页禁用后续控件；Host 的 `applySettings()` 丢弃 `quickqa` 补丁，`quickqa-ask` 与转写接口直接拒绝。
+
 ### 其他 Host 服务
 
-- `account.ts`：DSH 账户余额与用量，支持「本周 / 最近 7 天」窗口和低余额标记。
-- `weather.ts`：系统定位（Windows WinRT / Linux GeoClue2，经探针）→ 时区兜底；自动模式使用系统 API 的坐标，地名按当前提供商决定：系统 API 自带名称优先；选中的是 QWeather 且可用时用 QWeather GeoAPI 反查；选中的是 NMC / Open-Meteo，或 QWeather 未配置 / 额度不足时用原有的 BigDataCloud 免费反向地理接口兜底（不新增天气提供商）；失败显示「当前位置」。提供商按 `nmc` / `open-meteo` / `qweather` 调度，手动位置与自动位置共用一套解析，三个提供商各自保存经纬度 / 站点 / Location ID。QWeather 只走 JWT（API Host + 凭据 ID + 项目 ID + 开发者 ID + Ed25519 私钥，短期 token 自动续签）；每次请求先写入 `cache.json` 的自然月计数并预留调用数，达到上限才切换到 NMC（中国城市）或 Open-Meteo（国外 / NMC 无站点），普通请求失败不切换。开启控制台同步时，在 QWeather 天气查询前读取 `finance/v1/summary` 与 `metrics/v1/stats`，最多每 3 小时一次，并把这次两次控制台请求计入本地月计数；财务汇总的 `availableResourcePlans[].utilized` 只是资源包已用量，免费额度没有自然月接口，因此本月计数以本地累计为准，控制台能返回月用量时作为参考显示，返回不了则在设置页提示。Open-Meteo / QWeather / NMC 的当天空气质量统一归一化为 `airQuality`，没有数据时为 null。
-- `weather/open-meteo.ts` / `weather/qweather.ts` / `weather/nmc.ts` / `weather/shared.ts`：三个提供商、公共 HTTP / 天气代码映射 / AQI 归一化；天气载荷与 `WeatherService` 契约统一放在 `types.ts`。NMC 城市目录缓存在 `cache.json`，首次整表抓取后复用 30 天。
-- `cache.ts`：通用运行时缓存，文件 `cache.json`；保存 QWeather 自然月调用计数、NMC 城市目录、控制台快照与最近一次反向地理结果；坐标变化小于约 0.01° 且 30 天内复用，桌面侧边栏刷新按钮会清除并重新反查。并保留旧 `notification-cache.json` 的 `apps` 数据用于迁移。
-- `performance.ts`：只采用 Rust `performance` 载荷；探针缺失时仅用 `os.cpus()` / `os.totalmem()`。
-- `media-enrich.ts`：统一媒体字段、`provider` / `providerDetail`、进度平滑和 seek 判定。
-- `notifications.ts`：Windows/macOS 一次性读取；Linux 启动 `notifications watch` 长进程并按行更新；字段归一化、应用筛选与数量限制在 Node 侧。
-- `app-mapping.ts`：应用历史 + 默认名称 + 用户改名 + 旧缓存迁移（优先读 `cache.json`，兼容旧 `notification-cache.json`）；`/api/apps` 写接口。
-- `qr.ts`：`qrcode-generator` 生成配对 SVG。
+- `account/index.ts`：DSH 账户余额与用量，支持「本周 / 最近 7 天」窗口和低余额标记。
+- `weather/index.ts`：系统定位（Windows WinRT / Linux GeoClue2，经探针）→ 时区兜底；自动模式使用系统 API 的坐标，地名按当前提供商决定：系统 API 自带名称优先；选中的是 QWeather 且可用时用 QWeather GeoAPI 反查；选中的是 NMC / Open-Meteo，或 QWeather 未配置 / 额度不足时用原有的 BigDataCloud 免费反向地理接口兜底（不新增天气提供商）；失败显示「当前位置」。提供商按 `nmc` / `open-meteo` / `qweather` 调度，手动位置与自动位置共用一套解析，三个提供商各自保存经纬度 / 站点 / Location ID。QWeather 只走 JWT（API Host + 凭据 ID + 项目 ID + 开发者 ID + Ed25519 私钥，短期 token 自动续签）；每次请求先写入 `cache.json` 的自然月计数并预留调用数，达到上限才切换到 NMC（中国城市）或 Open-Meteo（国外 / NMC 无站点），普通请求失败不切换。开启控制台同步时，在 QWeather 天气查询前读取 `finance/v1/summary` 与 `metrics/v1/stats`，最多每 3 小时一次，并把这次两次控制台请求计入本地月计数；财务汇总的 `availableResourcePlans[].utilized` 只是资源包已用量，免费额度没有自然月接口，因此本月计数以本地累计为准，控制台能返回月用量时作为参考显示，返回不了则在设置页提示。Open-Meteo / QWeather / NMC 的当天空气质量统一归一化为 `airQuality`，没有数据时为 null。
+- `weather/open-meteo.ts` / `weather/qweather.ts` / `weather/nmc.ts` / `weather/shared.ts`：三个提供商、公共 HTTP / 天气代码映射 / AQI 归一化；天气载荷与 `WeatherService` 契约统一放在 `shared/types.ts`。NMC 城市目录缓存在 `cache.json`，首次整表抓取后复用 30 天。
+- `cache/index.ts`：通用运行时缓存，文件 `cache.json`；保存 QWeather 自然月调用计数、NMC 城市目录、控制台快照与最近一次反向地理结果；坐标变化小于约 0.01° 且 30 天内复用，桌面侧边栏刷新按钮会清除并重新反查。并保留旧 `notification-cache.json` 的 `apps` 数据用于迁移。
+- `performance/index.ts`：只采用 Rust `performance` 载荷；探针缺失时仅用 `os.cpus()` / `os.totalmem()`。
+- `media/enrich.ts`：统一媒体字段、`provider` / `providerDetail`、进度平滑和 seek 判定。
+- `notifications/index.ts`：Windows/macOS 一次性读取；Linux 启动 `notifications watch` 长进程并按行更新；字段归一化、应用筛选与数量限制在 Node 侧。
+- `apps/index.ts`：应用历史 + 默认名称 + 用户改名 + 旧缓存迁移（优先读 `cache.json`，兼容旧 `notification-cache.json`）；`/api/apps` 写接口。
+- `shared/qr.ts`：`qrcode-generator` 生成配对 SVG。
 
 ### 安全模型
 
-- LAN 端：token（query / cookie）、可选网卡 CIDR 白名单、可选 HTTPS、Origin 校验、静态路径白名单、64 KiB body 限制；CSP 的 `img-src` 允许 http(s) 远程封面 / 头像。
+- LAN 端：token（query / cookie）、可选网卡 CIDR 白名单、可选 HTTPS、Origin 校验、静态路径白名单、64 KiB body 限制（快速问答音频上传例外，见上）；CSP 的 `img-src` 允许 http(s) 远程封面 / 头像。
 - 侧边栏端：依赖 DSH `webServer` 的环回访问控制，并额外做 `sameOrigin`。
 - 设置与映射文件只存本机；仓库不包含路径、令牌、证书、和风天气私钥或通知内容。和风天气私钥会通过环回 `/api/settings` 返回给侧边栏用于回填，但不会随手机端 `welcome` / `settings` 下发。
 - 轮换 token 会断开全部 WebSocket；关闭 token 后 `/` 与 `/ws` 不再要求 token，但网卡白名单仍生效。
@@ -272,9 +300,9 @@ window.__ModuleLoader__.load({
 
 - 入口：`src/svelte/index.html` → `src/svelte/main.ts` → `App.svelte`。
 - Vite `root = src/svelte`，`publicDir = static`，`build.outDir = web`，`assetsDir = assets`，`emptyOutDir = true`，`target = es2022`。
-- 技术栈：Svelte 5 runes + Vite 8 + Tailwind CSS v4 + shadcn-svelte（bits-ui）+ Lucide。图标一律使用 Lucide。
-- 页面：`HomePage`、`SessionsPage`、`MusicPage`、`PerformancePage`；导航 `Rail`；业务组件包括时钟、天气、通知、余额、消费、CPU/内存、GPU、温度、计时、会话列表、问询对话框（`QuestionSheet`）、Toast 等。
-- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`pomodoro.svelte.ts` / `countdown.svelte.ts` 各自持有计时并共用 `timer-alarm.svelte.ts`（页面标题 / favicon 提示、`tabAlert` 响应式状态，以及循环响铃时的持续振动）；`wake-lock.ts` 按 `settings.tls.advanced.wakeLock` 在 HTTPS 页面申请屏幕唤醒锁，页面隐藏时释放、回到前台重新申请；`billing.svelte.ts` 负责峰谷与节假日；`format.ts` / `weather.ts` / `pages.ts` 为纯工具。
+- 技术栈：Svelte 5 runes + Vite 8 + Tailwind CSS v4 + shadcn-svelte（bits-ui）+ Lucide。图标一律使用 Lucide。AI 回答用 `marked` 解析、`DOMPurify` 清洗后以 `{@html}` 渲染，支持标题、列表、代码块、表格与链接。
+- 页面：`HomePage`、`SessionsPage`、`QuickQaPage`、`MusicPage`、`PerformancePage`；导航 `Rail`；业务组件包括时钟、天气、通知、余额、消费、CPU/内存、GPU、温度、计时、会话列表、问询对话框（`QuestionSheet`）、Toast 等。
+- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`quickqa.svelte.ts` 持有快速问答阶段、选区、流式回答与问询浮层，`quickqa-audio.ts` 负责默认麦克风采集、电平、WAV 转换与转写上传；`pomodoro.svelte.ts` / `countdown.svelte.ts` 各自持有计时并共用 `timer-alarm.svelte.ts`（页面标题 / favicon 提示、`tabAlert` 响应式状态，以及循环响铃时的持续振动）；`wake-lock.ts` 按 `settings.tls.advanced.wakeLock` 在 HTTPS 页面申请屏幕唤醒锁，页面隐藏时释放、回到前台重新申请；`billing.svelte.ts` 负责峰谷与节假日；`format.ts` / `weather.ts` / `pages.ts` 为纯工具。
 - i18n：`applySettings()` 从 `settings.locale` 调 `setLocale()`；所有组件和 `format.ts` / `weather.ts` 通过 `t()` 取文案，日期格式化使用 `localeTag()`，切换语言无需刷新。`zh` 为基准字典。
 - 视觉：`Panel` 包装 shadcn Card 作为统一容器；按钮、Badge、Slider、Dialog、ScrollArea 优先用 `$lib/components/ui`；只在组件原有 class 上覆盖样式，无 hover 过渡 / 缩放。
 - 性能页占用率使用 `RadialGauge` 圆环；右侧温度保留大号最高温度与热区背景列表。
@@ -284,11 +312,13 @@ window.__ModuleLoader__.load({
 - 分页：每页 `scroll-snap-stop: always`，一次手势最多前进 / 后退一页；页面顺序与开关来自设置，关闭的页面不渲染、不轮询。
 - 字体：`@fontsource-variable/inter`、`noto-sans-sc`、`jetbrains-mono` 由 Vite 打进 `web/assets/`，不依赖手机系统字体；许可见 `web/fonts/LICENSE.txt`。
 - 手机端只读会话；`pushQuestions` 开启后才显示回答入口。
+- 快速问答页：左侧只有大的圆形麦克风与「长按说话」（未授权时在圆钮上方显示红色授权按钮），右侧是默认 / 置顶工作区选择；按钮统一使用 shadcn-svelte `Button` / `Panel`，不引入 hover 过渡。麦克风使用默认输入设备，录音转成 16 kHz 单声道 PCM16 WAV 后上传。按住时用 Svelte `tweened`（`cubicOut`）驱动半透明实心圆环，取消按钮位于圆钮上方；追问时录音控制保留在聊天卡底部的小圆钮上，继续追问与新会话左右并排，按下后两个按钮位置不变，取消按钮浮在追问圆钮上方，不会回到初始界面；AI 输出期间底部按钮隐藏，回答完成后再出现；流式内容会自动滚到聊天卡底部，按钮出现时不会遮住最后一段回答；取消、过短或没有清晰语音时，圆钮下方提示会切换为对应状态。进入回答模式后隐藏语音与工作区，只保留一张居中的大聊天卡：显示识别出的用户问题、之前轮次的上下文、模型回答与底部继续追问 / 新会话按钮。
 
 ## DSH 侧边栏（React）
 
 - `src/dsh/client` 用 `React.createElement`（`h`）而不是 JSX；React 由 DSH loader 提供。
-- 入口 `src/dsh/client/index.ts` 向 DSH 注册设置页（slot），菜单包含：连接、偏好设置、番茄钟 / 倒计时、天气设置、余额显示、通知设置、软件映射、系统信息。
+- 入口 `src/dsh/client/index.ts` 向 DSH 注册设置页（slot），菜单包含：连接、偏好设置、快速问答、番茄钟 / 倒计时、天气设置、余额显示、通知设置、软件映射、系统信息。
+- 快速问答设置页：第一块只显示官方语音输入就绪 / 未就绪（提供商与状态同一行，不再重复标题）；未就绪时后面的模型与工作区块全部禁用，但保留已保存值。第二块从 `/api/quickqa` 读取模型与思考强度。第三块读取工作区、模式与权限行为；默认工作区固定勾选，置顶工作区每行依次为勾选框、名称 / 路径、模式、权限行为，未勾选时两个下拉禁用；保存时只提交默认与置顶工作区的 `profiles`。
 - 所有设置先进入 `DraftState`，点「保存设置」才 `POST /api/settings` 一次性提交；应用改名、主题同步、令牌轮换、断开设备是即时请求。
 - 连接页始终显示「高级功能」卡片；HTTPS 关闭时卡片内所有开关显示为关闭并禁用，hint 保持不变。当前提供 `tls.advanced.wakeLock` 开关，启用 HTTPS 后保存，手机端会在 HTTPS 页面申请屏幕唤醒锁。
 - 软件映射页在应用列表上方提供本地搜索，按已保存的应用名称或应用 ID 实时过滤；只过滤当前 UI，不触发服务端请求。
@@ -308,7 +338,7 @@ window.__ModuleLoader__.load({
 - 媒体层在平台层之上做 vendor 调度：平台文件识别应用后调用 `vendor::resolve`，命中 vendor 进入对应客户端逻辑，未命中才回到系统 API。
 - macOS 性能采样使用 `libc` + `mach2` 的 `host_statistics`（CPU tick）与 `sysctl`（内存 / 频率），不链接 CoreFoundation / IOKit，因此构建 macOS 探针不需要完整 Xcode SDK（Command Line Tools 即可）。
 - 产物：`native/bin/<platform>-<arch>/dsh-probe[.exe]`，例如 `win32-x64`、`linux-x64`、`darwin-arm64`。
-- `src/dsh/lib/probe.ts` 按 `process.platform` / `process.arch` 定位，`DSH_RC_PROBE` 可覆盖；找不到时所有调用返回明确的「不可用」错误。
+- `src/dsh/lib/probe/index.ts` 按 `process.platform` / `process.arch` 定位，`DSH_RC_PROBE` 可覆盖；找不到时所有调用返回明确的「不可用」错误。
 - 每条命令输出一行 JSON；探针内部错误返回 `{"ok":false,...}` 且退出码 0（便于 Node 读取），参数错误退出码 2。
 - `notifications watch`（Linux）是长进程，逐行输出快照，Node 负责重启与冷却。
 - 支持常驻 `daemon` 模式：Node 通过 stdin/stdout 按行发送命令与接收同一格式 JSON；daemon 起不来或不支持时回退一次性进程。
@@ -343,11 +373,11 @@ dsh-probe location request [--open-settings]    # 申请定位权限（Windows �
 
 ### Node 桥与环境变量
 
-- `probe.ts`：定位二进制、`execFile`、取最后一行 JSON、15 s 失败冷却、`DSH_RC_TMPDIR` 临时目录（默认仓库 `.probe-tmp/`）；优先复用常驻 daemon，启动失败回退一次性进程。
-- `probe-daemon.ts`：daemon 启动、按 id 匹配响应、超时、崩溃 / 退出处理；只读命令可在崩溃后重放，写操作不重放。
-- `probe-adapter.ts`：只调用 Rust 媒体 / 音量命令，失败直接返回错误，不静默回退；CDP 封面 URL 保留给控制端浏览器加载。
-- `performance.ts` / `notifications.ts` / `app-mapping.ts`：见上文 Host 服务。
-- `service.ts` 的 `/api/location`：调用 `location request`，成功时清缓存并刷新天气。
+- `probe/index.ts`：定位二进制、`execFile`、取最后一行 JSON、15 s 失败冷却、`DSH_RC_TMPDIR` 临时目录（默认仓库 `.probe-tmp/`）；优先复用常驻 daemon，启动失败回退一次性进程。
+- `probe/daemon.ts`：daemon 启动、按 id 匹配响应、超时、崩溃 / 退出处理；只读命令可在崩溃后重放，写操作不重放。
+- `probe/adapter.ts`：只调用 Rust 媒体 / 音量命令，失败直接返回错误，不静默回退；CDP 封面 URL 保留给控制端浏览器加载。
+- `performance/index.ts` / `notifications/index.ts` / `apps/index.ts`：见上文 Host 服务。
+- `server/routes.ts` 的 `/api/location`：调用 `location request`，成功时清缓存并刷新天气。
 
 | 变量 | 作用 |
 |---|---|
@@ -413,7 +443,7 @@ Windows 只允许 Medium 完整性及以上的进程访问定位。插件目录�
 
 判定「完整系统会话」需要同时满足：有标题；播放状态不是 `Closed`；`EndTime > StartTime > 0`；播放器允许定位（SMTC `IsPlaybackPositionEnabled` / MPRIS `CanSeek`）；对标记为 `VerifyPosition` 的客户端（部分旧版 QQ / 酷狗等）还要求实际收到过非零 `Position`。
 
-Node 侧 `media-enrich.ts` 会再次校验 `provider === 'system'`、时间轴和位置证据；CDP、其他私有 / 无障碍来源都不会出现可拖动进度条。
+Node 侧 `media/enrich.ts` 会再次校验 `provider === 'system'`、时间轴和位置证据；CDP、其他私有 / 无障碍来源都不会出现可拖动进度条。
 
 ### 各客户端行为
 
@@ -498,9 +528,12 @@ python scripts/mock-preview.py --web web --port 4173
 # 无头截图（自动启动 mock preview；--timer countdown|pomodoro、--locale en、--click/--settle）
 pnpm shot -- --timer countdown --out .mock-web/countdown.png
 
+# 快速问答状态：thinking / streaming / question / approval / done / second（第二轮）
+# http://HOST:4173/?page=quickqa&quickqa=done（长回答，用于滚动与底部按钮占位检查）
+
 pnpm check                      # tsc（Host + 浏览器端）+ svelte-check
 pnpm build                      # src/dsh + src/svelte
-pnpm test                       # 下面 6 个按功能分组的 Node 测试
+pnpm test                       # 下面 7 个按功能分组的 Node 测试
 cargo fmt --manifest-path src/rust/Cargo.toml -- --check
 cargo test --manifest-path src/rust/Cargo.toml
 cargo check --manifest-path src/rust/Cargo.toml --features macos-check
@@ -513,6 +546,7 @@ pnpm build:rust
 
 - `smoke.mjs`：临时 `DSH_PROFILE_DIR` 启动服务；令牌页面、`/assets/`、图片 CSP、WebSocket welcome/overview、证书域名提取；旧 HTTP overview 路由不存在。
 - `questions.mjs`：推送问询开关、远程回答往返、关闭后剥离与拒绝。
+- `quickqa.mjs`：快速问答目录接口、语音就绪门槛、模型 / 模式 / 权限行为落到会话、`quickqa-ask` 与追问、音频上传、未就绪时拒绝提问与丢弃设置补丁；断言 `prompt` 收到取消信号（`sessionController.prompt` 的第二个参数是必需的）。
 - `settings.mjs`：语言精确匹配与回退、`dshLocale` 持久化、Host 字典对齐；倒计时预设与秒级范围、番茄钟两位小数、互斥、公开设置深拷贝、`tls.advanced.wakeLock` 默认与嵌套拷贝。
 - `media.mjs`：进度平滑与 seek 规则；探针缺失显式报错；真实 daemon 的并发、重启、禁用与平台能力。探针路径缓存在同一进程内切换时用 `resetProbeCache()`（测试专用）。
 - `notifications.mjs`：通知字段归一化与数量限制、应用名称推导与旧缓存迁移、Linux 流式监视。
@@ -586,9 +620,9 @@ npm publish --access public --tag bootstrap
 - 新增平台能力时同时更新：Rust 平台模块、`平台后端` 矩阵、载荷 / 限制、必要时的 `INSTALLATION.md` 依赖说明。
 - 新增客户端适配时：在 `media/catalog.rs` 注册 profile，在 `media/vendor/` 加解析，在本文件客户端表补一行；不要在媒体载荷里伪造进度。
 - 新增 vendor 或高级控制（like / 私有 seek / 页面控制）时，只改 `catalog.rs` 档案、`media/vendor/<client>.rs` 和 `vendor/mod.rs` 分派；不要在 `media/mod.rs` 或任何平台文件里写 `App::Xxx` 特例，也不要把“网易云”当作唯一的私有控制客户端。
-- 改设置字段时同时更新：`settings.ts` 的 normalize / default、`src/dsh/client` 的编辑 / 保存、`README.md` 菜单说明；保持旧 `settings.json` 可迁移。
+- 改设置字段时同时更新：`settings/index.ts` 的 normalize / default、`src/dsh/client` 的编辑 / 保存、`README.md` 菜单说明；保持旧 `settings.json` 可迁移。
 - 新增或修改用户可见文案时，同时更新三份扁平字典；不要写死中文。
-- 改协议消息时同时更新 `service.ts`、`src/svelte/lib/ws.ts` 和本文件的 WebSocket 表。
+- 改协议消息时同时更新 `server/hub.ts`、`server/remote.ts`、`src/svelte/lib/ws.ts`、`src/svelte/lib/state.svelte.ts` 和本文件的 WebSocket 表。
 - 提交前至少跑：`pnpm check`、`pnpm build`、`pnpm test`；改 Rust 再跑 `cargo fmt --check`、`cargo test`。
 
 ## 许可证

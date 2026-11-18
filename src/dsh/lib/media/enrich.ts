@@ -6,8 +6,8 @@
  * in Rust (`vendor::netease`) and arrives already attached to the payload.
  */
 
-import type { ProbeMediaResult, PublicMedia } from './types.js';
-import { clamp, finiteNumber } from './util.js';
+import type { ProbeMediaResult, PublicMedia } from '../shared/types.js';
+import { clamp, finiteNumber } from '../shared/util.js';
 
 /** Smoothed playback position for one track, carried between polls. */
 interface ProgressState {

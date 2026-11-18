@@ -1,0 +1,624 @@
+/**
+ * Quick Q&A coordinator.
+ *
+ * One phone starts a turn by recording audio, transcribing it through the
+ * official `speechToText` service, then creating a DSH Session in the selected
+ * workspace with the configured agent preset, permission preset, and model.
+ * Only the final assistant text reaches the page; reasoning and tool traffic
+ * stay behind the "thinking" state.
+ */
+
+import crypto from 'node:crypto';
+import { hostMessage } from '../i18n/index.js';
+import type { PendingInfo, PendingTracker } from '../sessions/index.js';
+import type { PluginLocale, QuickQaWorkspaceProfile, RemoteControlSettings } from '../settings/index.js';
+import { isRecord, type DshContext, type JsonRecord, type WebSocketClient } from '../shared/types.js';
+import { safeString, serializeError } from '../shared/util.js';
+import type { RemoteSettingsPayload } from '../server/types.js';
+import { bestQuickQaSelection, createQuickQaCatalog, type QuickQaModelSelection, type QuickQaOptions } from './catalog.js';
+import { isVoiceReady, transcribeAudio } from './voice.js';
+
+export interface QuickQaServiceOptions {
+  ctx: DshContext;
+  getSettings: () => RemoteControlSettings;
+  pending: PendingTracker;
+  log: (message: string) => void;
+  getLocale: () => PluginLocale;
+}
+
+export interface QuickQaService {
+  readOptions(force?: boolean): Promise<QuickQaOptions>;
+  remoteSettings(): RemoteSettingsPayload['quickqa'];
+  isVoiceReady(): boolean;
+  transcribe(audio: Uint8Array, signal: AbortSignal): Promise<{ text: string; audioSeconds: number }>;
+  /** Handle one socket frame; returns true when it belonged to Quick Q&A. */
+  handleMessage(client: WebSocketClient, message: unknown): Promise<boolean>;
+  detach(clientId: string): void;
+  dispose(): void;
+}
+
+interface AgentModelLike {
+  select?(selection: { provider: string; model: string; reasoningEffort?: string }): void;
+}
+
+interface AgentLike {
+  id?: string;
+  model?: AgentModelLike | null;
+}
+
+interface SessionLike {
+  id?: string;
+}
+
+interface AgentsService {
+  get?(id: string): AgentLike | undefined;
+  turnBoundaryOf?(session: SessionLike): { lastTurn?: number | string } | null | undefined;
+}
+
+interface SessionsService {
+  get?(id: string): SessionLike | undefined;
+}
+
+interface LlmService {
+  resolveCallConfig?(config: { provider: string; model: string; reasoningEffort?: string }): Promise<unknown>;
+}
+
+interface PermissionPresetsService {
+  set?(session: SessionLike, name: string): void;
+}
+
+interface WorkspaceLike {
+  id?: string | number;
+  title?: string;
+  path?: string;
+}
+
+interface WorkspaceRegistryService {
+  get?(id: string): WorkspaceLike | undefined;
+  list?(): WorkspaceLike[];
+}
+
+interface SessionControllerService {
+  create?(request: Record<string, unknown>): Promise<{ sessionId?: string; agentPreset?: string }>;
+  prompt?(request: Record<string, unknown>, signal?: AbortSignal): Promise<{ accepted?: boolean }>;
+  follow?(request: Record<string, unknown>, signal: AbortSignal): AsyncIterable<unknown>;
+}
+
+interface QuickQaRun {
+  client: WebSocketClient;
+  sessionId: string;
+  workspaceId: string;
+  agentPreset: string;
+  permissionPreset: string;
+  busy: boolean;
+  abort: AbortController | null;
+  pendingSignature: string;
+}
+
+const FOLLOW_TIMEOUT_MS = 15 * 60_000;
+const PENDING_POLL_MS = 500;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function service<T>(ctx: DshContext, name: string): T | undefined {
+  try {
+    const value = ctx.get?.(name);
+    return value && typeof value === 'object' ? (value as T) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function messageText(message: unknown): string {
+  if (!isRecord(message)) return '';
+  const blocks = Array.isArray(message.content) ? message.content : [];
+  const parts: string[] = [];
+  for (const block of blocks) {
+    if (typeof block === 'string') parts.push(block);
+    else if (isRecord(block) && block.type === 'text' && typeof block.text === 'string') parts.push(block.text);
+  }
+  return parts.join('').trim();
+}
+
+function turnOf(event: JsonRecord): number {
+  const data = isRecord(event.data) ? event.data : {};
+  return Number(data.turn) || 0;
+}
+
+function reasonOf(event: JsonRecord): JsonRecord {
+  const data = isRecord(event.data) ? event.data : {};
+  return isRecord(data.reason) ? data.reason : {};
+}
+
+/** Resolve the quickqa model selection against the live catalog. */
+async function selectModel(
+  deps: QuickQaServiceOptions,
+  catalog: QuickQaOptions,
+  sessionId: string,
+  selection: QuickQaModelSelection,
+): Promise<void> {
+  if (!selection.provider || !selection.model) return;
+  const ctx = deps.ctx;
+  const llm = service<LlmService>(ctx, 'llm');
+  const config = {
+    provider: selection.provider,
+    model: selection.model,
+    ...(selection.reasoningEffort ? { reasoningEffort: selection.reasoningEffort } : {}),
+  };
+  try {
+    await llm?.resolveCallConfig?.(config);
+  } catch (errorValue) {
+    deps.log(`quickqa: model selection rejected: ${serializeError(errorValue)}`);
+    return;
+  }
+  const agents = service<AgentsService>(ctx, 'agents');
+  let agent = agents?.get?.(sessionId);
+  if (!agent) {
+    // The agent is published as part of creation; give the store one turn to
+    // expose it before falling back to the saved default model.
+    await sleep(0);
+    agent = agents?.get?.(sessionId);
+  }
+  try {
+    agent?.model?.select?.(config);
+  } catch (errorValue) {
+    deps.log(`quickqa: model selection failed: ${serializeError(errorValue)}`);
+  }
+}
+
+/** Apply the per-workspace permission preset to the freshly created session. */
+function selectPermission(deps: QuickQaServiceOptions, sessionId: string, preset: string): void {
+  if (!preset) return;
+  const sessions = service<SessionsService>(deps.ctx, 'sessions');
+  const session = sessions?.get?.(sessionId);
+  if (!session) return;
+  const presets = service<PermissionPresetsService>(deps.ctx, 'permissionPresets');
+  try {
+    presets?.set?.(session, preset);
+  } catch (errorValue) {
+    deps.log(`quickqa: permission preset rejected: ${serializeError(errorValue)}`);
+  }
+}
+
+function profileFor(settings: RemoteControlSettings, workspaceId: string): QuickQaWorkspaceProfile {
+  return settings.quickqa.profiles[workspaceId] ?? { agentPreset: '', permissionPreset: '' };
+}
+
+function allowedWorkspaceIds(settings: RemoteControlSettings): Set<string> {
+  return new Set([
+    settings.quickqa.defaultWorkspaceId,
+    ...settings.quickqa.pinnedWorkspaceIds,
+  ].filter(Boolean));
+}
+
+function resolveWorkspaceId(deps: QuickQaServiceOptions, requested: string): string {
+  const settings = deps.getSettings();
+  const allowed = allowedWorkspaceIds(settings);
+  const registry = service<WorkspaceRegistryService>(deps.ctx, 'workspaceRegistry');
+  const exists = (id: string): boolean => Boolean(id && registry?.get?.(id));
+  if (requested && allowed.has(requested) && exists(requested)) return requested;
+  const fallback = settings.quickqa.defaultWorkspaceId;
+  return fallback && allowed.has(fallback) && exists(fallback) ? fallback : '';
+}
+
+export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaService {
+  const catalog = createQuickQaCatalog(deps.ctx);
+  const runs = new Map<string, QuickQaRun>();
+
+  function locale(): PluginLocale {
+    return deps.getLocale();
+  }
+
+  function sendError(client: WebSocketClient, key: Parameters<typeof hostMessage>[1], sessionId?: string): void {
+    client.send({
+      type: 'quickqa-state',
+      phase: 'error',
+      error: hostMessage(locale(), key),
+      ...(sessionId ? { sessionId } : {}),
+    });
+  }
+
+  function remoteSettings(): RemoteSettingsPayload['quickqa'] {
+    const settings = deps.getSettings();
+    const registry = service<WorkspaceRegistryService>(deps.ctx, 'workspaceRegistry');
+    const workspace = (id: string): { id: string; title: string; path: string } | null => {
+      if (!id) return null;
+      try {
+        const entry = registry?.get?.(id);
+        if (!entry) return null;
+        return { id, title: safeString(entry.title, 200) || safeString(entry.path, 400) || id, path: safeString(entry.path, 1000) };
+      } catch {
+        return null;
+      }
+    };
+    const pinned = settings.quickqa.pinnedWorkspaceIds
+      .map((id) => workspace(id))
+      .filter((entry): entry is { id: string; title: string; path: string } => entry !== null);
+    const defaultWorkspace = workspace(settings.quickqa.defaultWorkspaceId);
+    return {
+      voiceReady: isVoiceReady(deps.ctx),
+      defaultWorkspaceId: defaultWorkspace?.id ?? '',
+      defaultWorkspaceTitle: defaultWorkspace?.title ?? '',
+      pinned,
+      pushQuestions: settings.notifications.pushQuestions,
+    };
+  }
+
+  function pendingPayload(info: PendingInfo, pushEnabled: boolean): Record<string, unknown> {
+    if (!pushEnabled) {
+      return {
+        kind: info.kind,
+        question: '',
+        header: '',
+        detail: '',
+        requestId: '',
+        answerable: false,
+        count: info.count ?? 1,
+        questions: [],
+        pushEnabled: false,
+      };
+    }
+    return {
+      kind: info.kind,
+      question: info.question,
+      header: info.header ?? '',
+      detail: info.detail ?? '',
+      requestId: info.requestId ?? '',
+      answerable: info.answerable === true,
+      count: info.count ?? 1,
+      questions: info.questions ?? [],
+      pushEnabled: true,
+    };
+  }
+
+  function pushPending(run: QuickQaRun, info: PendingInfo | null): void {
+    const pushEnabled = deps.getSettings().notifications.pushQuestions;
+    const signature = info
+      ? `${info.kind}|${info.requestId ?? ''}|${info.answerable === true}|${pushEnabled}`
+      : '';
+    if (signature === run.pendingSignature) return;
+    run.pendingSignature = signature;
+    if (!info) {
+      run.client.send({ type: 'quickqa-pending', clear: true, sessionId: run.sessionId });
+      return;
+    }
+    run.client.send({
+      type: 'quickqa-pending',
+      sessionId: run.sessionId,
+      ...pendingPayload(info, pushEnabled),
+    });
+  }
+
+  async function streamAnswer(run: QuickQaRun, text: string, signal: AbortSignal): Promise<void> {
+    run.client.send({ type: 'quickqa-state', phase: 'streaming', sessionId: run.sessionId, workspaceId: run.workspaceId });
+    if (!text) {
+      run.client.send({ type: 'quickqa-state', phase: 'done', sessionId: run.sessionId, workspaceId: run.workspaceId, empty: true });
+      return;
+    }
+    const chars = Array.from(text);
+    const chunkSize = Math.max(2, Math.ceil(chars.length / 120));
+    for (let index = 0; index < chars.length; index += chunkSize) {
+      if (signal.aborted) return;
+      const chunk = chars.slice(index, index + chunkSize).join('');
+      run.client.send({ type: 'quickqa-delta', text: chunk, sessionId: run.sessionId });
+      await sleep(22);
+    }
+    if (signal.aborted) return;
+    run.client.send({ type: 'quickqa-state', phase: 'done', sessionId: run.sessionId, workspaceId: run.workspaceId });
+  }
+
+  async function runTurn(run: QuickQaRun, targetTurn: number, controller: SessionControllerService): Promise<void> {
+    if (!controller.follow) {
+      run.busy = false;
+      pushPending(run, null);
+      sendError(run.client, 'quickqaFollowUnsupported', run.sessionId);
+      return;
+    }
+    const abort = new AbortController();
+    run.abort = abort;
+    run.busy = true;
+    run.pendingSignature = '';
+    let turnEnd: JsonRecord | null = null;
+    let answer = '';
+    let settled = false;
+    let timedOut = false;
+    let failed = false;
+    const pendingTimer = setInterval(() => {
+      try {
+        const list = deps.pending.snapshot(run.sessionId);
+        pushPending(run, list[0] ?? null);
+      } catch {
+        /* pending tracking is best-effort */
+      }
+    }, PENDING_POLL_MS);
+    pendingTimer.unref?.();
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      abort.abort();
+    }, FOLLOW_TIMEOUT_MS);
+    timeout.unref?.();
+
+    const processEvent = (event: JsonRecord): void => {
+      const type = String(event.type || '');
+      if (type === 'turn/start' && turnOf(event) === targetTurn) {
+        answer = '';
+        return;
+      }
+      if (type === 'assistant/message' && turnOf(event) === targetTurn) {
+        const data = isRecord(event.data) ? event.data : {};
+        const message = isRecord(data.message) ? data.message : {};
+        const blocks = Array.isArray(message.content) ? message.content : [];
+        const hasToolCall = blocks.some((block) => isRecord(block) && block.type === 'tool-call');
+        // Intermediate steps (tool calls and their preamble) never reach the
+        // page; only a text-only assistant message can be the final answer.
+        answer = hasToolCall ? '' : messageText(message);
+        return;
+      }
+      if (type === 'turn/end' && turnOf(event) === targetTurn) {
+        turnEnd = event;
+        settled = true;
+      }
+    };
+
+    const processFrame = (value: unknown): void => {
+      if (!isRecord(value)) return;
+      if (value.type === 'snapshot') {
+        const records = Array.isArray(value.records) ? value.records : [];
+        for (const record of records) {
+          if (!isRecord(record)) continue;
+          if (record.type === 'event' && isRecord(record.event)) processEvent(record.event);
+          else if (typeof record.type === 'string') processEvent(record);
+        }
+        return;
+      }
+      if (value.type === 'event' && isRecord(value.event)) {
+        processEvent(value.event);
+        return;
+      }
+      // Assistant stream frames are intentionally ignored: only the final
+      // assistant text is shown, after the turn settles.
+    };
+
+    try {
+      const iterable = controller.follow(
+        { address: { kind: 'session', sessionId: run.sessionId }, assistantStream: false },
+        abort.signal,
+      );
+      const iterator = iterable[Symbol.asyncIterator]();
+      while (!abort.signal.aborted) {
+        const next = await iterator.next();
+        if (next.done) break;
+        processFrame(next.value);
+        if (settled) {
+          await iterator.return?.(undefined);
+          break;
+        }
+      }
+    } catch (errorValue) {
+      if (!abort.signal.aborted) {
+        failed = true;
+        deps.log(`quickqa: follow failed: ${serializeError(errorValue)}`);
+        sendError(run.client, 'quickqaRunFailed', run.sessionId);
+      }
+    } finally {
+      clearInterval(pendingTimer);
+      clearTimeout(timeout);
+      run.abort = null;
+    }
+
+    if (failed) {
+      run.busy = false;
+      pushPending(run, null);
+      return;
+    }
+    if (abort.signal.aborted) {
+      run.busy = false;
+      pushPending(run, null);
+      if (timedOut) sendError(run.client, 'quickqaRunFailed', run.sessionId);
+      return;
+    }
+    if (!turnEnd) {
+      run.busy = false;
+      pushPending(run, null);
+      sendError(run.client, 'quickqaRunFailed', run.sessionId);
+      return;
+    }
+
+    const reason = reasonOf(turnEnd);
+    const kind = String(reason.kind || 'completed');
+    if (kind === 'error') {
+      const detail = isRecord(reason.error) ? String(reason.error.message || '') : '';
+      run.busy = false;
+      pushPending(run, null);
+      run.client.send({
+        type: 'quickqa-state',
+        phase: 'error',
+        sessionId: run.sessionId,
+        workspaceId: run.workspaceId,
+        error: detail || hostMessage(locale(), 'quickqaRunFailed'),
+      });
+      return;
+    }
+    if (kind === 'blocked' || kind === 'interrupted' || kind === 'aborted') {
+      run.busy = false;
+      pushPending(run, null);
+      sendError(run.client, kind === 'blocked' ? 'turnBlocked' : 'quickqaTurnStopped', run.sessionId);
+      return;
+    }
+
+    try {
+      await streamAnswer(run, answer, abort.signal);
+    } finally {
+      run.busy = false;
+      pushPending(run, null);
+    }
+  }
+
+  async function prompt(
+    run: QuickQaRun,
+    text: string,
+    controller: SessionControllerService,
+    agents: AgentsService | undefined,
+    sessions: SessionsService | undefined,
+  ): Promise<void> {
+    const session = sessions?.get?.(run.sessionId);
+    let baseline = 0;
+    try {
+      baseline = Number(agents?.turnBoundaryOf?.(session ?? {})?.lastTurn) || 0;
+    } catch {
+      baseline = 0;
+    }
+    const targetTurn = baseline + 1;
+    run.busy = true;
+    run.client.send({
+      type: 'quickqa-state',
+      phase: 'thinking',
+      sessionId: run.sessionId,
+      workspaceId: run.workspaceId,
+      question: text,
+    });
+    try {
+      await controller.prompt?.({
+        requestId: crypto.randomUUID(),
+        sessionId: run.sessionId,
+        mode: 'queue',
+        content: [{ type: 'text', text }],
+      }, new AbortController().signal);
+    } catch (errorValue) {
+      run.busy = false;
+      deps.log(`quickqa: prompt failed: ${serializeError(errorValue)}`);
+      sendError(run.client, 'quickqaPromptFailed', run.sessionId);
+      return;
+    }
+    await runTurn(run, targetTurn, controller);
+  }
+
+  async function startNew(
+    client: WebSocketClient,
+    text: string,
+    requestedWorkspaceId: string,
+  ): Promise<void> {
+    const controller = service<SessionControllerService>(deps.ctx, 'sessionController');
+    if (!controller?.create || !controller.prompt) {
+      sendError(client, 'quickqaUnsupported');
+      return;
+    }
+    const settings = deps.getSettings();
+    const workspaceId = resolveWorkspaceId(deps, requestedWorkspaceId);
+    const profile = profileFor(settings, workspaceId);
+    const placeholder: QuickQaRun = {
+      client,
+      sessionId: '',
+      workspaceId,
+      agentPreset: profile.agentPreset,
+      permissionPreset: profile.permissionPreset,
+      busy: true,
+      abort: null,
+      pendingSignature: '',
+    };
+    runs.set(client.id, placeholder);
+    try {
+      const created = await controller.create({
+        ...(workspaceId ? { workspaceId } : {}),
+        ...(profile.agentPreset ? { agentPreset: profile.agentPreset } : {}),
+      });
+      const sessionId = safeString(created?.sessionId, 300);
+      if (!sessionId) throw new Error('session was not created');
+      placeholder.sessionId = sessionId;
+      const options = await catalog.read();
+      await selectModel(deps, options, sessionId, bestQuickQaSelection(settings.quickqa.model, options.model));
+      selectPermission(deps, sessionId, profile.permissionPreset);
+      const agents = service<AgentsService>(deps.ctx, 'agents');
+      const sessions = service<SessionsService>(deps.ctx, 'sessions');
+      await prompt(placeholder, text, controller, agents, sessions);
+    } catch (errorValue) {
+      runs.delete(client.id);
+      deps.log(`quickqa: session creation failed: ${serializeError(errorValue)}`);
+      client.send({
+        type: 'quickqa-state',
+        phase: 'error',
+        error: hostMessage(locale(), 'quickqaCreateFailed', { error: serializeError(errorValue) }),
+      });
+    }
+  }
+
+  async function followUp(client: WebSocketClient, run: QuickQaRun, text: string): Promise<void> {
+    const controller = service<SessionControllerService>(deps.ctx, 'sessionController');
+    if (!controller?.prompt) {
+      sendError(client, 'quickqaUnsupported', run.sessionId);
+      return;
+    }
+    const agents = service<AgentsService>(deps.ctx, 'agents');
+    const sessions = service<SessionsService>(deps.ctx, 'sessions');
+    await prompt(run, text, controller, agents, sessions);
+  }
+
+  async function handleAsk(client: WebSocketClient, message: JsonRecord): Promise<void> {
+    const text = safeString(message.text, 20_000).trim();
+    if (!text) {
+      sendError(client, 'quickqaEmptyText');
+      return;
+    }
+    if (!isVoiceReady(deps.ctx)) {
+      sendError(client, 'quickqaVoiceNotReady');
+      return;
+    }
+    let run = runs.get(client.id) ?? null;
+    if (run?.busy) {
+      sendError(client, 'quickqaBusy', run.sessionId || undefined);
+      return;
+    }
+    const requestedSession = safeString(message.sessionId, 300);
+    if (requestedSession) {
+      if (!run || run.sessionId !== requestedSession) {
+        sendError(client, 'quickqaUnknownSession');
+        return;
+      }
+      await followUp(client, run, text);
+      return;
+    }
+    if (run) runs.delete(client.id);
+    await startNew(client, text, safeString(message.workspaceId, 300));
+  }
+
+  async function handleMessage(client: WebSocketClient, message: unknown): Promise<boolean> {
+    if (!isRecord(message)) return false;
+    if (message.type === 'quickqa-ask') {
+      await handleAsk(client, message);
+      return true;
+    }
+    if (message.type === 'quickqa-reset') {
+      const run = runs.get(client.id);
+      if (run) {
+        run.abort?.abort();
+        runs.delete(client.id);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  return {
+    readOptions: (force = false) => catalog.read(force),
+    remoteSettings,
+    isVoiceReady: () => isVoiceReady(deps.ctx),
+    async transcribe(audio: Uint8Array, signal: AbortSignal) {
+      if (!audio || audio.length < 44) throw new Error('voice-input-empty');
+      if (!isVoiceReady(deps.ctx)) throw new Error('voice-input-not-ready');
+      return transcribeAudio(deps.ctx, audio, signal);
+    },
+    handleMessage,
+    detach(clientId: string) {
+      const run = runs.get(clientId);
+      if (!run) return;
+      run.abort?.abort();
+      runs.delete(clientId);
+    },
+    dispose() {
+      for (const run of runs.values()) run.abort?.abort();
+      runs.clear();
+    },
+  };
+}

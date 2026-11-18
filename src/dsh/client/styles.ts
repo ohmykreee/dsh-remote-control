@@ -576,6 +576,85 @@ export const CSS = `
 .drc-field input:focus { border-color: var(--dsw-alias-state-business-primary, var(--drc-accent)); }
 .drc-field input:disabled { opacity: 0.5; cursor: not-allowed; }
 
+.drc-field select {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  border: 0.5px solid var(--drc-hairline);
+  border-radius: var(--drc-radius);
+  outline: none;
+  background: var(--drc-surface-3);
+  color: var(--drc-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.drc-field select:focus { border-color: var(--dsw-alias-state-business-primary, var(--drc-accent)); }
+.drc-field select:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Quick Q&A: compact voice row and one horizontal settings row per workspace. */
+.drc-quickqa-gated { display: flex; flex-direction: column; gap: 16px; opacity: 0.62; }
+.drc-quickqa-voice-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  padding: 8px 0 4px;
+}
+.drc-quickqa-voice-row .drc-row-desc { flex: 1 1 180px; margin: 0; }
+.drc-quickqa-voice-row .drc-status { flex: 0 0 auto; }
+.drc-quickqa-workspaces { display: flex; flex-direction: column; }
+.drc-quickqa-workspace-row {
+  display: grid;
+  grid-template-columns: minmax(210px, 1fr) minmax(300px, 0.92fr);
+  align-items: end;
+  gap: 12px 18px;
+  padding: 10px 0;
+  border-bottom: 0.5px solid var(--drc-hairline);
+}
+.drc-quickqa-workspace-row:last-child { border-bottom: 0; }
+.drc-quickqa-workspace-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  cursor: pointer;
+}
+.drc-quickqa-workspace-check input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex: 0 0 auto;
+  accent-color: var(--drc-accent);
+}
+.drc-quickqa-workspace-check input[type='checkbox']:disabled { cursor: not-allowed; }
+.drc-quickqa-workspace-name {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+}
+.drc-quickqa-workspace-name .drc-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drc-quickqa-workspace-name .drc-code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drc-quickqa-profile { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.drc-list-row.is-disabled { opacity: 0.7; }
+.drc-list-row.is-disabled input { cursor: not-allowed; }
+
+@media (max-width: 760px) {
+  .drc-quickqa-workspace-row { grid-template-columns: 1fr; align-items: stretch; }
+}
+
 .drc-field-area { flex-basis: 100%; }
 
 .drc-field textarea {

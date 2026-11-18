@@ -117,8 +117,19 @@ def demo_payloads(locale: str = "zh", timer: str = "pomodoro", theme: str = "dar
         "temperatureUnit": "celsius",
         "pushQuestions": True,
         "navPosition": "left",
-        "pageOrder": ["home", "sessions", "music", "performance"],
-        "pageEnabled": {"home": True, "sessions": True, "music": True, "performance": True},
+        "pageOrder": ["home", "sessions", "quickqa", "music", "performance"],
+        "pageEnabled": {"home": True, "sessions": True, "quickqa": True, "music": True, "performance": True},
+        "quickqa": {
+            "voiceReady": True,
+            "defaultWorkspaceId": "ws-demo",
+            "defaultWorkspaceTitle": "演示工作区",
+            "pinned": [
+                {"id": "ws-docs", "title": "产品文档", "path": "D:\\demo\\docs"},
+                {"id": "ws-app", "title": "客户端应用", "path": "D:\\demo\\app"},
+                {"id": "ws-infra", "title": "基础设施", "path": "D:\\demo\\infra"},
+            ],
+            "pushQuestions": True,
+        },
         "pomodoro": {
             "enabled": timer == "pomodoro",
             "focusMinutes": 25,
@@ -406,6 +417,133 @@ def mock_socket_script(messages: list[dict]) -> str:
         this.readyState = 1;
         this._emit('open', {});
         for (const message of MESSAGES) this._emit('message', { data: JSON.stringify(message) });
+        const quickDemo = params.get('quickqa');
+        if (quickDemo) {
+          const sessionId = 's-quickqa-demo';
+          const push = (payload) => this._emit('message', { data: JSON.stringify(payload) });
+          const state = (phase, question) => push({ type: 'quickqa-state', phase, sessionId, workspaceId: 'ws-demo', ...(question ? { question } : {}) });
+          setTimeout(() => {
+            if (quickDemo === 'thinking') {
+              state('thinking', '演示问题：帮我总结今天的工作安排。');
+            } else if (quickDemo === 'streaming') {
+              state('thinking', '演示问题：现在项目进展如何？');
+              state('streaming');
+              const chunks = ['这是', '一份', '流式', '回答', '。'];
+              let index = 0;
+              const timer = setInterval(() => {
+                if (index >= chunks.length) { clearInterval(timer); return; }
+                push({ type: 'quickqa-delta', text: chunks[index++], sessionId });
+              }, 160);
+            } else if (quickDemo === 'done') {
+              state('thinking', '演示问题：现在项目进展如何？');
+              state('streaming');
+              const text = [
+                '### 快速问答长文本测试',
+                '',
+                '这是一个用于验证 **自动滚动** 和底部按钮占位的长回答。回答内容会持续增加，页面应始终把最新进度放在对话框最下面。',
+                '',
+                '#### 第一部分：滚动行为',
+                '',
+                '当内容超过对话框高度时，回答区域应该自动滚动到底部。这样用户不需要手动拖动，也能一直看到最新的流式输出。为了模拟真实的长回答，这里继续补充一段较长的说明文字，确保内容高度明显超过卡片可视区域。',
+                '',
+                '#### 第二部分：按钮占位',
+                '',
+                '回答结束后，底部的「继续追问」和「新会话」按钮会重新出现。它们位于聊天卡片的正常布局中，不覆盖最后一段回答；如果内容较长，滚动到底部时最后一行应该完整显示在按钮上方。',
+                '',
+                '| 项目 | 状态 |',
+                '| --- | --- |',
+                '| 自动滚动 | 已启用 |',
+                '| 按钮占位 | 已预留 |',
+                '| Markdown | 已渲染 |',
+                '',
+                '1. 思考中只显示状态',
+                '2. 回答时持续更新',
+                '3. 结束后显示两个按钮',
+                '',
+                '> 这里是一段引用块，用来检查长回答在滚动容器中的排版。',
+                '',
+                '    const ready = true; // 缩进代码块',
+                '',
+                '#### 第三部分：结尾',
+                '',
+                '最后再补充一段较长的文字，确保自动滚动确实发生在对话框内部，而不是整个页面。滚动到底部后，底部按钮应该保持可见，且最后一段文字不会被按钮遮挡。',
+                '',
+                '更多说明见 [示例链接](https://example.com)。',
+              ].join(String.fromCharCode(10));
+              let index = 0;
+              const timer = setInterval(() => {
+                if (index >= text.length) {
+                  clearInterval(timer);
+                  state('done');
+                  return;
+                }
+                push({ type: 'quickqa-delta', text: text.slice(index, index + 6), sessionId });
+                index += 6;
+              }, 20);
+            } else if (quickDemo === 'second') {
+              const stream = (value, after) => {
+                state('streaming');
+                let cursor = 0;
+                const timer = setInterval(() => {
+                  if (cursor >= value.length) {
+                    clearInterval(timer);
+                    state('done');
+                    after?.();
+                    return;
+                  }
+                  push({ type: 'quickqa-delta', text: value.slice(cursor, cursor + 2), sessionId });
+                  cursor += 2;
+                }, 26);
+              };
+              state('thinking', '第一轮问题：总结今天的安排。');
+              stream('第一轮回答：这是快速问答的第一轮结果。', () => {
+                setTimeout(() => {
+                  state('thinking', '第二轮问题：再补充明天的计划。');
+                  setTimeout(() => stream('第二轮回答：这是追加询问后的第二轮结果。'), 900);
+                }, 900);
+              });
+            } else if (quickDemo === 'question') {
+              state('thinking', '要使用哪种模式继续？');
+              setTimeout(() => push({
+                type: 'quickqa-pending',
+                sessionId,
+                kind: 'question',
+                question: '要使用哪种模式继续？',
+                header: '运行模式',
+                detail: '',
+                requestId: 'quick-call-1',
+                answerable: true,
+                count: 1,
+                pushEnabled: true,
+                questions: [{
+                  id: 'mode',
+                  question: '选择运行模式',
+                  header: '运行模式',
+                  options: [
+                    { label: '快速（推荐）', description: '优先完成当前请求' },
+                    { label: '稳定', description: '先补齐测试' },
+                  ],
+                  multiSelect: false,
+                }],
+              }), 600);
+            } else if (quickDemo === 'approval') {
+              state('thinking', '请允许读取项目文件。');
+              setTimeout(() => push({
+                type: 'quickqa-pending',
+                sessionId,
+                kind: 'approval',
+                question: '需要允许读取项目文件',
+                header: '文件读取',
+                detail: '',
+                requestId: 'quick-call-2',
+                answerable: false,
+                count: 1,
+                pushEnabled: true,
+                questions: [],
+              }), 600);
+            }
+          }, 700);
+        }
         if (wantSheet) {
           setTimeout(() => {
             const state = window.__DSH_REMOTE__;

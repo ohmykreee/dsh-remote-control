@@ -7,6 +7,7 @@
   import { cn } from '$lib/utils.js';
   import House from '@lucide/svelte/icons/house';
   import Layers3 from '@lucide/svelte/icons/layers-3';
+  import Mic from '@lucide/svelte/icons/mic';
   import Music2 from '@lucide/svelte/icons/music-2';
   import Cpu from '@lucide/svelte/icons/cpu';
   import Maximize2 from '@lucide/svelte/icons/maximize-2';
@@ -37,6 +38,7 @@
   const icons: Record<PageKey, Component<{ class?: string; strokeWidth?: number }>> = {
     home: House,
     sessions: Layers3,
+    quickqa: Mic,
     music: Music2,
     performance: Cpu,
   };

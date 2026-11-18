@@ -1,6 +1,6 @@
 import type { PageKey } from './types';
 
-export const DEFAULT_ORDER: readonly PageKey[] = ['home', 'sessions', 'music', 'performance'];
+export const DEFAULT_ORDER: readonly PageKey[] = ['home', 'sessions', 'quickqa', 'music', 'performance'];
 
 export function normalizeOrder(input: unknown): PageKey[] {
   const keys = Array.isArray(input)

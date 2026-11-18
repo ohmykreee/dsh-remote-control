@@ -1,7 +1,7 @@
 /** Wires the Rust probe into the platform-independent service interfaces. */
 
-import { createNotificationService } from '../notifications.js';
-import { createProbeMediaAdapter } from '../probe-adapter.js';
+import { createNotificationService } from '../notifications/index.js';
+import { createProbeMediaAdapter } from '../probe/adapter.js';
 
 const LABELS: Record<string, string> = {
   win32: 'Windows',

@@ -9,31 +9,31 @@
  *    (or when NMC has no matching station).
  */
 
-import type { PluginLocale } from './settings.js';
+import type { PluginLocale } from '../settings/index.js';
 import {
   minimumQWeatherRefreshMinutes,
   type RemoteControlSettings,
   type WeatherProvider,
   type WeatherSettings,
-} from './settings.js';
-import type { PluginCacheStore } from './cache.js';
-import { probeInfo, runProbe } from './probe.js';
-import { WeatherQuotaError, isRecord } from './types.js';
-import type { JsonRecord } from './types.js';
-import { finiteNumber, safeString, serializeError } from './util.js';
-import { fetchOpenMeteoWeather, searchOpenMeteoCities } from './weather/open-meteo.js';
+} from '../settings/index.js';
+import type { PluginCacheStore } from '../cache/index.js';
+import { probeInfo, runProbe } from '../probe/index.js';
+import { WeatherQuotaError, isRecord } from '../shared/types.js';
+import type { JsonRecord } from '../shared/types.js';
+import { finiteNumber, safeString, serializeError } from '../shared/util.js';
+import { fetchOpenMeteoWeather, searchOpenMeteoCities } from './open-meteo.js';
 import {
   fetchQWeatherWeather,
   fetchQWeatherConsole,
   qweatherConfigured,
   searchQWeatherCities,
-} from './weather/qweather.js';
+} from './qweather.js';
 import {
   fetchNmcWeather,
   resolveNmcCity,
   searchNmcCities,
-} from './weather/nmc.js';
-import { fetchJson, isChinaCountry } from './weather/shared.js';
+} from './nmc.js';
+import { fetchJson, isChinaCountry } from './shared.js';
 import type {
   GeocodePlace,
   ProviderLocation,
@@ -45,7 +45,7 @@ import type {
   WeatherQuotaStatus,
   WeatherService,
   WeatherStatus,
-} from './types.js';
+} from '../shared/types.js';
 
 const WEATHER_TTL_MS = 10 * 60 * 1000;
 const WEATHER_ERROR_TTL_MS = 45 * 1000;

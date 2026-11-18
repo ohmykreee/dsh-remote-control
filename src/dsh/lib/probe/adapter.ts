@@ -8,10 +8,10 @@
  * Media progress smoothing / seek eligibility lives in `media-enrich.js`.
  */
 
-import type { JsonRecord, ProbeMediaResult, PublicMedia } from './types.js';
-import { probeInfo, materializeThumbnail, runProbe } from './probe.js';
-import { createMediaEnrichment, mediaKey } from './media-enrich.js';
-import { clamp, finiteNumber, serializeError } from './util.js';
+import type { JsonRecord, ProbeMediaResult, PublicMedia } from '../shared/types.js';
+import { probeInfo, materializeThumbnail, runProbe } from './index.js';
+import { createMediaEnrichment, mediaKey } from '../media/enrich.js';
+import { clamp, finiteNumber, serializeError } from '../shared/util.js';
 
 const MEDIA_TTL_MS = 1400;
 const VOLUME_TTL_MS = 3000;

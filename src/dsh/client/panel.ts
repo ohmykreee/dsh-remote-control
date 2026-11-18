@@ -12,6 +12,7 @@ import {
   APP_NAMES_URL,
   DISCONNECT_URL,
   LOCATION_URL,
+  QUICKQA_OPTIONS_URL,
   SETTINGS_URL,
   TOKEN_URL,
   WEATHER_REFRESH_URL,
@@ -43,12 +44,14 @@ import { renderConnection } from './sections/connection.js';
 import { renderNotifications } from './sections/notifications.js';
 import { renderPomodoro } from './sections/pomodoro.js';
 import { renderPreferences } from './sections/preferences.js';
+import { renderQuickQa } from './sections/quickqa.js';
 import { renderSystem } from './sections/system.js';
 import { renderWeather } from './sections/weather.js';
 import type {
   DraftState,
   LocationResult,
   PanelApi,
+  QuickQaOptionsPayload,
   RemoteApp,
   RemoteClient,
   RemoteInfo,
@@ -60,11 +63,12 @@ import type {
 
 const { useEffect, useState, useCallback, useRef } = React;
 
-type SectionKey = 'connection' | 'preferences' | 'pomodoro' | 'weather' | 'balance' | 'notifications' | 'apps' | 'system';
+type SectionKey = 'connection' | 'preferences' | 'quickqa' | 'pomodoro' | 'weather' | 'balance' | 'notifications' | 'apps' | 'system';
 
 const MENU: Array<{ key: SectionKey; labelKey: string; icon: string }> = [
   { key: 'connection', labelKey: 'connection', icon: 'link' },
   { key: 'preferences', labelKey: 'menuPlugin', icon: 'sliders' },
+  { key: 'quickqa', labelKey: 'menuQuickQa', icon: 'mic' },
   { key: 'pomodoro', labelKey: 'menuPomodoro', icon: 'timer' },
   { key: 'weather', labelKey: 'menuWeather', icon: 'cloud' },
   { key: 'balance', labelKey: 'menuBalance', icon: 'wallet' },
@@ -120,6 +124,8 @@ export function RemotePanel(): React.ReactElement {
   const [locationResult, setLocationResult] = useState<LocationResult | null>(null);
   const [staged, setStaged] = useState<StagedSettings>({});
   const [settingsVersion, setSettingsVersion] = useState(0);
+  const [quickQaOptions, setQuickQaOptions] = useState<QuickQaOptionsPayload | null>(null);
+  const [quickQaBusy, setQuickQaBusy] = useState(false);
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const orderListRef = useRef<HTMLDivElement | null>(null);
@@ -183,12 +189,28 @@ export function RemotePanel(): React.ReactElement {
     }
   }, []);
 
+  /** Live voice/model/workspace/mode/permission catalogs for the quick section. */
+  const refreshQuickQaOptions = useCallback(async (force = false): Promise<void> => {
+    setQuickQaBusy(true);
+    try {
+      const payload = await requestJson(`${QUICKQA_OPTIONS_URL}${force ? '?refresh=1' : ''}`);
+      if (isRecord(payload) && payload.ok !== false) {
+        setQuickQaOptions(payload as unknown as QuickQaOptionsPayload);
+      }
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setQuickQaBusy(false);
+    }
+  }, []);
+
   const save = useCallback(async (patch: SavePatch): Promise<void> => {
     setBusy(true);
     setError('');
     try {
       hydrate(await postJson(SETTINGS_URL, patch));
       setSettingsVersion((current) => current + 1);
+      void refreshQuickQaOptions(true);
       setNotice(t('saved'));
       window.setTimeout(() => setNotice(''), 1600);
     } catch (err) {
@@ -196,13 +218,25 @@ export function RemotePanel(): React.ReactElement {
     } finally {
       setBusy(false);
     }
-  }, [hydrate, t]);
+  }, [hydrate, refreshQuickQaOptions, t]);
 
   const stage = useCallback((patch: StagedSettings): void => {
     setStaged((current) => mergeStaged(current, patch));
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (!data) return;
+    void refreshQuickQaOptions();
+  }, [data, refreshQuickQaOptions]);
+
+  useEffect(() => {
+    if (section !== 'quickqa') return;
+    void refreshQuickQaOptions();
+    const timer = window.setInterval(() => { void refreshQuickQaOptions(); }, 5000);
+    return () => window.clearInterval(timer);
+  }, [section, refreshQuickQaOptions]);
 
   const copy = async (): Promise<void> => {
     const url = data?.info?.routes?.remote || '';
@@ -428,6 +462,9 @@ export function RemotePanel(): React.ReactElement {
     copied,
     order,
     labels,
+    quickQaOptions,
+    quickQaBusy,
+    refreshQuickQaOptions,
     draggingKey,
     dragIndex,
     selectedInterfaces,
@@ -456,12 +493,13 @@ export function RemotePanel(): React.ReactElement {
 
   const content: React.ReactElement = section === 'connection' ? renderConnection(api)
     : section === 'preferences' ? renderPreferences(api)
-      : section === 'pomodoro' ? renderPomodoro(api)
-        : section === 'weather' ? renderWeather(api)
-          : section === 'balance' ? renderBalance(api)
-            : section === 'notifications' ? renderNotifications(api)
-              : section === 'apps' ? renderAppMapping(api)
-                : renderSystem(api);
+      : section === 'quickqa' ? renderQuickQa(api)
+        : section === 'pomodoro' ? renderPomodoro(api)
+          : section === 'weather' ? renderWeather(api)
+            : section === 'balance' ? renderBalance(api)
+              : section === 'notifications' ? renderNotifications(api)
+                : section === 'apps' ? renderAppMapping(api)
+                  : renderSystem(api);
 
   return h('div', { className: 'drc-page' },
     h('style', null, CSS),

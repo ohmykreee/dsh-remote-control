@@ -11,6 +11,7 @@
   import { cn } from '$lib/utils.js';
   import X from '@lucide/svelte/icons/x';
   import MessageCircle from '@lucide/svelte/icons/message-circle';
+  import ShieldAlert from '@lucide/svelte/icons/shield-alert';
   import Check from '@lucide/svelte/icons/check';
   import PencilLine from '@lucide/svelte/icons/pencil-line';
   import ArrowUp from '@lucide/svelte/icons/arrow-up';
@@ -29,9 +30,10 @@
 
   const session = $derived(app.sessions.find((item) => item.id === app.answerSessionId) ?? null);
   const pending = $derived(session?.pending ?? null);
+  const isApproval = $derived(pending?.kind === 'approval');
   const questions = $derived<SessionQuestion[]>(pending?.questions ?? []);
-  const opened = $derived(Boolean(session && pending && questions.length > 0));
-  const needsSubmit = $derived(questions.length > 1 || questions.some((question) => question.multiSelect === true));
+  const opened = $derived(Boolean(session && pending && (isApproval || questions.length > 0)));
+  const needsSubmit = $derived(!isApproval && (questions.length > 1 || questions.some((question) => question.multiSelect === true)));
   const complete = $derived(questions.every((_, index) => isComplete(index)));
 
   let drafts = $state<Draft[]>([]);
@@ -56,7 +58,8 @@
 
   $effect(() => {
     if (!app.answerSessionId) return;
-    if (!app.pushQuestions || !session || pending?.answerable === false || questions.length === 0) closeQuestion();
+    if (!app.pushQuestions || !session) closeQuestion();
+    else if (!isApproval && (pending?.answerable === false || questions.length === 0)) closeQuestion();
   });
 
   function close(): void {
@@ -167,15 +170,25 @@
     <div class="flex shrink-0 items-start justify-between gap-4 border-b border-border p-3.5">
       <div class="flex min-w-0 items-start gap-3">
         <span class="grid size-11 shrink-0 place-items-center rounded-[13px] border border-warn/20 bg-warn-soft text-warn">
-          <MessageCircle class="size-[24px]" strokeWidth={1.7} />
+          {#if isApproval}
+            <ShieldAlert class="size-[24px]" strokeWidth={1.7} />
+          {:else}
+            <MessageCircle class="size-[24px]" strokeWidth={1.7} />
+          {/if}
         </span>
         <div class="min-w-0">
-          <p class="eyebrow text-warn">WAITING FOR ANSWER</p>
+          <p class="eyebrow text-warn">{isApproval ? t('approvalRequired') : 'WAITING FOR ANSWER'}</p>
           <Dialog.Title class="mt-1 truncate text-[24px] font-semibold tracking-[-0.03em]">
-            {session?.title || t('sessionQuestion')}
+            {session?.title || (isApproval ? t('approvalRequired') : t('sessionQuestion'))}
           </Dialog.Title>
           <Dialog.Description class="mt-1 text-[14px] leading-relaxed">
-            {questions.length > 1 ? t('questionCount', { count: questions.length }) : t('chooseOption')}
+            {#if isApproval}
+              {t('approvalInDsh')}
+            {:else if questions.length > 1}
+              {t('questionCount', { count: questions.length })}
+            {:else}
+              {t('chooseOption')}
+            {/if}
           </Dialog.Description>
         </div>
       </div>
@@ -195,6 +208,23 @@
 
     <ScrollArea class="min-h-0 flex-1">
       <div class="flex flex-col gap-2.5 p-3.5">
+        {#if isApproval}
+          <Card class="gap-0 rounded-[16px] border border-warn/25 bg-warn-soft/55 p-3.5 shadow-none ring-0 [--card-spacing:0px]">
+            <div class="flex items-start gap-2.5">
+              <ShieldAlert class="mt-0.5 size-[22px] shrink-0 text-warn" strokeWidth={1.7} />
+              <div class="min-w-0">
+                <h3 class="text-[18px] leading-snug font-semibold text-foreground">
+                  {pending?.question || t('approvalRequired')}
+                </h3>
+                {#if pending?.header}
+                  <Badge variant="outline" class="mt-2 h-7 border-warn/20 bg-warn-soft px-3 text-[13px] font-medium text-warn">
+                    {pending.header}
+                  </Badge>
+                {/if}
+              </div>
+            </div>
+          </Card>
+        {/if}
         {#each questions as question, index (question.id)}
           <Card class="gap-0 rounded-[16px] border border-border bg-surface-2/55 p-3.5 shadow-none ring-0 [--card-spacing:0px]">
             {#if question.header}
@@ -348,6 +378,17 @@
             {busy ? t('sending') : t('sendAnswer')}
           </Button>
         </div>
+      </div>
+    {:else if isApproval}
+      <div class="mt-0 flex shrink-0 border-t border-border bg-card p-4">
+        <Button
+          variant="outline"
+          class="h-12 w-full rounded-[13px] border-border bg-transparent text-[16px] shadow-none hover:bg-secondary"
+          type="button"
+          onclick={close}
+        >
+          {t('close')}
+        </Button>
       </div>
     {/if}
   </Dialog.Content>

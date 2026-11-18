@@ -20,6 +20,7 @@ export const THEME_PATH = `${ROUTE_PREFIX}/api/theme`;
 export const LOCALE_PATH = `${ROUTE_PREFIX}/api/locale`;
 export const TOKEN_ROTATE_PATH = `${ROUTE_PREFIX}/api/token/rotate`;
 export const DISCONNECT_PATH = `${ROUTE_PREFIX}/api/disconnect`;
+export const QUICKQA_OPTIONS_PATH = `${ROUTE_PREFIX}/api/quickqa`;
 
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));

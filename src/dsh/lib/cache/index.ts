@@ -8,9 +8,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { isRecord } from './types.js';
-import type { JsonRecord } from './types.js';
-import type { QWeatherConsoleSnapshot } from './types.js';
+import { isRecord } from '../shared/types.js';
+import type { JsonRecord } from '../shared/types.js';
+import type { QWeatherConsoleSnapshot } from '../shared/types.js';
 
 const CACHE_FILE = 'cache.json';
 const LEGACY_CACHE_FILE = 'notification-cache.json';

@@ -18,10 +18,10 @@ import type { ExecFileOptionsWithStringEncoding } from 'node:child_process';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { serializeError } from './util.js';
-import type { JsonRecord, ProbeMediaResult } from './types.js';
-import { isRecord } from './types.js';
-import { ProbeDaemonClient, ProbeDaemonStartError } from './probe-daemon.js';
+import { serializeError } from '../shared/util.js';
+import type { JsonRecord, ProbeMediaResult } from '../shared/types.js';
+import { isRecord } from '../shared/types.js';
+import { ProbeDaemonClient, ProbeDaemonStartError } from './daemon.js';
 
 const ARCH = process.arch;
 const DIRECTORY = `${process.platform}-${ARCH}`;

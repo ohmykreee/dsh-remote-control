@@ -1,4 +1,4 @@
-export type PageKey = 'home' | 'sessions' | 'music' | 'performance';
+export type PageKey = 'home' | 'sessions' | 'quickqa' | 'music' | 'performance';
 export type TemperatureUnit = 'celsius' | 'fahrenheit';
 export type Theme = 'dark' | 'light';
 export type NavPosition = 'left' | 'right' | 'top' | 'bottom';
@@ -28,8 +28,30 @@ export interface ConsoleSettings {
   pomodoro?: Partial<PomodoroSettings>;
   countdown?: Partial<CountdownSettings>;
   tls?: { enabled?: boolean; advanced?: { wakeLock?: boolean } };
+  quickqa?: QuickQaSettings;
   pageOrder?: string[];
   pageEnabled?: Partial<Record<PageKey, boolean>>;
+}
+
+/** Quick Q&A configuration pushed with the settings snapshot. */
+export interface QuickQaSettings {
+  voiceReady?: boolean;
+  defaultWorkspaceId?: string;
+  defaultWorkspaceTitle?: string;
+  pinned?: Array<{ id: string; title: string; path: string }>;
+  pushQuestions?: boolean;
+}
+
+export interface QuickQaPending {
+  kind?: string;
+  question?: string;
+  header?: string;
+  detail?: string;
+  requestId?: string;
+  answerable?: boolean;
+  count?: number;
+  questions?: SessionQuestion[];
+  pushEnabled?: boolean;
 }
 
 export interface WeatherCurrent {
@@ -140,6 +162,8 @@ export interface SessionItem {
   /** Open turn start time from DSH, used for the live running duration. */
   runningSince?: number | null;
   lastActiveAt?: number;
+  /** Local placeholder used while a quick-Q&A inquiry waits for its first snapshot. */
+  syntheticQuickQa?: boolean;
 }
 
 export interface BalanceInfo {
@@ -268,6 +292,7 @@ export interface ConsoleState {
   navPosition: NavPosition;
   pomodoro: PomodoroSettings;
   countdown: CountdownSettings;
+  quickqa: QuickQaSettings;
   balanceDisplay: { showPeakValley: boolean; spendWindow: 'calendar' | 'rolling' };
   pageOrder: PageKey[];
   pageEnabled: Record<PageKey, boolean>;
@@ -304,7 +329,9 @@ export type ClientMessage =
   | { type: 'settings' }
   | { type: 'refresh' }
   | { type: 'action'; action: string; value?: number | boolean }
-  | { type: 'answer-question'; sessionId: string; requestId: string; answers: QuestionAnswerItem[] };
+  | { type: 'answer-question'; sessionId: string; requestId: string; answers: QuestionAnswerItem[] }
+  | { type: 'quickqa-ask'; text: string; workspaceId?: string; sessionId?: string }
+  | { type: 'quickqa-reset' };
 
 export interface ServerMessage {
   type?: string;
@@ -314,4 +341,17 @@ export interface ServerMessage {
   error?: string;
   sessionId?: string;
   requestId?: string;
+  phase?: string;
+  text?: string;
+  workspaceId?: string;
+  question?: string;
+  empty?: boolean;
+  clear?: boolean;
+  kind?: string;
+  header?: string;
+  detail?: string;
+  answerable?: boolean;
+  count?: number;
+  questions?: SessionQuestion[];
+  pushEnabled?: boolean;
 }

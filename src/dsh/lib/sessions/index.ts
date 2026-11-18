@@ -1,10 +1,10 @@
 /** Live DSH sessions, their status, and pending question/approval tracking. */
 
-import { isRecord } from './types.js';
-import type { DshContext, DshEventHandler, JsonRecord } from './types.js';
-import { hostMessage } from './i18n.js';
-import type { PluginLocale } from './settings.js';
-import { basename, finiteNumber, serializeError } from './util.js';
+import { isRecord } from '../shared/types.js';
+import type { DshContext, DshEventHandler, JsonRecord } from '../shared/types.js';
+import { hostMessage } from '../i18n/index.js';
+import type { PluginLocale } from '../settings/index.js';
+import { basename, finiteNumber, serializeError } from '../shared/util.js';
 
 /** Console status of one session row, ranked in this order. */
 export type SessionStatus = 'question' | 'running' | 'error' | 'done';

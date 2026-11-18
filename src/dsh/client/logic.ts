@@ -5,6 +5,7 @@ import type {
   DraftState,
   LocationResult,
   ProviderLocationSettings,
+  QuickQaSettings,
   RemoteApp,
   RemoteSettings,
   SavePatch,
@@ -16,7 +17,7 @@ import type {
 } from './types.js';
 import { isRecord } from './api.js';
 
-export const PAGE_ORDER: string[] = ['home', 'sessions', 'music', 'performance'];
+export const PAGE_ORDER: string[] = ['home', 'sessions', 'quickqa', 'music', 'performance'];
 
 /** Provider order used by the settings list and the quota fallback priority. */
 export const WEATHER_PROVIDERS: WeatherProviderId[] = ['nmc', 'open-meteo', 'qweather'];
@@ -184,6 +185,7 @@ export function pageLabels(t: Translator): Record<string, string> {
   return {
     home: t('pageHome'),
     sessions: t('pageSessions'),
+    quickqa: t('pageQuickQa'),
     music: t('pageMusic'),
     performance: t('pagePerformance'),
   };
@@ -246,6 +248,16 @@ function mergeWeatherSettings(
   return merged;
 }
 
+function mergeQuickQaSettings(base: QuickQaSettings | undefined, staged: QuickQaSettings | undefined): QuickQaSettings {
+  return {
+    ...(base ?? {}),
+    ...(staged ?? {}),
+    model: { ...(base?.model ?? {}), ...(staged?.model ?? {}) },
+    pinnedWorkspaceIds: staged?.pinnedWorkspaceIds ?? base?.pinnedWorkspaceIds ?? [],
+    profiles: { ...(base?.profiles ?? {}), ...(staged?.profiles ?? {}) },
+  };
+}
+
 /** Layer staged edits over the Host settings document for rendering. */
 export function buildSettingsView(base: RemoteSettings, staged: StagedSettings): RemoteSettings {
   return {
@@ -261,6 +273,7 @@ export function buildSettingsView(base: RemoteSettings, staged: StagedSettings):
     },
     pomodoro: { ...(base.pomodoro ?? {}), ...(staged.pomodoro ?? {}) },
     countdown: { ...(base.countdown ?? {}), ...(staged.countdown ?? {}) },
+    quickqa: mergeQuickQaSettings(base.quickqa, staged.quickqa),
     pageEnabled: { ...(base.pageEnabled ?? {}), ...(staged.pageEnabled ?? {}) },
   };
 }
@@ -276,8 +289,7 @@ export interface SavePatchInput {
 }
 
 /** Minutes are posted as typed; empty or invalid fields keep their default. */
-function minutesOr(value: string, fallback: number): number {
-  const text = value.trim();
+function minutesOr(value: string, fallback: number): number {  const text = value.trim();
   if (text === '') return fallback;
   const minutes = Number(text);
   return Number.isFinite(minutes) ? minutes : fallback;
@@ -305,6 +317,39 @@ function normalizeLocationSettings(
     };
   }
   return output;
+}
+
+/**
+ * Keep only the default and pinned workspaces in the saved quickqa profile.
+ * A workspace that is merely available in the picker keeps no saved mode.
+ */
+export function normalizeQuickQaForSave(value: QuickQaSettings | undefined): QuickQaSettings {
+  const defaultWorkspaceId = String(value?.defaultWorkspaceId ?? '').trim();
+  const pinnedWorkspaceIds: string[] = [];
+  for (const entry of Array.isArray(value?.pinnedWorkspaceIds) ? value.pinnedWorkspaceIds : []) {
+    const id = String(entry ?? '').trim();
+    if (!id || id === defaultWorkspaceId || pinnedWorkspaceIds.includes(id)) continue;
+    pinnedWorkspaceIds.push(id);
+  }
+  const profiles: NonNullable<QuickQaSettings['profiles']> = {};
+  for (const id of [defaultWorkspaceId, ...pinnedWorkspaceIds]) {
+    if (!id) continue;
+    const profile = value?.profiles?.[id];
+    profiles[id] = {
+      agentPreset: String(profile?.agentPreset ?? '').trim(),
+      permissionPreset: String(profile?.permissionPreset ?? '').trim(),
+    };
+  }
+  return {
+    model: {
+      provider: String(value?.model?.provider ?? '').trim(),
+      model: String(value?.model?.model ?? '').trim(),
+      reasoningEffort: String(value?.model?.reasoningEffort ?? '').trim(),
+    },
+    defaultWorkspaceId,
+    pinnedWorkspaceIds,
+    profiles,
+  };
 }
 
 /** Build the single batch body posted by "save settings". */
@@ -351,6 +396,7 @@ export function buildSavePatch(input: SavePatchInput): SavePatch {
       enabled: Boolean(settings.countdown?.enabled),
       presets: normalizeCountdownPresets(draft.countdownPresets),
     },
+    quickqa: normalizeQuickQaForSave(settings.quickqa),
     pageOrder: [...order],
     pageEnabled: settings.pageEnabled,
     tls: {

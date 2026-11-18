@@ -1,5 +1,6 @@
 import { setLocale, t } from './i18n.svelte';
 import { DEFAULT_ORDER, enabledOrder, normalizeOrder } from './pages';
+import { handleQuickQaMessage, quickQaPendingSession, quickQaSyncSettings } from './quickqa.svelte';
 import { setWakeLockEnabled } from './wake-lock';
 import { configureLive, connectLive, disposeLive, isLiveOpen, sendLive } from './ws';
 import type {
@@ -79,9 +80,16 @@ export const app: ConsoleState = $state({
   navPosition: 'left',
   pomodoro: { enabled: false, focusMinutes: 25, breakMinutes: 5, soundPath: '', loopAlarm: false },
   countdown: { enabled: false, presets: [...DEFAULT_COUNTDOWN_PRESETS] },
+  quickqa: {
+    voiceReady: false,
+    defaultWorkspaceId: '',
+    defaultWorkspaceTitle: '',
+    pinned: [],
+    pushQuestions: false,
+  },
   balanceDisplay: { showPeakValley: true, spendWindow: 'calendar' },
   pageOrder: [...DEFAULT_ORDER],
-  pageEnabled: { home: true, sessions: true, music: true, performance: true },
+  pageEnabled: { home: true, sessions: true, quickqa: true, music: true, performance: true },
   pageRevision: 0,
 
   overview: null,
@@ -226,6 +234,14 @@ export function applySettings(settings: ConsoleSettings | undefined): void {
   // never render both timer cards at once.
   if (app.pomodoro.enabled) app.countdown.enabled = false;
   else if (app.countdown.enabled) app.pomodoro.enabled = false;
+  if (settings.quickqa) {
+    app.quickqa = {
+      ...app.quickqa,
+      ...settings.quickqa,
+      pinned: Array.isArray(settings.quickqa.pinned) ? settings.quickqa.pinned : app.quickqa.pinned,
+    };
+    quickQaSyncSettings();
+  }
   setWakeLockEnabled(settings.tls?.enabled === true && settings.tls?.advanced?.wakeLock === true);
   if (settings.balance) {
     app.balanceDisplay = {
@@ -245,6 +261,18 @@ export function applySettings(settings: ConsoleSettings | undefined): void {
   if (pageChanged) app.pageRevision += 1;
 }
 
+function withQuickQaSession(sessions: SessionItem[]): SessionItem[] {
+  const overlay = quickQaPendingSession();
+  if (!overlay) return sessions;
+  if (sessions.some((session) => session.id === overlay.id && session.pending)) return sessions;
+  if (sessions.some((session) => session.id === overlay.id)) {
+    return sessions.map((session) => session.id === overlay.id
+      ? { ...session, pending: overlay.pending }
+      : session);
+  }
+  return [...sessions, overlay];
+}
+
 function applyOverview(data: OverviewData | undefined): void {
   if (!data) return;
   app.overview = data;
@@ -252,7 +280,7 @@ function applyOverview(data: OverviewData | undefined): void {
   app.weather = data.weather ?? null;
   app.notifications = data.notifications ?? null;
   app.account = data.account ?? null;
-  app.sessions = Array.isArray(data.sessions) ? data.sessions : [];
+  app.sessions = withQuickQaSession(Array.isArray(data.sessions) ? data.sessions : []);
   app.sessionsError = data.sessionsError || null;
   if (data.performance) app.performance = data.performance;
 }
@@ -278,7 +306,9 @@ function handleMessage(message: ServerMessage): void {
       app.notifications = (message.data as NotificationsData | undefined) ?? null;
       break;
     case 'sessions':
-      app.sessions = Array.isArray(message.data) ? (message.data as SessionItem[]) : [];
+      app.sessions = withQuickQaSession(
+        Array.isArray(message.data) ? (message.data as SessionItem[]) : [],
+      );
       app.sessionsError = null;
       break;
     case 'account':
@@ -307,6 +337,11 @@ function handleMessage(message: ServerMessage): void {
       else waiter.reject(new Error(message.error || t('answerFailed')));
       break;
     }
+    case 'quickqa-state':
+    case 'quickqa-delta':
+    case 'quickqa-pending':
+      handleQuickQaMessage(message);
+      break;
     case 'error':
       toast(message.error || t('serviceError'));
       break;

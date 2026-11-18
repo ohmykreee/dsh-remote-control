@@ -15,8 +15,8 @@
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface, type Interface } from 'node:readline';
-import type { JsonRecord } from './types.js';
-import { isRecord } from './types.js';
+import type { JsonRecord } from '../shared/types.js';
+import { isRecord } from '../shared/types.js';
 
 /** Must match `daemon::PROTOCOL_VERSION` in the Rust probe. */
 export const DAEMON_PROTOCOL_VERSION = 1;

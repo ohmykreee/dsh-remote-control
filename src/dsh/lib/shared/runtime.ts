@@ -7,7 +7,7 @@
  */
 
 import path from 'node:path';
-import { probeInfo, probeStatus, probeVersion } from './probe.js';
+import { probeInfo, probeStatus, probeVersion } from '../probe/index.js';
 
 export interface ProbeBackends {
   media: string;

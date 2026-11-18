@@ -4,11 +4,11 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { JsonRecord } from './types.js';
-import { isRecord } from './types.js';
+import type { JsonRecord } from '../shared/types.js';
+import { isRecord } from '../shared/types.js';
 
-const SETTINGS_VERSION = 2;
-const PAGE_KEYS = ['home', 'sessions', 'music', 'performance'] as const;
+const SETTINGS_VERSION = 3;
+const PAGE_KEYS = ['home', 'sessions', 'quickqa', 'music', 'performance'] as const;
 
 export type PageKey = (typeof PAGE_KEYS)[number];
 export type ThemeSetting = 'dsh' | 'light' | 'dark';
@@ -174,10 +174,34 @@ export interface PomodoroSettings {
   loopAlarm: boolean;
 }
 
+/** One reply-model choice used by the Quick Q&A page. */
+export interface QuickQaModelSelection {
+  provider: string;
+  model: string;
+  reasoningEffort: string;
+}
+
+/** Agent preset and permission preset used for one Quick Q&A workspace. */
+export interface QuickQaWorkspaceProfile {
+  agentPreset: string;
+  permissionPreset: string;
+}
+
+/**
+ * Quick Q&A configuration. Only the default workspace and the pinned
+ * workspaces keep a mode/permission profile; everything else is transient.
+ */
+export interface QuickQaSettings {
+  model: QuickQaModelSelection;
+  defaultWorkspaceId: string;
+  pinnedWorkspaceIds: string[];
+  profiles: Record<string, QuickQaWorkspaceProfile>;
+}
+
 /** Browser-side countdown configuration; the console runs the timer itself. */
 export interface CountdownSettings {
   enabled: boolean;
-  /** Quick-select durations in seconds; one to {@link COUNTDOWN_PRESET_LIMIT} entries. */
+  /** QuickQa-select durations in seconds; one to {@link COUNTDOWN_PRESET_LIMIT} entries. */
   presets: number[];
 }
 
@@ -213,6 +237,7 @@ export interface RemoteControlSettings {
   navPosition: NavPosition;
   pomodoro: PomodoroSettings;
   countdown: CountdownSettings;
+  quickqa: QuickQaSettings;
   pageOrder: PageKey[];
   pageEnabled: Record<PageKey, boolean>;
   updatedAt: number;
@@ -235,6 +260,7 @@ export interface PublicSettings {
   navPosition: NavPosition;
   pomodoro: PomodoroSettings;
   countdown: CountdownSettings;
+  quickqa: QuickQaSettings;
   pageOrder: PageKey[];
   pageEnabled: Record<PageKey, boolean>;
   updatedAt: number;
@@ -310,8 +336,14 @@ export function defaultSettings(): RemoteControlSettings {
       enabled: false,
       presets: [...DEFAULT_COUNTDOWN_PRESETS],
     },
-    pageOrder: ['home', 'sessions', 'music', 'performance'],
-    pageEnabled: { home: true, sessions: true, music: true, performance: true },
+    quickqa: {
+      model: { provider: '', model: '', reasoningEffort: '' },
+      defaultWorkspaceId: '',
+      pinnedWorkspaceIds: [],
+      profiles: {},
+    },
+    pageOrder: ['home', 'sessions', 'quickqa', 'music', 'performance'],
+    pageEnabled: { home: true, sessions: true, quickqa: true, music: true, performance: true },
     updatedAt: now,
   };
 }
@@ -319,6 +351,49 @@ export function defaultSettings(): RemoteControlSettings {
 function normalizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.filter((item): item is string => typeof item === 'string' && item.length > 0).slice(0, 100))];
+}
+
+function quickqaText(value: unknown, max = 200): string {
+  return typeof value === 'string' ? value.trim().slice(0, max) : '';
+}
+
+/**
+ * Normalize Quick Q&A settings. Only the default workspace and the pinned
+ * workspaces retain a mode/permission profile; stale profiles for workspaces
+ * the user no longer selected are dropped.
+ */
+function normalizeQuickQaSettings(value: unknown): QuickQaSettings {
+  const input: JsonRecord = isRecord(value) ? value : {};
+  const modelInput: JsonRecord = isRecord(input.model) ? input.model : {};
+  const defaultWorkspaceId = quickqaText(input.defaultWorkspaceId, 300);
+  const pinnedWorkspaceIds: string[] = [];
+  if (Array.isArray(input.pinnedWorkspaceIds)) {
+    for (const entry of input.pinnedWorkspaceIds) {
+      const id = quickqaText(entry, 300);
+      if (!id || id === defaultWorkspaceId || pinnedWorkspaceIds.includes(id)) continue;
+      pinnedWorkspaceIds.push(id);
+    }
+  }
+  const keep = new Set<string>([defaultWorkspaceId, ...pinnedWorkspaceIds]);
+  const profilesInput: JsonRecord = isRecord(input.profiles) ? input.profiles : {};
+  const profiles: Record<string, QuickQaWorkspaceProfile> = {};
+  for (const [id, raw] of Object.entries(profilesInput)) {
+    if (!keep.has(id) || !isRecord(raw)) continue;
+    profiles[id] = {
+      agentPreset: quickqaText(raw.agentPreset, 300),
+      permissionPreset: quickqaText(raw.permissionPreset, 300),
+    };
+  }
+  return {
+    model: {
+      provider: quickqaText(modelInput.provider, 200),
+      model: quickqaText(modelInput.model, 300),
+      reasoningEffort: quickqaText(modelInput.reasoningEffort, 120),
+    },
+    defaultWorkspaceId,
+    pinnedWorkspaceIds,
+    profiles,
+  };
 }
 
 /**
@@ -514,6 +589,7 @@ function normalize(raw: unknown): RemoteControlSettings {
     navPosition,
     pomodoro: pomodoroSettings,
     countdown: countdownSettings,
+    quickqa: normalizeQuickQaSettings(input.quickqa),
     pageOrder: normalizedOrder,
     pageEnabled,
     updatedAt: Number.isFinite(Number(input.updatedAt)) ? Number(input.updatedAt) : Date.now(),
@@ -577,6 +653,20 @@ export function createSettingsStore(): SettingsStore {
       },
       pomodoro: { ...current.pomodoro, ...(isRecord(source.pomodoro) ? source.pomodoro : {}) },
       countdown: { ...current.countdown, ...(isRecord(source.countdown) ? source.countdown : {}) },
+      quickqa: {
+        ...current.quickqa,
+        ...(isRecord(source.quickqa) ? source.quickqa : {}),
+        model: {
+          ...current.quickqa.model,
+          ...(isRecord(source.quickqa) && isRecord(source.quickqa.model) ? source.quickqa.model : {}),
+        },
+        pinnedWorkspaceIds: isRecord(source.quickqa) && Array.isArray(source.quickqa.pinnedWorkspaceIds)
+          ? source.quickqa.pinnedWorkspaceIds
+          : current.quickqa.pinnedWorkspaceIds,
+        profiles: isRecord(source.quickqa) && isRecord(source.quickqa.profiles)
+          ? source.quickqa.profiles
+          : current.quickqa.profiles,
+      },
     };
     // Respect whichever timer the patch turns on, even when the caller sends
     // only one side of the pair; normalize() is the final authority.
@@ -631,6 +721,14 @@ export function createSettingsStore(): SettingsStore {
       navPosition: current.navPosition,
       pomodoro: { ...current.pomodoro },
       countdown: { ...current.countdown, presets: [...current.countdown.presets] },
+      quickqa: {
+        model: { ...current.quickqa.model },
+        defaultWorkspaceId: current.quickqa.defaultWorkspaceId,
+        pinnedWorkspaceIds: [...current.quickqa.pinnedWorkspaceIds],
+        profiles: Object.fromEntries(
+          Object.entries(current.quickqa.profiles).map(([id, profile]) => [id, { ...profile }]),
+        ),
+      },
       pageOrder: [...current.pageOrder],
       pageEnabled: { ...current.pageEnabled },
       updatedAt: current.updatedAt,

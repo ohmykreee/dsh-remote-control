@@ -10,7 +10,7 @@
 
 import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import type { Server as HttpsServer } from 'node:https';
-import type { ForecastMode, QWeatherSettings, WeatherProvider } from './settings.js';
+import type { ForecastMode, QWeatherSettings, WeatherProvider } from '../settings/index.js';
 
 /** Minimal logger sink the Host may expose through `ctx.logger`. */
 export interface DshLogger {

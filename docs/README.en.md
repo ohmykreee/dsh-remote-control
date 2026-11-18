@@ -27,16 +27,17 @@
 
 ---
 
-When your phone and computer share a LAN, open the console address in the phone browser and DSH becomes a touch panel: clock, weather and system notifications; sessions and balance at a glance; playback and system volume; and answers to a session that is waiting on you.
+When your phone and computer share a LAN, open the console address in the phone browser and DSH becomes a touch panel: clock, weather and system notifications; sessions and balance at a glance; playback and system volume; answers to a session that is waiting on you; and a large hold-to-talk button for quick questions.
 
 ## The pages
 
-Four pages, each with one job:
+Five pages, each with one job:
 
 | Page | What it shows |
 |---|---|
 | Home | Large clock and date, current weather with hourly / 7-day forecast, Pomodoro or countdown, system notifications |
 | Sessions | Account balance, today / this week spend, a 7-day spend chart behind the spend card, live sessions and subagents, remote answers |
+| Quick Q&A | A large voice button, default / pinned workspace picker, model answers and follow-ups |
 | Music | Full-bleed blurred artwork, track info, progress and seek, previous / next, play-pause, system volume and mute, NetEase Cloud Music like |
 | Performance | CPU / memory and GPU / VRAM rings, clocks and uptime, hottest temperature and sensor list |
 
@@ -52,7 +53,7 @@ Four pages, each with one job:
   <em>Remote question: options, the recommended marker and a custom reply.</em>
 </p>
 
-- The four pages loop horizontally, one page per gesture; page order, enablement and the navigation rail position are configured on the DSH settings page.
+- The five pages loop horizontally, one page per gesture; page order, enablement and the navigation rail position are configured on the DSH settings page.
 - Disabled pages do not appear in the phone rail.
 - In landscape each page is one screen tall, with notifications, sessions and temperature sensors scrolling inside their cards; portrait allows the whole page to scroll.
 - The phone UI ships in Simplified Chinese and English. **Follow DSH** uses the current DSH language.
@@ -86,6 +87,7 @@ The **Remote control** sidebar has these groups:
 |---|---|
 | Connection | QR code, console address, allowed interfaces, access verification, HTTPS, and advanced features (disabled while HTTPS is off) |
 | Preferences | Plugin language, temperature unit, theme, page order and toggles, navigation position |
+| Quick Q&A | Official voice-input status, reply model and reasoning effort, default / pinned workspaces with their mode and permission behavior |
 | Pomodoro / countdown | Enable switch (mutually exclusive), focus / break lengths, countdown presets, alert sound |
 | Weather | Data provider, location mode, city search, QWeather JWT credentials and monthly limit, call-count sync, hourly / 7-day display, location access |
 | Balance | Spend window, low-balance threshold, peak / off-peak marker |
@@ -140,6 +142,17 @@ Turn on **Push inquiries** and sessions waiting for an answer gain an **Answer**
 - After answering remotely, the question card in DSH may still need to be closed manually.
 - With the switch off, the sessions page stays read-only.
 
+## Quick Q&A
+
+- Enable the official **Voice Input** plugin in DSH and download / load its speech model first. The first block under **Remote control → Quick Q&A** shows whether it is ready. While it is not ready, the model and workspace settings below stay disabled and the phone refuses new questions; saved settings are kept.
+- Reply model and reasoning effort come from the models currently available on this machine. Without an explicit choice, the DSH default model is used.
+- The default workspace is selected automatically when the quick page opens. Workspaces marked as pinned appear beside it for switching. The workspace list also comes from this machine.
+- Each pinned workspace row holds its checkbox, mode, and permission behavior; the two selects are disabled until the workspace is checked. The default workspace is always checked and can set the same two values. Only the default and pinned workspaces keep these two settings when saved.
+- On the phone, hold the large button to record and release to transcribe and send. While holding, move to the Cancel button and release there to discard the recording. Too-short or silent recordings are not sent and a retry hint appears.
+- Answering switches to one centered chat card: it shows the recognized question, the previous turns in the same conversation, and the final answer. Reasoning and tool calls stay hidden. Afterwards you can follow up in the same conversation or start a new one. When following up, the recording control stays on the small round button at the bottom of the card instead of returning to the initial page. The bottom buttons hide while the model is answering and return when the answer is complete.
+- The inquiry sheet is controlled by **Notifications → Push inquiries**: when on, the existing sheet opens directly; when off, the page tells you to handle it in DSH. Permission requests still need confirmation in DSH.
+- The microphone uses the phone browser's default input device, with no device picker. The first use needs browser permission; an Allow microphone button appears above the large circle until then. Browsers only allow recording on HTTPS or localhost pages.
+
 ## Music
 
 - Supports NetEase Cloud Music, QQ Music, KuGou, KuWo, Soda Music, WeSing, Spotify, Apple Music, YouTube Music, plus browsers and other common players.
@@ -188,6 +201,7 @@ Turn on **Push inquiries** and sessions waiting for an answer gain an **Answer**
 - Only players that support seek allow dragging the progress bar; some players show progress only or offer no transport controls.
 - NetEase Cloud Music's like state and exact progress require an optional feature; they may be briefly unavailable after a page refresh.
 - The sessions page is read-only; media and volume are writable; tool approvals cannot be handled remotely.
+- Quick Q&A needs the official DSH Voice Input plugin to be enabled and prepared; otherwise it cannot be configured or used. The phone microphone needs HTTPS or a localhost page and browser permission.
 - The wake lock needs HTTPS and browser support; the system releases it while the page is in the background and it is restored when the page returns.
 - Pomodoro and countdown run only in the phone browser, so refreshing or closing the page loses them.
 - Landscape pages stay one screen tall; portrait pages scroll vertically and cards grow with their content.

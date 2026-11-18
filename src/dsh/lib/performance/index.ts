@@ -7,9 +7,9 @@
  */
 
 import os from 'node:os';
-import { probeInfo, runProbe } from './probe.js';
-import { isRecord, type JsonRecord } from './types.js';
-import { clamp, finiteNumber, serializeError } from './util.js';
+import { probeInfo, runProbe } from '../probe/index.js';
+import { isRecord, type JsonRecord } from '../shared/types.js';
+import { clamp, finiteNumber, serializeError } from '../shared/util.js';
 
 const PROBE_ERROR_TTL_MS = 8000;
 

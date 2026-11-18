@@ -18,8 +18,8 @@ const {
   WEATHER_PROVIDERS,
   createSettingsStore,
   minimumQWeatherRefreshMinutes,
-} = await import('../lib/settings.js');
-const { createCacheStore, qweatherMonth } = await import('../lib/cache.js');
+} = await import('../lib/settings/index.js');
+const { createCacheStore, qweatherMonth } = await import('../lib/cache/index.js');
 const { generateQWeatherJwt, generateQWeatherKeyPair, parseQWeatherConsole } = await import('../lib/weather/qweather.js');
 const { resolveNmcCity } = await import('../lib/weather/nmc.js');
 const {
@@ -47,7 +47,7 @@ fs.writeFileSync(path.join(settingsDir, 'settings.json'), JSON.stringify({
 }), 'utf8');
 
 let store = createSettingsStore();
-assert.equal(store.get().version, 2);
+assert.equal(store.get().version, 3);
 assert.equal(store.get().weather.provider, 'open-meteo');
 assert.equal(store.get().weather.name, '南昌');
 for (const provider of WEATHER_PROVIDERS) {
