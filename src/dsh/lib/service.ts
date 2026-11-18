@@ -156,6 +156,13 @@ export interface RemoteSettingsPayload {
     enabled: boolean;
     presets: number[];
   };
+  /** Safe subset: the phone only needs the HTTPS state and advanced toggles. */
+  tls: {
+    enabled: boolean;
+    advanced: {
+      wakeLock: boolean;
+    };
+  };
   pageOrder: string[];
   pageEnabled: Record<string, boolean>;
 }
@@ -447,6 +454,30 @@ function readBody(req: IncomingMessage, limit: number = BODY_LIMIT): Promise<Jso
   });
 }
 
+/** A concrete hostname from the certificate's SAN, falling back to its CN. */
+export function certificateDomain(cert: Buffer | string): string | null {
+  const clean = (value: string): string | null => {
+    const domain = value.trim().replace(/^DNS:/i, '').replace(/\.$/u, '').toLowerCase();
+    if (!domain || domain.length > 253 || domain.includes('*') || /^\d{1,3}(?:\.\d{1,3}){3}$/u.test(domain)) {
+      return null;
+    }
+    return /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/iu.test(domain)
+      ? domain
+      : null;
+  };
+  try {
+    const parsed = new crypto.X509Certificate(cert);
+    for (const entry of String(parsed.subjectAltName || '').split(',')) {
+      const domain = clean(entry);
+      if (domain) return domain;
+    }
+    const commonName = /(?:^|[\n,])\s*CN\s*=\s*([^,\n]+)/iu.exec(parsed.subject);
+    return commonName ? clean(commonName[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function createRemoteControlService(ctx: DshContext, options: RemoteControlOptions = {}): RemoteControlService {
   const log: (message: string) => void = options.log || (() => {});
   const locale = options.locale || 'zh';
@@ -478,6 +509,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
   let protocol: 'http' | 'https' = 'http';
   let tlsActive = false;
   let tlsError: string | null = null;
+  let tlsDomain: string | null = null;
   let error: string | null = null;
   let urls: RemoteUrlEntry[] = [];
   let primaryUrl = '';
@@ -565,7 +597,12 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     urls = interfaceEntries(true)
       .filter((entry) => entry.selected)
       .map((entry) => ({ name: entry.name, address: entry.address, url: entry.url }));
-    primaryUrl = urls[0]?.url || `${protocol}://127.0.0.1:${port}/`;
+    // Pairing should use the hostname covered by the certificate when HTTPS is
+    // active; the per-interface IP list stays available for diagnostics.
+    const domainUrl = protocol === 'https' && tlsActive && tlsDomain
+      ? `https://${tlsDomain}:${port}/`
+      : '';
+    primaryUrl = domainUrl || urls[0]?.url || `${protocol}://127.0.0.1:${port}/`;
   }
 
   function remoteTokenQuery(): string {
@@ -628,6 +665,12 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
       countdown: {
         enabled: settings().countdown.enabled,
         presets: [...settings().countdown.presets],
+      },
+      tls: {
+        enabled: settings().tls.enabled,
+        advanced: {
+          wakeLock: settings().tls.advanced.wakeLock,
+        },
       },
       pageOrder: [...settings().pageOrder],
       pageEnabled: { ...settings().pageEnabled },
@@ -1262,6 +1305,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     let tlsOptions: { cert: Buffer; key: Buffer } | null = null;
     tlsError = null;
     tlsActive = false;
+    tlsDomain = null;
     if (value.tls.enabled) {
       try {
         if (!value.tls.certPath || !value.tls.keyPath) throw new Error('Certificate and key paths are required');
@@ -1269,10 +1313,12 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
         const key = await fs.readFile(path.resolve(value.tls.keyPath));
         tlsOptions = { cert, key };
         tlsActive = true;
+        tlsDomain = certificateDomain(cert);
       } catch (errorValue) {
         tlsError = serializeError(errorValue);
         tlsOptions = null;
         tlsActive = false;
+        tlsDomain = null;
       }
     }
     protocol = tlsActive ? 'https' : 'http';
@@ -1332,6 +1378,7 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     port = null;
     urls = [];
     primaryUrl = '';
+    tlsDomain = null;
     if (!instance) return;
     try {
       instance.closeAllConnections?.();
@@ -1403,7 +1450,10 @@ export function createRemoteControlService(ctx: DshContext, options: RemoteContr
     delete sanitized.token;
     delete sanitized.tokenRotatedAt;
     const next = settingsStore.update(sanitized);
-    const tlsChanged = JSON.stringify(before.tls) !== JSON.stringify(next.tls);
+    const tlsChanged =
+      before.tls.enabled !== next.tls.enabled
+      || before.tls.certPath !== next.tls.certPath
+      || before.tls.keyPath !== next.tls.keyPath;
     const authChanged = before.tokenEnabled !== next.tokenEnabled;
     const interfacesChanged = JSON.stringify(before.allowedInterfaces) !== JSON.stringify(next.allowedInterfaces);
     // A different QWeather project/credential is a different quota; start its

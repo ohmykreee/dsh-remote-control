@@ -75,6 +75,8 @@ The agent installs the plugin, reads both documents, builds the component and te
 - Access verification is on by default: the first visit needs the scanned link, and a missing verification shows an error page. You can turn it off or refresh it; refreshing disconnects every connected device.
 - You can allow only selected network interfaces / subnets.
 - Optional HTTPS: provide certificate and private-key file paths. If the certificate is invalid the console stays on HTTP and shows the error on the connection page.
+- When HTTPS is active and the certificate carries a concrete DNS name (SAN or CN), the pairing link and QR code use that domain instead of the interface IP; wildcard-only or IP-only certificates keep the LAN address.
+- With HTTPS enabled, an **Advanced features** card appears below the HTTPS settings; turn on **Wake lock** to keep the phone screen awake while the console page is open.
 - If the port is taken, another available port is chosen automatically. The connection page always shows the actual address.
 
 ## Settings
@@ -83,7 +85,7 @@ The **Remote control** sidebar has these groups:
 
 | Group | Contents |
 |---|---|
-| Connection | QR code, console address, allowed interfaces, access verification, HTTPS |
+| Connection | QR code, console address, allowed interfaces, access verification, HTTPS, and HTTPS-gated advanced features (wake lock) |
 | Preferences | Plugin language, temperature unit, theme, page order and toggles, navigation position |
 | Pomodoro / countdown | Enable switch (mutually exclusive), focus / break lengths, countdown presets, alert sound |
 | Weather | Data provider, location mode, city search, QWeather JWT credentials and monthly limit, call-count sync, hourly / 7-day display, location access |
@@ -107,7 +109,7 @@ Both sit between the clock and the weather on the phone, are **mutually exclusiv
 - The alert sound can be a local audio file or an http(s) URL configured in DSH; leave it empty for the built-in soft arpeggio. Countdown and Pomodoro share it.
 - Focus and break lengths accept two decimals. Countdown presets are entered as minutes and seconds; seconds at or above 60 carry into minutes automatically.
 - Values outside the allowed range adjust automatically: pomodoro 0.1–180 minutes (break 0.1–120), countdown presets 1–86400 seconds.
-- At zero the Home rail tab and the browser tab both show a green dot, and the countdown also vibrates the phone when the browser supports it.
+- At zero the Home rail tab and the browser tab both show a green dot. When the phone supports vibration, a one-shot alert vibrates once; a looping alert (including the countdown) keeps vibrating until you stop ringing or confirm.
 
 ## Weather
 
@@ -187,8 +189,9 @@ Turn on **Push inquiries** and sessions waiting for an answer gain an **Answer**
 - Only players that support seek allow dragging the progress bar; some players show progress only or offer no transport controls.
 - NetEase Cloud Music's like state and exact progress require an optional feature; they may be briefly unavailable after a page refresh.
 - The sessions page is read-only; media and volume are writable; tool approvals cannot be handled remotely.
+- The wake lock needs HTTPS and browser support; the system releases it while the page is in the background and it is restored when the page returns.
 - Pomodoro and countdown run only in the phone browser, so refreshing or closing the page loses them.
-- Layout is optimised for 1280×800 landscape; portrait is a compact fallback.
+- Landscape pages stay one screen tall; portrait pages scroll vertically and cards grow with their content.
 
 ## Documentation
 

@@ -244,9 +244,4 @@ function finish(): void {
   const hasScheduledChime = claimScheduledAlarm(countdown.endsAt);
   startLoopingAlarm(app.pomodoro.soundPath, hasScheduledChime);
   setTabAlert(true);
-  try {
-    navigator.vibrate?.([140, 90, 180]);
-  } catch {
-    /* vibration is optional */
-  }
 }

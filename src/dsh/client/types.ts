@@ -124,6 +124,10 @@ export interface TlsSettings {
   enabled?: boolean;
   certPath?: string;
   keyPath?: string;
+  advanced?: {
+    /** Keep the phone screen awake while the console is visible over HTTPS. */
+    wakeLock?: boolean;
+  };
 }
 
 export interface PomodoroSettings {
@@ -333,7 +337,12 @@ export interface SavePatch {
   countdown: { enabled: boolean; presets: number[] };
   pageOrder: string[];
   pageEnabled?: Record<string, boolean>;
-  tls: { enabled: boolean; certPath: string; keyPath: string };
+  tls: {
+    enabled: boolean;
+    certPath: string;
+    keyPath: string;
+    advanced: { wakeLock: boolean };
+  };
   weather: WeatherSettings;
   balance: { spendWindow: string; lowThreshold: number | null; showPeakValley: boolean };
   notifications: { enabledApps: string[]; limit: number; pushQuestions: boolean };

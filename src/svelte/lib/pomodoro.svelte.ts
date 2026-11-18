@@ -8,6 +8,7 @@ import {
   setTabAlert,
   startLoopingAlarm,
   stopAlarmSound,
+  vibrateOnce,
 } from './timer-alarm.svelte';
 import type { PomodoroSettings } from './types';
 
@@ -205,15 +206,11 @@ function finish(): void {
   if (settings().loopAlarm) {
     pomodoro.alarmActive = true;
     startLoopingAlarm(settings().soundPath, hasScheduledChime);
-  } else if (!hasScheduledChime) {
-    playAlarmOnce(settings().soundPath);
+  } else {
+    if (!hasScheduledChime) playAlarmOnce(settings().soundPath);
+    vibrateOnce();
   }
   setTabAlert(true);
-  try {
-    navigator.vibrate?.([140, 90, 180]);
-  } catch {
-    /* vibration is optional */
-  }
 }
 
 /** Stop the alert sound and clear the runtime flag. */

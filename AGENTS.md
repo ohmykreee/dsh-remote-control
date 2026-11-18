@@ -181,7 +181,7 @@ window.__ModuleLoader__.load({
 
 - `service.start()`：读取设置、创建适配器、启动 LAN HTTP/HTTPS、启动 WebSocket hub、启动推送循环；`dispose()` 关闭服务器、hub、适配器和定时器。`index.ts` 用 `ctx.effect()` 绑定，DSH 卸载 / 重载插件时自动清理。
 - 数据目录：`DSH_PROFILE_DIR/remote-control`（优先）或 `DSH_HOME/remote-control`，否则 `~/.dsh/remote-control`；文件为 `settings.json` 与通用 `cache.json`（临时文件 + rename 原子写）。旧 `notification-cache.json` 在首次启动时迁移为 `cache.json`。
-- 当前 schema 版本 `2`，字段包括 token、允许网卡、主题、插件语言（`language` / `dshLocale`）、温度单位、天气（提供商 `provider`、共享名称 `name`、按提供商分开的 `locations`、和风天气 `qweather` JWT 凭据 / 月上限 / 刷新间隔）、余额、通知、TLS、导航位置、番茄钟与倒计时（互斥，番茄钟分钟允许两位小数、计时四舍五入到秒，倒计时 1–5 个按分/秒填写的预设）、页面顺序 / 开关。
+- 当前 schema 版本 `2`，字段包括 token、允许网卡、主题、插件语言（`language` / `dshLocale`）、温度单位、天气（提供商 `provider`、共享名称 `name`、按提供商分开的 `locations`、和风天气 `qweather` JWT 凭据 / 月上限 / 刷新间隔）、余额、通知、TLS（`tls.advanced.wakeLock` 控制 HTTPS 下的手机唤醒锁）、导航位置、番茄钟与倒计时（互斥，番茄钟分钟允许两位小数、计时四舍五入到秒，倒计时 1–5 个按分/秒填写的预设）、页面顺序 / 开关。
 - 天气旧字段 `weather.latitude` / `weather.longitude` 在 normalize 时迁移到三个提供商的 `locations`，共享 `name` 只保存一次；`qweather.apiHost` 会去掉协议与路径。
 - `normalize()` 对每个字段做白名单 / 范围校验，缺失时回落默认值；`update(patch)` 浅合并 + 嵌套对象合并；令牌 24 字节随机 `base64url`，`rotateToken()` 后由 service 断开所有设备。
 - 设置对象不含 token；`/api/info`（以及 `/api/settings` 的 `info`）会带配对 URL 和二维码路径，token 只出现在 URL query 中（客户端另存为 cookie）。
@@ -191,7 +191,7 @@ window.__ModuleLoader__.load({
 `src/dsh/lib/service.ts`：
 
 - 默认端口 `38765`，可用 `DSH_REMOTE_CONTROL_PORT` 覆盖；绑定 `0.0.0.0`；端口占用时回退随机可用端口。
-- 可选 HTTPS：读取 PEM 证书 / 私钥；配置无效时回退 HTTP，并在 `info.tls.error` 报告。
+- 可选 HTTPS：读取 PEM 证书 / 私钥；配置无效时回退 HTTP，并在 `info.tls.error` 报告。HTTPS 生效后从证书 SAN（回退 CN）取第一个具体域名作为 `primaryUrl`，扫码与配对链接优先使用该域名；`urls` 仍保留各网卡 IP 供诊断。
 - 静态文件：`web/` 下的页面、`/assets/`、字体、`/manifest.webmanifest`、`/icon.svg`。
 - 鉴权：`tokenEnabled` 时，`/`、静态资源和 `/ws` 需要 `?token=` 或 `dsh_rc` cookie；失败返回 401 页面；`/api/pomodoro/sound` 只对已授权页面开放。
 - 网卡限制：`allowedInterfaces` 为 null 表示全部；否则按 CIDR 匹配来源 IP，回环地址始终放行。
@@ -206,7 +206,7 @@ window.__ModuleLoader__.load({
 
 | type | 内容 |
 |---|---|
-| `welcome` | 公开设置快照 |
+| `welcome` | 公开设置快照（含 HTTPS 状态与 `tls.advanced.wakeLock`，不含证书 / 私钥路径） |
 | `overview` | 会话、天气、通知、余额、性能、设置聚合 |
 | `clients` | 已连接设备列表 |
 | `sessions` / `notifications` / `account` / `weather` / `media` / `performance` | 增量快照 |
@@ -274,7 +274,7 @@ window.__ModuleLoader__.load({
 - Vite `root = src/svelte`，`publicDir = static`，`build.outDir = web`，`assetsDir = assets`，`emptyOutDir = true`，`target = es2022`。
 - 技术栈：Svelte 5 runes + Vite 8 + Tailwind CSS v4 + shadcn-svelte（bits-ui）+ Lucide。图标一律使用 Lucide。
 - 页面：`HomePage`、`SessionsPage`、`MusicPage`、`PerformancePage`；导航 `Rail`；业务组件包括时钟、天气、通知、余额、消费、CPU/内存、GPU、温度、计时、会话列表、问询对话框（`QuestionSheet`）、Toast 等。
-- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`pomodoro.svelte.ts` / `countdown.svelte.ts` 各自持有计时并共用 `timer-alarm.svelte.ts`（页面标题 / favicon 提示与 `tabAlert` 响应式状态，主页 tab 复用它显示绿色提示点）；`billing.svelte.ts` 负责峰谷与节假日；`format.ts` / `weather.ts` / `pages.ts` 为纯工具。
+- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`pomodoro.svelte.ts` / `countdown.svelte.ts` 各自持有计时并共用 `timer-alarm.svelte.ts`（页面标题 / favicon 提示、`tabAlert` 响应式状态，以及循环响铃时的持续振动）；`wake-lock.ts` 按 `settings.tls.advanced.wakeLock` 在 HTTPS 页面申请屏幕唤醒锁，页面隐藏时释放、回到前台重新申请；`billing.svelte.ts` 负责峰谷与节假日；`format.ts` / `weather.ts` / `pages.ts` 为纯工具。
 - i18n：`applySettings()` 从 `settings.locale` 调 `setLocale()`；所有组件和 `format.ts` / `weather.ts` 通过 `t()` 取文案，日期格式化使用 `localeTag()`，切换语言无需刷新。`zh` 为基准字典。
 - 视觉：`Panel` 包装 shadcn Card 作为统一容器；按钮、Badge、Slider、Dialog、ScrollArea 优先用 `$lib/components/ui`；只在组件原有 class 上覆盖样式，无 hover 过渡 / 缩放。
 - 性能页占用率使用 `RadialGauge` 圆环；右侧温度保留大号最高温度与热区背景列表。
@@ -290,6 +290,7 @@ window.__ModuleLoader__.load({
 - `src/dsh/client` 用 `React.createElement`（`h`）而不是 JSX；React 由 DSH loader 提供。
 - 入口 `src/dsh/client/index.ts` 向 DSH 注册设置页（slot），菜单包含：连接、偏好设置、番茄钟 / 倒计时、天气设置、余额显示、通知设置、软件映射、系统信息。
 - 所有设置先进入 `DraftState`，点「保存设置」才 `POST /api/settings` 一次性提交；应用改名、主题同步、令牌轮换、断开设备是即时请求。
+- 连接页的 HTTPS 设置组下方，仅在启用 HTTPS 时显示「高级功能」卡片；当前提供 `tls.advanced.wakeLock` 开关，保存后手机端在 HTTPS 页面申请屏幕唤醒锁。
 - 天气设置按「定位权限 → 数据提供商 → 和风天气 JWT（仅选中时）→ 位置 → 显示方式」排列。位置只提供城市搜索，匹配到的经纬度 / 站点 ID 只显示在提示里，不再提供名称 / 经纬度输入框；城市搜索用 POST `/api/geocode` 携带当前编辑中的 provider 与和风凭据，切换提供商后无需先保存即可搜索。和风天气分组可生成 Ed25519 密钥对、填入私钥并显示 / 复制公钥，JWT 由 Host 按请求自动生成。系统信息页的天气状态 detail 显示实际使用的提供商。
 - 偏好设置的第一个设置组是 **插件语言**（跟随 DSH / 简体中文 / English）；保存后 `hydrate()` 调 `setPluginLanguage()` 立即重绘，Host 同时把解析后的 `locale` 推给手机端。
 - 主题：`theme = dsh` 时跟随 DSH 的 `dshTheme`，由 `/api/theme` 同步；也可固定 light/dark。
@@ -509,9 +510,9 @@ pnpm build:rust
 
 一个测试文件对应一类功能，新增断言优先并入已有文件，不要再按单个特性拆新脚本。
 
-- `smoke.mjs`：临时 `DSH_PROFILE_DIR` 启动服务；令牌页面、`/assets/`、图片 CSP、WebSocket welcome/overview；旧 HTTP overview 路由不存在。
+- `smoke.mjs`：临时 `DSH_PROFILE_DIR` 启动服务；令牌页面、`/assets/`、图片 CSP、WebSocket welcome/overview、证书域名提取；旧 HTTP overview 路由不存在。
 - `questions.mjs`：推送问询开关、远程回答往返、关闭后剥离与拒绝。
-- `settings.mjs`：语言精确匹配与回退、`dshLocale` 持久化、Host 字典对齐；倒计时预设与秒级范围、番茄钟两位小数、互斥、公开设置深拷贝。
+- `settings.mjs`：语言精确匹配与回退、`dshLocale` 持久化、Host 字典对齐；倒计时预设与秒级范围、番茄钟两位小数、互斥、公开设置深拷贝、`tls.advanced.wakeLock` 默认与嵌套拷贝。
 - `media.mjs`：进度平滑与 seek 规则；探针缺失显式报错；真实 daemon 的并发、重启、禁用与平台能力。探针路径缓存在同一进程内切换时用 `resetProbeCache()`（测试专用）。
 - `notifications.mjs`：通知字段归一化与数量限制、应用名称推导与旧缓存迁移、Linux 流式监视。
 - `weather.mjs`：v1 → v2 天气设置迁移、按提供商分开的 locations、QWeather 凭据与刷新间隔下限、`cache.json` 迁移 / 月调用计数 / NMC 城市缓存、JWT 结构与 Ed25519 签名校验、密钥对生成、天气代码 / AQI 归一化、NMC 城市匹配。

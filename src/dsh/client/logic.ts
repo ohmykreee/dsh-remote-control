@@ -254,7 +254,11 @@ export function buildSettingsView(base: RemoteSettings, staged: StagedSettings):
     weather: mergeWeatherSettings(base.weather, staged.weather),
     balance: { ...(base.balance ?? {}), ...(staged.balance ?? {}) },
     notifications: { ...(base.notifications ?? {}), ...(staged.notifications ?? {}) },
-    tls: { ...(base.tls ?? {}), ...(staged.tls ?? {}) },
+    tls: {
+      ...(base.tls ?? {}),
+      ...(staged.tls ?? {}),
+      advanced: { ...(base.tls?.advanced ?? {}), ...(staged.tls?.advanced ?? {}) },
+    },
     pomodoro: { ...(base.pomodoro ?? {}), ...(staged.pomodoro ?? {}) },
     countdown: { ...(base.countdown ?? {}), ...(staged.countdown ?? {}) },
     pageEnabled: { ...(base.pageEnabled ?? {}), ...(staged.pageEnabled ?? {}) },
@@ -349,7 +353,14 @@ export function buildSavePatch(input: SavePatchInput): SavePatch {
     },
     pageOrder: [...order],
     pageEnabled: settings.pageEnabled,
-    tls: { enabled: Boolean(settings.tls?.enabled), certPath: draft.certPath, keyPath: draft.keyPath },
+    tls: {
+      enabled: Boolean(settings.tls?.enabled),
+      certPath: draft.certPath,
+      keyPath: draft.keyPath,
+      advanced: {
+        wakeLock: settings.tls?.advanced?.wakeLock === true,
+      },
+    },
     weather: nextWeather,
     balance: {
       spendWindow: settings.balance?.spendWindow ?? 'calendar',

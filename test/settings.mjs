@@ -56,6 +56,20 @@ assert.equal(store.public().locale, 'en', 'unsupported DSH locales fall back to 
 store.setDshLocale('en');
 assert.equal(store.public().locale, 'en');
 
+// The HTTPS-gated wake lock rides in tls.advanced and defaults off.
+assert.equal(store.get().tls.advanced.wakeLock, false);
+store.update({ tls: { advanced: { wakeLock: true } } });
+assert.equal(store.get().tls.advanced.wakeLock, true);
+assert.equal(store.public().tls.advanced.wakeLock, true);
+store.update({ tls: { advanced: { wakeLock: 'yes' } } });
+assert.equal(store.get().tls.advanced.wakeLock, false);
+
+// The public settings snapshot copies the nested TLS block.
+store.update({ tls: { advanced: { wakeLock: true } } });
+const publicTls = store.public();
+publicTls.tls.advanced.wakeLock = false;
+assert.equal(store.get().tls.advanced.wakeLock, true);
+
 // The synced locale and the preference survive a reload of the same profile.
 store.update({ language: 'zh' });
 store.setDshLocale('en');

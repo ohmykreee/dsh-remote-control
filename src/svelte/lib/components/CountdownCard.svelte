@@ -258,4 +258,11 @@
       flex: 1;
     }
   }
+
+  @media (orientation: portrait) {
+    .countdown {
+      /* Portrait pages scroll vertically, so the card follows its content. */
+      max-height: none;
+    }
+  }
 </style>

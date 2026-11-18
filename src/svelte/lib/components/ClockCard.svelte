@@ -169,7 +169,9 @@
 
   @media (orientation: portrait) {
     :global(.clock-card) {
-      min-height: 620px;
+      /* Portrait pages scroll; cards grow with their content instead of being
+         squeezed into the viewport height. */
+      min-height: auto;
     }
 
     .clock-graphic {

@@ -27,6 +27,7 @@ export interface ConsoleSettings {
   balance?: { spendWindow?: string; lowThreshold?: number | null; showPeakValley?: boolean };
   pomodoro?: Partial<PomodoroSettings>;
   countdown?: Partial<CountdownSettings>;
+  tls?: { enabled?: boolean; advanced?: { wakeLock?: boolean } };
   pageOrder?: string[];
   pageEnabled?: Partial<Record<PageKey, boolean>>;
 }

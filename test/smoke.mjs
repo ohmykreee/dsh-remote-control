@@ -6,7 +6,33 @@ import path from 'node:path';
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-rc-smoke-'));
 process.env.DSH_PROFILE_DIR = profile;
 
-const { createRemoteControlService } = await import('../lib/service.js');
+const { createRemoteControlService, certificateDomain } = await import('../lib/service.js');
+
+// Public test certificate only; no private key is stored in the repository.
+const certificate = `-----BEGIN CERTIFICATE-----
+MIIDWjCCAkKgAwIBAgIQP7AURvOziINK/zELWrZ21DANBgkqhkiG9w0BAQsFADAj
+MSEwHwYDVQQDDBhkc2gtY29uc29sZS5leGFtcGxlLnRlc3QwHhcNMjYxMTE4MDkx
+MzM0WhcNMzExMTE4MDkyMzM0WjAjMSEwHwYDVQQDDBhkc2gtY29uc29sZS5leGFt
+cGxlLnRlc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDUrsEe/JYW
+wT7F8YRhI5RvDWDGGEDRxzT3hVidorCa36PwXuLo22DfknXgJ/IImW8M2Z6rft2q
+x2TsPFxVchonl9jtclKddMYY5ivSbXmFCYo7xppVMC1MNgRcaDRcZ/L/+IzIB3DK
+4s4tfbY7+xMiV+S8SzN409HQ07zQntFBYUUrC3e1+U3mmbV5gpuYnkA3opcnQwEl
+67izVSkgkuAHIa/LLWIk7Sdr9FDFoge6iTfJ67UqM54iLxYdLMVZiBvYlDjv2dvw
+kHAdXWUwvOTbz6aekvGA1h1s9fGOxOkY4tzsGwCtRv2jxdEpY/xipiU1WsSOlM1/
+zfp2tcEk8dn5AgMBAAGjgYkwgYYwDgYDVR0PAQH/BAQDAgWgMB0GA1UdJQQWMBQG
+CCsGAQUFBwMCBggrBgEFBQcDATA2BgNVHREELzAtghhkc2gtY29uc29sZS5leGFt
+cGxlLnRlc3SCEWRzaC1jb25zb2xlLmxvY2FsMB0GA1UdDgQWBBRTZ/n8Mzbh22TW
+T1gjAvtRY2hBqTANBgkqhkiG9w0BAQsFAAOCAQEAsmuy7wiBJCnPvYBdVkGPOKgc
+wKVN2cLytIckp5uQHprcHr7NxJdlQ7OzZj6l3QfTeaQOQTtn5NABJCFnESz62y6X
+ATmYjJ0jZTf5OXuon/xTpCI+8b0QsIqCxV+nsIdH4Oy8rUkKtmAnKn7EoAHNruyg
+arkrBD/0yeVTI7UY+NUABnHp7YRbz7BJuCDQBR5XArO2GsvbhP2b377eIdehwXlp
+4FTlf7i0V+fADMclVxg80Up80oEtsrigs1RcYQ6HcqCX4A9KOdUZc0DxvPD1p8bA
+3a0cPsk+pIg1XTlwpEL8AJ+14JM3bOVGXNIlmB168bnrH6rDwrS4nDvDjN4Krg==
+-----END CERTIFICATE-----`;
+
+// Pairing prefers a concrete DNS name from the TLS certificate over interface IPs.
+assert.equal(certificateDomain(certificate), 'dsh-console.example.test');
+assert.equal(certificateDomain('not a certificate'), null);
 
 const ctx = {
   get(name) {
@@ -116,6 +142,8 @@ assert.ok(messages.some((message) => message.type === 'welcome'));
 const welcome = messages.find((message) => message.type === 'welcome');
 assert.equal(welcome.now, undefined);
 assert.equal(welcome.settings.temperatureUnit, 'celsius');
+assert.deepEqual(welcome.settings.tls, { enabled: false, advanced: { wakeLock: false } });
+assert.equal('certPath' in welcome.settings.tls, false);
 const overview = messages.find((message) => message.type === 'overview');
 assert.ok(overview);
 assert.equal(overview.data.now, undefined);

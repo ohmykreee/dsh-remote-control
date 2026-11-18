@@ -13,9 +13,19 @@ let loopTimer: ReturnType<typeof setTimeout> | null = null;
 let loopActive = false;
 let alarmAudio: HTMLAudioElement | null = null;
 let activeChimeNodes: OscillatorNode[] = [];
+let vibrationTimer: ReturnType<typeof setInterval> | null = null;
 let alerting = false;
 let originalTitle = '';
 let originalIcon = '';
+
+/**
+ * A looping alarm re-issues a short vibration instead of requesting one long
+ * pattern. Browsers often ignore long patterns, and the Vibration API only
+ * works reliably after the user gesture that started the timer; once ignored,
+ * keep polling would just be pointless background work.
+ */
+const VIBRATION_PULSE_MS = 260;
+const VIBRATION_INTERVAL_MS = 1_100;
 
 /** Reactive mirror of the page-tab alert, consumed by the console rail. */
 export const tabAlert = $state({ active: false });
@@ -183,6 +193,48 @@ function stopLoopTimer(): void {
   loopTimer = null;
 }
 
+function vibrate(pattern: number | number[]): boolean {
+  try {
+    return navigator.vibrate?.(pattern) === true;
+  } catch {
+    return false;
+  }
+}
+
+function stopVibrationTimer(): void {
+  if (!vibrationTimer) return;
+  clearInterval(vibrationTimer);
+  vibrationTimer = null;
+}
+
+/** One short pattern for a non-looping alarm. */
+export function vibrateOnce(): void {
+  vibrate([140, 90, 180]);
+}
+
+/**
+ * Keep vibrating while an alarm is ringing. Every interval asks for a new
+ * short pulse rather than a single long pattern, which browsers may ignore;
+ * the first call is refused when the page has no user activation or the device
+ * cannot vibrate, in which case the rest of the alarm still works normally.
+ */
+function startLoopingVibration(): void {
+  stopVibrationTimer();
+  if (!vibrate(VIBRATION_PULSE_MS)) return;
+  vibrationTimer = setInterval(() => {
+    if (!loopActive) {
+      stopVibrationTimer();
+      return;
+    }
+    if (!vibrate(VIBRATION_PULSE_MS)) stopVibrationTimer();
+  }, VIBRATION_INTERVAL_MS);
+}
+
+function stopLoopingVibration(): void {
+  stopVibrationTimer();
+  vibrate(0);
+}
+
 function startBuiltinLoop(delayMs: number): void {
   stopLoopTimer();
   loopTimer = setTimeout(() => {
@@ -223,6 +275,7 @@ function startCustomLoop(path: string): boolean {
 export function startLoopingAlarm(soundPath: string, skipFirst: boolean): void {
   loopActive = true;
   stopLoopTimer();
+  startLoopingVibration();
   const path = soundPath.trim();
   if (path && startCustomLoop(path)) return;
   if (skipFirst) {
@@ -237,6 +290,7 @@ export function startLoopingAlarm(soundPath: string, skipFirst: boolean): void {
 export function stopAlarmSound(): void {
   loopActive = false;
   stopLoopTimer();
+  stopLoopingVibration();
   if (alarmAudio) {
     try {
       alarmAudio.pause();

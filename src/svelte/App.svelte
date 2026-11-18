@@ -7,6 +7,7 @@
   import type { PageKey } from './lib/types';
   import { refreshLive } from './lib/ws';
   import { tabAlert } from './lib/timer-alarm.svelte';
+  import { releaseWakeLock } from './lib/wake-lock';
   import HomePage from './lib/components/HomePage.svelte';
   import MusicPage from './lib/components/MusicPage.svelte';
   import PerformancePage from './lib/components/PerformancePage.svelte';
@@ -228,6 +229,7 @@
     return () => {
       stopTicks();
       stopLive();
+      releaseWakeLock();
       if (jumpTimer) clearTimeout(jumpTimer);
       cancelAnimationFrame(scrollFrame);
       document.removeEventListener('fullscreenchange', updateFullscreen);
@@ -378,6 +380,8 @@
     padding: 10px;
   }
   .page {
+    /* Landscape locks the page to the viewport; portrait pages scroll so cards
+       and their contents can take their natural height. */
     overflow-y: auto;
     scrollbar-width: none;
   }

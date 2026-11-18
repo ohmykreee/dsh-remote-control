@@ -150,10 +150,16 @@ export interface NotificationSettings {
   pushQuestions: boolean;
 }
 
+export interface TlsAdvancedSettings {
+  /** Keep the phone screen awake while the console page is visible over HTTPS. */
+  wakeLock: boolean;
+}
+
 export interface TlsSettings {
   enabled: boolean;
   certPath: string;
   keyPath: string;
+  advanced: TlsAdvancedSettings;
 }
 
 /** Browser-side tomato timer configuration; only the console runs the timer. */
@@ -288,6 +294,9 @@ export function defaultSettings(): RemoteControlSettings {
       enabled: false,
       certPath: '',
       keyPath: '',
+      advanced: {
+        wakeLock: false,
+      },
     },
     navPosition: 'left',
     pomodoro: {
@@ -400,6 +409,7 @@ function normalize(raw: unknown): RemoteControlSettings {
   const balance: JsonRecord = isRecord(input.balance) ? input.balance : {};
   const notifications: JsonRecord = isRecord(input.notifications) ? input.notifications : {};
   const tls: JsonRecord = isRecord(input.tls) ? input.tls : {};
+  const tlsAdvanced: JsonRecord = isRecord(tls.advanced) ? tls.advanced : {};
   const pomodoro: JsonRecord = isRecord(input.pomodoro) ? input.pomodoro : {};
   const countdown: JsonRecord = isRecord(input.countdown) ? input.countdown : {};
   const latitudeInput = weather.latitude;
@@ -497,6 +507,9 @@ function normalize(raw: unknown): RemoteControlSettings {
       enabled: tls.enabled === true,
       certPath: typeof tls.certPath === 'string' ? tls.certPath.slice(0, 4096) : '',
       keyPath: typeof tls.keyPath === 'string' ? tls.keyPath.slice(0, 4096) : '',
+      advanced: {
+        wakeLock: tlsAdvanced.wakeLock === true,
+      },
     },
     navPosition,
     pomodoro: pomodoroSettings,
@@ -554,7 +567,14 @@ export function createSettingsStore(): SettingsStore {
         ...current.notifications,
         ...(isRecord(source.notifications) ? source.notifications : {}),
       },
-      tls: { ...current.tls, ...(isRecord(source.tls) ? source.tls : {}) },
+      tls: {
+        ...current.tls,
+        ...(isRecord(source.tls) ? source.tls : {}),
+        advanced: {
+          ...current.tls.advanced,
+          ...(isRecord(source.tls) && isRecord(source.tls.advanced) ? source.tls.advanced : {}),
+        },
+      },
       pomodoro: { ...current.pomodoro, ...(isRecord(source.pomodoro) ? source.pomodoro : {}) },
       countdown: { ...current.countdown, ...(isRecord(source.countdown) ? source.countdown : {}) },
     };
@@ -607,7 +627,7 @@ export function createSettingsStore(): SettingsStore {
       },
       balance: { ...current.balance },
       notifications: { ...current.notifications, enabledApps: [...current.notifications.enabledApps] },
-      tls: { ...current.tls },
+      tls: { ...current.tls, advanced: { ...current.tls.advanced } },
       navPosition: current.navPosition,
       pomodoro: { ...current.pomodoro },
       countdown: { ...current.countdown, presets: [...current.countdown.presets] },

@@ -1,5 +1,6 @@
 import { setLocale, t } from './i18n.svelte';
 import { DEFAULT_ORDER, enabledOrder, normalizeOrder } from './pages';
+import { setWakeLockEnabled } from './wake-lock';
 import { configureLive, connectLive, disposeLive, isLiveOpen, sendLive } from './ws';
 import type {
   AccountData,
@@ -225,6 +226,7 @@ export function applySettings(settings: ConsoleSettings | undefined): void {
   // never render both timer cards at once.
   if (app.pomodoro.enabled) app.countdown.enabled = false;
   else if (app.countdown.enabled) app.pomodoro.enabled = false;
+  setWakeLockEnabled(settings.tls?.enabled === true && settings.tls?.advanced?.wakeLock === true);
   if (settings.balance) {
     app.balanceDisplay = {
       showPeakValley: settings.balance.showPeakValley !== false,
