@@ -5,6 +5,7 @@
   import Mic from '@lucide/svelte/icons/mic';
   import Plus from '@lucide/svelte/icons/plus';
   import MessageCircle from '@lucide/svelte/icons/message-circle';
+  import Square from '@lucide/svelte/icons/square';
   import X from '@lucide/svelte/icons/x';
   import { Button } from '$lib/components/ui/button/index.js';
   import { cn } from '$lib/utils.js';
@@ -21,6 +22,7 @@
     quickQaReset,
     quickQaSelectDefault,
     quickQaSelectWorkspace,
+    quickQaStop,
     quickQaWorkspaces,
   } from '../quickqa.svelte';
   import {
@@ -361,11 +363,23 @@
               <div class="quickqa-chat-thinking">
                 <div class="quickqa-orb"><span></span><span></span><span></span></div>
                 <span>{t('quickQaThinking')}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="quickqa-stop-button transition-none"
+                  aria-label={t('quickQaStop')}
+                  onclick={quickQaStop}
+                >
+                  <Square class="size-[13px]" strokeWidth={2} />
+                  {t('quickQaStop')}
+                </Button>
               </div>
             </div>
           {:else if phase === 'streaming' || phase === 'done'}
             <div class="quickqa-chat-row is-assistant">
-              {#if phase === 'done' && quickQa.empty && !quickQa.answer}
+              {#if phase === 'done' && quickQa.stopped}
+                <p class="quickqa-answer-empty">{t('quickQaStopped')}</p>
+              {:else if phase === 'done' && quickQa.empty && !quickQa.answer}
                 <p class="quickqa-answer-empty">{t('quickQaAnswerEmpty')}</p>
               {:else}
                 <div class="quickqa-chat-assistant" class:is-streaming={phase === 'streaming'}><Markdown content={quickQa.answer} /></div>
@@ -804,6 +818,18 @@
     gap: 10px;
     color: var(--muted-foreground);
     font-size: 18px;
+  }
+
+  :global(.quickqa-stop-button) {
+    height: 32px;
+    margin-left: 4px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+    color: var(--danger);
+    font-size: 14px;
+    font-weight: 600;
   }
 
   .quickqa-answer-empty {

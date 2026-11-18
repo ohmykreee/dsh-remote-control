@@ -10,7 +10,6 @@ import type * as React from 'react';
 import { Btn, Select, groupHead, h, sectionHead } from '../ui.js';
 import type {
   PanelApi,
-  QuickQaModelOption,
   QuickQaSettings,
   QuickQaWorkspaceOption,
 } from '../types.js';
@@ -39,22 +38,29 @@ function modelGroup(api: PanelApi): React.ReactElement {
   const disabled = quickQaOptions?.voice?.ready !== true;
   const groups = quickQaOptions?.model?.groups ?? [];
   const selected = quickQa.model ?? {};
-  const modelOptions: Array<{ value: string; label: string }> = [];
-  let matched: QuickQaModelOption | null = null;
-  for (const group of groups) {
-    for (const model of group.models) {
-      const value = JSON.stringify([group.id, model.id]);
-      if (selected.provider === group.id && selected.model === model.id) matched = model;
-      modelOptions.push({ value, label: `${group.name} · ${model.name}` });
-    }
+  const selectedGroup = groups.find((group) => group.id === selected.provider) ?? null;
+
+  const providerOptions: Array<{ value: string; label: string }> = [
+    { value: '', label: t('quickqaFollowDefault') },
+    ...groups.map((group) => ({ value: group.id, label: group.name })),
+  ];
+  if (selected.provider && !selectedGroup) {
+    providerOptions.push({
+      value: selected.provider,
+      label: `${selected.provider} (${t('quickqaModelUnavailable')})`,
+    });
   }
-  const savedKey = selected.provider && selected.model
-    ? JSON.stringify([selected.provider, selected.model])
-    : '';
-  if (savedKey && !matched) {
+
+  const models = selectedGroup?.models ?? [];
+  const modelOptions: Array<{ value: string; label: string }> = [
+    { value: '', label: t('quickqaFollowDefault') },
+    ...models.map((model) => ({ value: model.id, label: model.name })),
+  ];
+  const matched = models.find((model) => model.id === selected.model) ?? null;
+  if (selected.model && !matched) {
     modelOptions.push({
-      value: savedKey,
-      label: `${selected.provider} · ${selected.model} (${t('quickqaModelUnavailable')})`,
+      value: selected.model,
+      label: `${selected.model} (${t('quickqaModelUnavailable')})`,
     });
   }
   const efforts = matched?.reasoning?.efforts ?? [];
@@ -62,33 +68,43 @@ function modelGroup(api: PanelApi): React.ReactElement {
     { value: '', label: t('quickqaReasoningDefault') },
     ...efforts.map((effort) => ({ value: effort.id, label: effort.name })),
   ];
+
   return h('div', { className: 'drc-group' },
     groupHead(t('quickqaModelGroup'), t('quickqaModelHint')),
-    modelOptions.length === 0
+    groups.length === 0
       ? h('p', { className: 'drc-empty' }, t('quickqaModelEmpty'))
       : h('div', { className: 'drc-fields' },
         h(Select, {
-          label: t('quickqaModelField'),
-          value: savedKey,
-          options: modelOptions,
+          label: t('quickqaProviderField'),
+          value: selected.provider ?? '',
+          options: providerOptions,
           disabled,
           onChange: (value) => {
-            let provider = '';
-            let model = '';
-            try {
-              const parsed: unknown = JSON.parse(value);
-              if (Array.isArray(parsed) && typeof parsed[0] === 'string' && typeof parsed[1] === 'string') {
-                provider = parsed[0];
-                model = parsed[1];
-              }
-            } catch {
-              /* keep an empty selection */
-            }
-            const next = groups
-              .find((group) => group.id === provider)
-              ?.models.find((entry) => entry.id === model) ?? null;
-            const effort = next?.reasoning?.defaultEffort ?? '';
-            stage({ quickqa: { model: { provider, model, reasoningEffort: effort } } });
+            const group = groups.find((entry) => entry.id === value) ?? null;
+            const model = group?.models.some((entry) => entry.id === selected.model)
+              ? selected.model ?? ''
+              : group?.models[0]?.id ?? '';
+            const effort = group?.models.find((entry) => entry.id === model)?.reasoning?.defaultEffort ?? '';
+            stage({ quickqa: { model: { provider: value, model, reasoningEffort: effort } } });
+          },
+        }),
+        h(Select, {
+          label: t('quickqaModelField'),
+          value: selected.model ?? '',
+          options: modelOptions,
+          disabled: disabled || !selectedGroup,
+          onChange: (value) => {
+            const effort = selectedGroup?.models
+              .find((entry) => entry.id === value)?.reasoning?.defaultEffort ?? '';
+            stage({
+              quickqa: {
+                model: {
+                  provider: selected.provider ?? '',
+                  model: value,
+                  reasoningEffort: effort,
+                },
+              },
+            });
           },
         }),
         h(Select, {

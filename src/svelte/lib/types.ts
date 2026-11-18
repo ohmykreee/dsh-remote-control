@@ -331,6 +331,7 @@ export type ClientMessage =
   | { type: 'action'; action: string; value?: number | boolean }
   | { type: 'answer-question'; sessionId: string; requestId: string; answers: QuestionAnswerItem[] }
   | { type: 'quickqa-ask'; text: string; workspaceId?: string; sessionId?: string }
+  | { type: 'quickqa-stop' }
   | { type: 'quickqa-reset' };
 
 /** Phase of one quick Q&A turn, as pushed by the Host. */
@@ -360,6 +361,7 @@ export type ServerMessage =
       workspaceId?: string;
       question?: string;
       empty?: boolean;
+      stopped?: boolean;
       error?: string;
     }
   | { type: 'quickqa-delta'; text?: string }

@@ -220,7 +220,7 @@ export function createHubController(
 
   async function handleSocketMessage(client: WebSocketClient, message: unknown): Promise<void> {
     if (!isRecord(message)) return;
-    if (message.type === 'quickqa-ask' || message.type === 'quickqa-reset') {
+    if (message.type === 'quickqa-ask' || message.type === 'quickqa-stop' || message.type === 'quickqa-reset') {
       await quickqa.handleMessage(client, message);
       return;
     }

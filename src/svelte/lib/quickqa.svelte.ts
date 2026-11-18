@@ -23,6 +23,7 @@ export const quickQa = $state({
   messages: [] as QuickQaChatMessage[],
   error: '',
   empty: false,
+  stopped: false,
   pending: null as QuickQaPending | null,
   cancelArmed: false,
   cancelRequested: false,
@@ -120,6 +121,7 @@ export function quickQaAsk(text: string): boolean {
   quickQa.phase = 'thinking';
   quickQa.error = '';
   quickQa.empty = false;
+  quickQa.stopped = false;
   quickQa.pending = null;
   return true;
 }
@@ -133,10 +135,17 @@ export function quickQaReset(): void {
   quickQa.messages = [];
   quickQa.error = '';
   quickQa.empty = false;
+  quickQa.stopped = false;
   quickQa.pending = null;
   quickQa.cancelArmed = false;
   quickQa.cancelRequested = false;
   quickQa.workspaceId = app.quickqa?.defaultWorkspaceId || '';
+}
+
+/** Ask the Host to interrupt the running turn without leaving the answer card. */
+export function quickQaStop(): void {
+  if (!quickQa.sessionId || quickQa.phase !== 'thinking') return;
+  sendLive({ type: 'quickqa-stop' });
 }
 
 /** Re-open the existing inquiry sheet for the active conversation. */
@@ -184,23 +193,32 @@ export function handleQuickQaMessage(message: ServerMessage): void {
       if (message.sessionId) quickQa.sessionId = message.sessionId;
       if (message.workspaceId) quickQa.workspaceId = message.workspaceId;
       if (message.error) {
+        const abandoned = quickQa.sessionId || message.sessionId || '';
         quickQa.error = message.error;
         quickQa.answer = '';
+        quickQa.messages = [];
+        quickQa.sessionId = null;
+        quickQa.pending = null;
+        quickQa.stopped = false;
         quickQa.phase = 'error';
+        if (abandoned) sendLive({ type: 'quickqa-reset' });
         toast(message.error);
         break;
       }
       if (phase === 'thinking') {
         archiveCurrentAnswer();
         quickQa.empty = false;
+        quickQa.stopped = false;
         quickQa.error = '';
         quickQa.pending = null;
         const question = String(message.question || '').trim();
         if (question) appendChatMessage('user', question);
       } else if (phase === 'streaming') {
         quickQa.empty = false;
+        quickQa.stopped = false;
       } else if (phase === 'done') {
         quickQa.empty = message.empty === true;
+        quickQa.stopped = message.stopped === true;
       }
       if (phase) quickQa.phase = phase;
       break;

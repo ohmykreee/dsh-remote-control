@@ -82,6 +82,7 @@ interface SessionControllerService {
   create?(request: Record<string, unknown>): Promise<{ sessionId?: string; agentPreset?: string }>;
   prompt?(request: Record<string, unknown>, signal?: AbortSignal): Promise<{ accepted?: boolean }>;
   follow?(request: Record<string, unknown>, signal: AbortSignal): AsyncIterable<unknown>;
+  cancel?(request: { sessionId: string }): { accepted?: boolean } | void;
 }
 
 interface QuickQaRun {
@@ -92,6 +93,7 @@ interface QuickQaRun {
   permissionPreset: string;
   busy: boolean;
   abort: AbortController | null;
+  turnId: number;
   pendingSignature: string;
 }
 
@@ -291,7 +293,8 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
     });
   }
 
-  async function streamAnswer(run: QuickQaRun, text: string, signal: AbortSignal): Promise<void> {
+  async function streamAnswer(run: QuickQaRun, text: string, signal: AbortSignal, turnId: number): Promise<void> {
+    if (run.turnId !== turnId) return;
     run.client.send({ type: 'quickqa-state', phase: 'streaming', sessionId: run.sessionId, workspaceId: run.workspaceId });
     if (!text) {
       run.client.send({ type: 'quickqa-state', phase: 'done', sessionId: run.sessionId, workspaceId: run.workspaceId, empty: true });
@@ -300,23 +303,29 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
     const chars = Array.from(text);
     const chunkSize = Math.max(2, Math.ceil(chars.length / 120));
     for (let index = 0; index < chars.length; index += chunkSize) {
-      if (signal.aborted) return;
+      if (signal.aborted || run.turnId !== turnId) return;
       const chunk = chars.slice(index, index + chunkSize).join('');
       run.client.send({ type: 'quickqa-delta', text: chunk, sessionId: run.sessionId });
       await sleep(22);
     }
-    if (signal.aborted) return;
+    if (signal.aborted || run.turnId !== turnId) return;
     run.client.send({ type: 'quickqa-state', phase: 'done', sessionId: run.sessionId, workspaceId: run.workspaceId });
   }
 
-  async function runTurn(run: QuickQaRun, targetTurn: number, controller: SessionControllerService): Promise<void> {
+  async function runTurn(
+    run: QuickQaRun,
+    targetTurn: number,
+    controller: SessionControllerService,
+    abort: AbortController,
+    turnId: number,
+  ): Promise<void> {
+    if (run.turnId !== turnId) return;
     if (!controller.follow) {
       run.busy = false;
       pushPending(run, null);
       sendError(run.client, 'quickqaFollowUnsupported', run.sessionId);
       return;
     }
-    const abort = new AbortController();
     run.abort = abort;
     run.busy = true;
     run.pendingSignature = '';
@@ -405,9 +414,10 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
     } finally {
       clearInterval(pendingTimer);
       clearTimeout(timeout);
-      run.abort = null;
+      if (run.turnId === turnId && run.abort === abort) run.abort = null;
     }
 
+    if (run.turnId !== turnId) return;
     if (failed) {
       run.busy = false;
       pushPending(run, null);
@@ -449,7 +459,7 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
     }
 
     try {
-      await streamAnswer(run, answer, abort.signal);
+      await streamAnswer(run, answer, abort.signal, turnId);
     } finally {
       run.busy = false;
       pushPending(run, null);
@@ -471,6 +481,9 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
       baseline = 0;
     }
     const targetTurn = baseline + 1;
+    const turnId = ++run.turnId;
+    const abort = new AbortController();
+    run.abort = abort;
     run.busy = true;
     run.client.send({
       type: 'quickqa-state',
@@ -485,14 +498,23 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
         sessionId: run.sessionId,
         mode: 'queue',
         content: [{ type: 'text', text }],
-      }, new AbortController().signal);
+      }, abort.signal);
     } catch (errorValue) {
+      if (run.turnId !== turnId) return;
       run.busy = false;
+      if (run.abort === abort) run.abort = null;
+      if (abort.signal.aborted) return;
       deps.log(`quickqa: prompt failed: ${serializeError(errorValue)}`);
       sendError(run.client, 'quickqaPromptFailed', run.sessionId);
       return;
     }
-    await runTurn(run, targetTurn, controller);
+    if (run.turnId !== turnId) return;
+    if (abort.signal.aborted) {
+      run.busy = false;
+      if (run.abort === abort) run.abort = null;
+      return;
+    }
+    await runTurn(run, targetTurn, controller, abort, turnId);
   }
 
   async function startNew(
@@ -516,6 +538,7 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
       permissionPreset: profile.permissionPreset,
       busy: true,
       abort: null,
+      turnId: 0,
       pendingSignature: '',
     };
     runs.set(client.id, placeholder);
@@ -583,15 +606,42 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
     await startNew(client, text, safeString(message.workspaceId, 300));
   }
 
+  function cancelActiveTurn(run: QuickQaRun): void {
+    const controller = service<SessionControllerService>(deps.ctx, 'sessionController');
+    try {
+      controller?.cancel?.({ sessionId: run.sessionId });
+    } catch (errorValue) {
+      deps.log(`quickqa: cancel failed: ${serializeError(errorValue)}`);
+    }
+  }
+
   async function handleMessage(client: WebSocketClient, message: unknown): Promise<boolean> {
     if (!isRecord(message)) return false;
     if (message.type === 'quickqa-ask') {
       await handleAsk(client, message);
       return true;
     }
+    if (message.type === 'quickqa-stop') {
+      const run = runs.get(client.id);
+      if (run?.busy && run.sessionId) {
+        run.turnId += 1;
+        run.abort?.abort();
+        cancelActiveTurn(run);
+        run.busy = false;
+        run.client.send({
+          type: 'quickqa-state',
+          phase: 'done',
+          sessionId: run.sessionId,
+          workspaceId: run.workspaceId,
+          stopped: true,
+        });
+      }
+      return true;
+    }
     if (message.type === 'quickqa-reset') {
       const run = runs.get(client.id);
       if (run) {
+        if (run.busy) cancelActiveTurn(run);
         run.abort?.abort();
         runs.delete(client.id);
       }
@@ -613,11 +663,15 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
     detach(clientId: string) {
       const run = runs.get(clientId);
       if (!run) return;
+      if (run.busy) cancelActiveTurn(run);
       run.abort?.abort();
       runs.delete(clientId);
     },
     dispose() {
-      for (const run of runs.values()) run.abort?.abort();
+      for (const run of runs.values()) {
+        if (run.busy) cancelActiveTurn(run);
+        run.abort?.abort();
+      }
       runs.clear();
     },
   };

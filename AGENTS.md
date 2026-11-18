@@ -224,7 +224,7 @@ window.__ModuleLoader__.load({
 | `settings` | 设置变化（含 `quickqa` 语音就绪状态；官方语音插件就绪状态变化时也会重推） |
 | `action-result` | 媒体 / 音量动作结果 |
 | `answer-result` | 远程回答结果 |
-| `quickqa-state` | 快速问答阶段：`thinking` / `streaming` / `done` / `error`，可带 `sessionId`、`workspaceId`、`question`（本次识别文本）、`error`、`empty` |
+| `quickqa-state` | 快速问答阶段：`thinking` / `streaming` / `done` / `error`，可带 `sessionId`、`workspaceId`、`question`（本次识别文本）、`error`、`empty`、`stopped`（用户中断） |
 | `quickqa-delta` | 最终回答的流式文本片段 |
 | `quickqa-pending` | 快速问答中的用户问询 / 权限询问；`clear: true` 表示已结束 |
 | `error` | 初始化失败 |
@@ -237,6 +237,7 @@ window.__ModuleLoader__.load({
 | `action` | `playpause` / `next` / `previous` / `seek` / `like` / `volume` / `mute`，可带 `value` |
 | `answer-question` | `sessionId`、`requestId`、结构化答案 |
 | `quickqa-ask` | `text`；新会话带 `workspaceId`，追问带 `sessionId` |
+| `quickqa-stop` | 中断当前正在思考的快速问答轮次；保留会话供追问 / 新会话 |
 | `quickqa-reset` | 放弃当前快速问答会话 |
 | `refresh` | 重发初始快照 |
 | `settings` | 请求设置快照 |
@@ -274,6 +275,8 @@ window.__ModuleLoader__.load({
 - `catalog.ts`：读取 `sessionController.modelCatalog()`（缺失时回退 `llm` + `agentDefaultModel`）、`workspaceRegistry`、`agentPresets.list()`、`permissionPresets.catalog()`；目录缓存 15 s，语音就绪状态每次实时读取。
 - `index.ts`：每个 WebSocket 客户端一个运行态。新问题用 `sessionController.create({ workspaceId, agentPreset })` 建会话，`agent.model.select()` 只改该会话的模型（不写 DSH 默认值），`permissionPresets.set(session, name)` 设权限行为，然后 `sessionController.prompt({ mode: 'queue', content: [{ type: 'text', text }] }, signal)`（第二个 `AbortSignal` 参数是必需的），再 `follow()`。`follow()` 只取最终 `assistant/message` 的文本块；带 `tool-call` 的步骤一律丢弃，思考内容与工具过程不发送。结果在轮次结束后按块流式发给手机，因此页面只经历“模型思考中”和最终回答；`quickqa-state` 的 `question` 字段回显本次识别文本，供手机聊天卡展示用户问题与多轮上下文。
 - 问询：运行期间每 500 ms 读取 `pending.snapshot(sessionId)`，通过 `quickqa-pending` 推送；`pushQuestions` 关闭时只发通用提示，不泄露问题内容。用户问题可直接用既有 `answer-question` 通道回答；权限询问仅展示，仍需在 DSH 处理。
+- 中断：手机发送 `quickqa-stop` 时 Host 递增轮次 token、中止 follow 的 `AbortSignal`，并调用官方 `sessionController.cancel({ sessionId })` 真正停止 Agent 当前 turn，然后回 `quickqa-state` `done` + `stopped: true`；旧轮次的迟到帧会因 token 不匹配被丢弃，会话保留，因此可以继续追问或开新会话。
+- 失败：Host 的 `error` 会清空当前快速问答会话，手机端退回初始页并只显示错误文案（没有重试按钮）；再次按住麦克风会创建新会话，而不是恢复旧卡片。
 - 音频上传：LAN `POST /api/quickqa/transcribe` 接受受限 `audio/wav`（16 kHz 单声道 PCM16），调用官方 `speechToText`，转写后的文字再由手机发回 `quickqa-ask`。
 - 语音未就绪时：侧边栏 `/api/quickqa` 返回未就绪，设置页禁用后续控件；Host 的 `applySettings()` 丢弃 `quickqa` 补丁，`quickqa-ask` 与转写接口直接拒绝。
 
@@ -312,13 +315,13 @@ window.__ModuleLoader__.load({
 - 分页：每页 `scroll-snap-stop: always`，一次手势最多前进 / 后退一页；页面顺序与开关来自设置，关闭的页面不渲染、不轮询。
 - 字体：`@fontsource-variable/inter`、`noto-sans-sc`、`jetbrains-mono` 由 Vite 打进 `web/assets/`，不依赖手机系统字体；许可见 `web/fonts/LICENSE.txt`。
 - 手机端只读会话；`pushQuestions` 开启后才显示回答入口。
-- 快速问答页：左侧只有大的圆形麦克风与「长按说话」（未授权时在圆钮上方显示红色授权按钮），右侧是默认 / 置顶工作区选择；按钮统一使用 shadcn-svelte `Button` / `Panel`，不引入 hover 过渡。麦克风使用默认输入设备，录音转成 16 kHz 单声道 PCM16 WAV 后上传。首次录音松开后立即进入大聊天卡（转写阶段也保持卡片），不回到麦克风和工作区初始界面；按下麦克风时按钮的位置和尺寸保持不变。按住时用 Svelte `Tween`（`cubicOut`）驱动半透明实心圆环，取消按钮位于圆钮上方；追问时录音控制保留在聊天卡底部的小圆钮上，继续追问与新会话左右并排，按下后两个按钮位置不变，取消按钮浮在追问圆钮上方，不会回到初始界面；AI 输出期间底部按钮隐藏，回答完成后再出现；流式内容会自动滚到聊天卡底部，按钮出现时不会遮住最后一段回答；取消、过短或没有清晰语音时，圆钮下方提示会切换为对应状态；从回答卡片退回初始界面的错误只显示错误信息，不提供重试按钮。进入回答模式后隐藏语音与工作区，只保留一张居中的大聊天卡：显示识别出的用户问题、之前轮次的上下文、模型回答与底部继续追问 / 新会话按钮。
+- 快速问答页：左侧只有大的圆形麦克风与「长按说话」（未授权时在圆钮上方显示红色授权按钮），右侧是默认 / 置顶工作区选择；按钮统一使用 shadcn-svelte `Button` / `Panel`，不引入 hover 过渡。麦克风使用默认输入设备，录音转成 16 kHz 单声道 PCM16 WAV 后上传。首次录音松开后立即进入大聊天卡（转写阶段也保持卡片），不回到麦克风和工作区初始界面；按下麦克风时按钮的位置和尺寸保持不变。按住时用 Svelte `Tween`（`cubicOut`）驱动半透明实心圆环，取消按钮位于圆钮上方；追问时录音控制保留在聊天卡底部的小圆钮上，继续追问与新会话左右并排，按下后两个按钮位置不变，取消按钮浮在追问圆钮上方，不会回到初始界面；AI 思考时状态旁提供中断按钮，中断后保留聊天卡并显示「已中断」，底部仍可追问或新会话；AI 输出期间底部按钮隐藏，回答完成后再出现；流式内容会自动滚到聊天卡底部，按钮出现时不会遮住最后一段回答；取消、过短或没有清晰语音时，圆钮下方提示会切换为对应状态；从回答卡片退回初始界面的错误只显示错误信息，不提供重试按钮，并清空旧会话，下一次按住麦克风会开新会话。进入回答模式后隐藏语音与工作区，只保留一张居中的大聊天卡：显示识别出的用户问题、之前轮次的上下文、模型回答与底部继续追问 / 新会话按钮。
 
 ## DSH 侧边栏（React）
 
 - `src/dsh/client` 用 `React.createElement`（`h`）而不是 JSX；React 由 DSH loader 提供。
 - 入口 `src/dsh/client/index.ts` 向 DSH 注册设置页（slot），菜单包含：连接、偏好设置、快速问答、番茄钟 / 倒计时、天气设置、余额显示、通知设置、软件映射、系统信息。
-- 快速问答设置页：第一块只显示官方语音输入就绪 / 未就绪（提供商与状态同一行，不再重复标题）；未就绪时后面的模型与工作区块全部禁用，但保留已保存值。第二块从 `/api/quickqa` 读取模型与思考强度。第三块读取工作区、模式与权限行为；默认工作区固定勾选，置顶工作区每行依次为勾选框、名称 / 路径、模式、权限行为，未勾选时两个下拉禁用；保存时只提交默认与置顶工作区的 `profiles`。
+- 快速问答设置页：第一块只显示官方语音输入就绪 / 未就绪（提供商与状态同一行，不再重复标题）；未就绪时后面的模型与工作区块全部禁用，但保留已保存值。第二块从 `/api/quickqa` 读取模型；回答模型拆成提供商、模型两个下拉，下面保留思考强度。第三块读取工作区、模式与权限行为；默认工作区固定勾选，置顶工作区每行依次为勾选框、名称 / 路径、模式、权限行为，未勾选时两个下拉禁用；保存时只提交默认与置顶工作区的 `profiles`。模式与权限行为的显示名直接使用 Host API 返回值，不额外翻译。
 - 所有设置先进入 `DraftState`，点「保存设置」才 `POST /api/settings` 一次性提交；应用改名、主题同步、令牌轮换、断开设备是即时请求。
 - 连接页始终显示「高级功能」卡片；HTTPS 关闭时卡片内所有开关显示为关闭并禁用，hint 保持不变。当前提供 `tls.advanced.wakeLock` 开关，启用 HTTPS 后保存，手机端会在 HTTPS 页面申请屏幕唤醒锁。
 - 软件映射页在应用列表上方提供本地搜索，按已保存的应用名称或应用 ID 实时过滤；只过滤当前 UI，不触发服务端请求。
