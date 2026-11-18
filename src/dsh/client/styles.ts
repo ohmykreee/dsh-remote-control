@@ -866,6 +866,10 @@ export const CSS = `
   padding: 8px 0;
 }
 
+.drc-search {
+  padding: 2px 0 6px;
+}
+
 .drc-map-main {
   flex: 1;
   min-width: 0;

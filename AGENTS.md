@@ -291,6 +291,7 @@ window.__ModuleLoader__.load({
 - 入口 `src/dsh/client/index.ts` 向 DSH 注册设置页（slot），菜单包含：连接、偏好设置、番茄钟 / 倒计时、天气设置、余额显示、通知设置、软件映射、系统信息。
 - 所有设置先进入 `DraftState`，点「保存设置」才 `POST /api/settings` 一次性提交；应用改名、主题同步、令牌轮换、断开设备是即时请求。
 - 连接页始终显示「高级功能」卡片；HTTPS 关闭时卡片内所有开关显示为关闭并禁用，hint 保持不变。当前提供 `tls.advanced.wakeLock` 开关，启用 HTTPS 后保存，手机端会在 HTTPS 页面申请屏幕唤醒锁。
+- 软件映射页在应用列表上方提供本地搜索，按已保存的应用名称或应用 ID 实时过滤；只过滤当前 UI，不触发服务端请求。
 - 天气设置按「定位权限 → 数据提供商 → 和风天气 JWT（仅选中时）→ 位置 → 显示方式」排列。位置只提供城市搜索，匹配到的经纬度 / 站点 ID 只显示在提示里，不再提供名称 / 经纬度输入框；城市搜索用 POST `/api/geocode` 携带当前编辑中的 provider 与和风凭据，切换提供商后无需先保存即可搜索。和风天气分组可生成 Ed25519 密钥对、填入私钥并显示 / 复制公钥，JWT 由 Host 按请求自动生成。系统信息页的天气状态 detail 显示实际使用的提供商。
 - 偏好设置的第一个设置组是 **插件语言**（跟随 DSH / 简体中文 / English）；保存后 `hydrate()` 调 `setPluginLanguage()` 立即重绘，Host 同时把解析后的 `locale` 推给手机端。
 - 主题：`theme = dsh` 时跟随 DSH 的 `dshTheme`，由 `/api/theme` 同步；也可固定 light/dark。
