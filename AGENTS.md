@@ -40,7 +40,7 @@
 
 ## 项目形态
 
-- 名称 `@ohmykreee/dsh-remote-control`，版本 `1.0.9`，MIT；npm 包由 CI 发布，bundle 行的 `name` 与 `client.js` 的工厂 id 都必须等于这个包名。
+- 名称 `@ohmykreee/dsh-remote-control`，版本 `1.1.0`，MIT；npm 包由 CI 发布，bundle 行的 `name` 与 `client.js` 的工厂 id 都必须等于这个包名。
 - 运行形态：DSH Desktop / `dsh web` 的 Host 进程内加载的 bundle 插件。
 - 一个进程里同时存在四层：
   1. **Host**：`src/dsh`（TypeScript，ESM），编译为 `index.js` + `lib/`；
@@ -337,7 +337,7 @@ window.__ModuleLoader__.load({
 ### 架构与二进制
 
 - 唯一 OS 探测层：媒体、音量、性能 / GPU / 温度、通知、定位。Node 不保留 PowerShell / C# / playerctl / osascript 回退。
-- 源码 `src/rust`（crate `dsh-probe`，版本 `1.0.9`）。每个功能目录（`media/`、`perf/`、`notifications/`、`volume/`、`location/`）都按同一方式分层：`mod.rs` 只做命令行、JSON 外形和平台模块选择；`windows.rs` / `linux.rs` / `macos.rs` 各自实现完整平台逻辑。缺失能力由平台文件返回明确错误，不在 `mod.rs` 里写 `cfg` 分支。
+- 源码 `src/rust`（crate `dsh-probe`，版本 `1.1.0`）。每个功能目录（`media/`、`perf/`、`notifications/`、`volume/`、`location/`）都按同一方式分层：`mod.rs` 只做命令行、JSON 外形和平台模块选择；`windows.rs` / `linux.rs` / `macos.rs` 各自实现完整平台逻辑。缺失能力由平台文件返回明确错误，不在 `mod.rs` 里写 `cfg` 分支。
 - 媒体层在平台层之上做 vendor 调度：平台文件识别应用后调用 `vendor::resolve`，命中 vendor 进入对应客户端逻辑，未命中才回到系统 API。
 - macOS 性能采样使用 `libc` + `mach2` 的 `host_statistics`（CPU tick）与 `sysctl`（内存 / 频率），不链接 CoreFoundation / IOKit，因此构建 macOS 探针不需要完整 Xcode SDK（Command Line Tools 即可）。
 - 产物：`native/bin/<platform>-<arch>/dsh-probe[.exe]`，例如 `win32-x64`、`linux-x64`、`darwin-arm64`。
