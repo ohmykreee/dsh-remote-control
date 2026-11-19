@@ -159,7 +159,7 @@ assert.equal(m.timelineSource, 'accessibility');
 /* --------------------------------------------------------- missing probe */
 
 // Resolve the probe to a path that cannot exist so this test exercises the
-// "not built" failure state in lib/probe.js.
+// "not built" failure state in lib/probe/index.js.
 process.env.DSH_RC_PROBE = path.join(os.tmpdir(), 'dsh-rc-missing-probe-binary');
 delete process.env.DSH_RC_DISABLE_RUST_PROBE;
 

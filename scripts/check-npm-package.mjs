@@ -38,7 +38,7 @@ const REQUIRED_ARTIFACTS = [
   'index.js',
   'client.js',
   'lib/service.js',
-  'lib/probe.js',
+  'lib/probe/index.js',
   'web/index.html',
   'locale/en.json',
   'locale/zh.json',
@@ -53,7 +53,8 @@ const REQUIRED_SOURCES = [
   'INSTALLATION.md',
   'LICENSE',
   'src/dsh/index.ts',
-  'src/dsh/lib/probe.ts',
+  'src/dsh/lib/probe/index.ts',
+  'src/dsh/lib/shared/util.ts',
   'src/svelte/main.ts',
   'src/rust/Cargo.toml',
   'src/rust/src/main.rs',
@@ -204,10 +205,10 @@ if (clientId === null) {
 }
 
 // ------------------------------------------------------------ version sync
-const sourceVersion = search('src/dsh/lib/util.ts', /export const VERSION = '([^']+)'/);
+const sourceVersion = search('src/dsh/lib/shared/util.ts', /export const VERSION = '([^']+)'/);
 if (sourceVersion !== version) {
   fail(
-    `src/dsh/lib/util.ts reports VERSION=${JSON.stringify(sourceVersion)} but package.json is ${version}`,
+    `src/dsh/lib/shared/util.ts reports VERSION=${JSON.stringify(sourceVersion)} but package.json is ${version}`,
     'update the Host version constant in the same commit as the version bump',
   );
 }
