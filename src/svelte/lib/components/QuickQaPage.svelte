@@ -9,6 +9,7 @@
   import X from '@lucide/svelte/icons/x';
   import Clipboard from '@lucide/svelte/icons/clipboard';
   import Camera from '@lucide/svelte/icons/camera';
+  import LoaderCircle from '@lucide/svelte/icons/loader-circle';
   import { Button } from '$lib/components/ui/button/index.js';
   import { cn } from '$lib/utils.js';
   import { app, toast } from '../state.svelte';
@@ -702,7 +703,7 @@
                   onclick={pasteImage}
                 >
                   {#if screenshotBusy}
-                    <QuickQaLoader compact />
+                    <LoaderCircle class="size-[20px] animate-spin" strokeWidth={1.8} />
                   {:else if companionActive}
                     <Camera class="size-[20px]" strokeWidth={1.8} />
                   {:else}
