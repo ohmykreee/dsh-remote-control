@@ -76,6 +76,10 @@ jobs:
         working-directory: src/rust
         run: cargo fmt --all -- --check
 
+      - name: Rust check
+        working-directory: src/rust
+        run: cargo check --all-targets
+
       - name: Build the native probe
         run: node scripts/build-rust.mjs
 
@@ -84,10 +88,6 @@ jobs:
 
       - name: Phone console unit tests
         run: pnpm test:unit
-
-      - name: Rust check
-        working-directory: src/rust
-        run: cargo check --all-targets
 
       - name: Rust tests
         working-directory: src/rust
