@@ -189,8 +189,9 @@
       toast(t('connectionLost'));
       return;
     }
-    if (micPermission !== 'granted') {
-      void requestMicPermission();
+    // The dedicated permission button is the only entry point while access
+    // has not been granted; do not open a second getUserMedia prompt here.
+    if (micPermission !== 'granted' && !quickQa.sessionId) {
       return;
     }
     event.preventDefault();
@@ -216,7 +217,10 @@
   async function openCapture(): Promise<void> {
     try {
       const handle = await startQuickQaCapture();
-      if (!holding || quickQa.cancelArmed) {
+      // A quick tap (or the cancel button) can finish before getUserMedia
+      // resolves. In that case the pending stop still needs finishCapture so
+      // the UI reaches idle instead of staying in the capturing state.
+      if (disposed || quickQa.phase !== 'capturing') {
         releasePending = false;
         await handle.cancel();
         return;
@@ -226,6 +230,11 @@
       if (releasePending) {
         releasePending = false;
         await finishCapture(handle);
+        return;
+      }
+      if (!holding) {
+        await handle.cancel();
+        settlePhase();
         return;
       }
       const tick = (): void => {
@@ -243,6 +252,9 @@
       holding = false;
       unbindWindow();
       stopFrame();
+      // A cancel click settles the phase before getUserMedia rejects; do not
+      // replace the cancellation state with a late permission error.
+      if (quickQa.phase !== 'capturing') return;
       settlePhase();
       if (disposed) return;
       standbyHint = 'noMic';
@@ -264,12 +276,13 @@
     quickQa.cancelArmed = false;
     const handle = captureHandle;
     captureHandle = null;
-    if (handle) await handle.cancel();
+    // Leave the recording UI immediately; closing the audio graph can wait.
     settlePhase();
     if (showToast && hadCapture) {
       standbyHint = 'canceled';
       toast(t('quickQaCanceled'));
     }
+    if (handle) await handle.cancel();
   }
 
   async function stopCapture(): Promise<void> {
@@ -423,6 +436,10 @@
                   class={cn('quickqa-cancel quickqa-follow-cancel transition-none', quickQa.cancelArmed && 'is-armed')}
                   aria-label={t('quickQaCancel')}
                   onpointerdown={(event) => event.stopPropagation()}
+                  onclick={(event) => {
+                    event.stopPropagation();
+                    void cancelCapture(true);
+                  }}
                 >
                   <X class="size-[17px]" strokeWidth={2} />
                   <span>{quickQa.cancelArmed ? t('quickQaCancelHint') : t('quickQaCancel')}</span>
@@ -488,6 +505,10 @@
                 class={cn('quickqa-cancel transition-none', quickQa.cancelArmed && 'is-armed')}
                 aria-label={t('quickQaCancel')}
                 onpointerdown={(event) => event.stopPropagation()}
+                onclick={(event) => {
+                  event.stopPropagation();
+                  void cancelCapture(true);
+                }}
               >
                 <X class="size-[17px]" strokeWidth={2} />
                 <span>{quickQa.cancelArmed ? t('quickQaCancelHint') : t('quickQaCancel')}</span>
@@ -504,6 +525,7 @@
                     phase === 'capturing' && 'is-holding',
                   )}
                   aria-label={phase === 'capturing' ? t('quickQaReleaseToSend') : t('quickQaHold')}
+                  disabled={micPermission !== 'granted' && !quickQa.sessionId}
                   onpointerdown={beginHold}
                   oncontextmenu={(event) => event.preventDefault()}
                 >
