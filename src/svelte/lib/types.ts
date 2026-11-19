@@ -40,6 +40,8 @@ export interface QuickQaSettings {
   defaultWorkspaceTitle?: string;
   pinned?: Array<{ id: string; title: string; path: string }>;
   pushQuestions?: boolean;
+  /** Whether the page may show the attach controls for one image. */
+  allowImages?: boolean;
 }
 
 export interface QuickQaPending {
@@ -330,7 +332,7 @@ export type ClientMessage =
   | { type: 'refresh' }
   | { type: 'action'; action: string; value?: number | boolean }
   | { type: 'answer-question'; sessionId: string; requestId: string; answers: QuestionAnswerItem[] }
-  | { type: 'quickqa-ask'; text: string; workspaceId?: string; sessionId?: string }
+  | { type: 'quickqa-ask'; text: string; workspaceId?: string; sessionId?: string; imageId?: string }
   | { type: 'quickqa-stop' }
   | { type: 'quickqa-reset' };
 

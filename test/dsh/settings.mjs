@@ -78,6 +78,14 @@ assert.equal(reloaded.get().language, 'zh');
 assert.equal(reloaded.get().dshLocale, 'en');
 assert.equal(reloaded.public().locale, 'zh');
 
+// Image attachments are opt-in and only a strict boolean turns them on.
+assert.equal(store.get().quickqa.allowImages, false);
+store.update({ quickqa: { allowImages: true } });
+assert.equal(store.get().quickqa.allowImages, true);
+assert.equal(store.public().quickqa.allowImages, true);
+store.update({ quickqa: { allowImages: 'yes' } });
+assert.equal(store.get().quickqa.allowImages, false);
+
 // Both Host dictionaries must cover exactly the same keys.
 assert.deepEqual(Object.keys(zh).sort(), Object.keys(en).sort());
 assert.equal(hostMessage('en', 'answerWaiting'), 'Waiting for your answer');

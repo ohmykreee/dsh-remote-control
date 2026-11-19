@@ -7,6 +7,7 @@
   import MessageCircle from '@lucide/svelte/icons/message-circle';
   import Square from '@lucide/svelte/icons/square';
   import X from '@lucide/svelte/icons/x';
+  import Clipboard from '@lucide/svelte/icons/clipboard';
   import { Button } from '$lib/components/ui/button/index.js';
   import { cn } from '$lib/utils.js';
   import { app, toast } from '../state.svelte';
@@ -15,6 +16,7 @@
   import Markdown from './Markdown.svelte';
   import QuickQaLoader from './QuickQaLoader.svelte';
   import {
+    clearQuickQaImage,
     quickQa,
     quickQaAsk,
     quickQaBusy,
@@ -25,7 +27,15 @@
     quickQaSelectWorkspace,
     quickQaStop,
     quickQaWorkspaces,
+    setQuickQaImage,
+    type QuickQaOutgoingImage,
   } from '../quickqa.svelte';
+  import {
+    pickedFileImage,
+    readClipboardImage,
+    uploadQuickQaImage,
+    type QuickQaPickedImage,
+  } from '../quickqa-image';
   import {
     recordingToWav,
     startQuickQaCapture,
@@ -40,12 +50,19 @@
   const phase = $derived(quickQa.phase);
   const followUpActive = $derived(Boolean(quickQa.sessionId) && (phase === 'capturing' || phase === 'transcribing'));
   const answerMode = $derived(phase === 'thinking' || phase === 'streaming' || phase === 'done' || phase === 'transcribing' || followUpActive);
+  const allowAttach = $derived(voiceReady && app.quickqa?.allowImages === true);
+  const attachedImage = $derived(quickQa.attachedImage);
+  /** Both attach actions share one shadcn Button style and height. */
+  const attachButtonClass = 'quickqa-attach-button h-12 rounded-full shadow-none';
+  /** The attachment cannot change while recording or while the question is sent. */
+  const attachLocked = $derived(phase === 'capturing' || phase === 'transcribing');
 
   type MicPermissionState = 'unknown' | 'prompt' | 'granted' | 'denied';
   type StandbyHint = 'idle' | 'canceled' | 'noSpeech' | 'short' | 'noMic';
   let micPermission = $state<MicPermissionState>('unknown');
   let standbyHint = $state<StandbyHint>('idle');
   let conversationBodyEl = $state<HTMLElement | null>(null);
+  let fileInputEl = $state<HTMLInputElement | null>(null);
   let scrollFrame = 0;
   const waveLevel = new Tween(0, { duration: 140, easing: cubicOut });
   let permissionBusy = $state(false);
@@ -128,6 +145,54 @@
     } finally {
       permissionBusy = false;
     }
+  }
+
+  /** Keep the picked bytes locally; they travel with the transcribed question. */
+  function acceptImage(image: QuickQaPickedImage): void {
+    let url = '';
+    try {
+      url = URL.createObjectURL(image.blob);
+    } catch {
+      toast(t('quickQaImageUnsupported'));
+      return;
+    }
+    setQuickQaImage({ blob: image.blob, mediaType: image.mediaType, url });
+  }
+
+  async function pasteImage(): Promise<void> {
+    if (attachLocked) return;
+    try {
+      const image = await readClipboardImage();
+      if (!image) {
+        toast(t('quickQaImageEmpty'));
+        return;
+      }
+      acceptImage(image);
+    } catch {
+      toast(t('quickQaImageClipboardFailed'));
+    }
+  }
+
+  function chooseImage(): void {
+    if (attachLocked) return;
+    fileInputEl?.click();
+  }
+
+  function onFilePicked(event: Event): void {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    input.value = '';
+    if (!file) return;
+    const image = pickedFileImage(file);
+    if (!image) {
+      toast(t('quickQaImageUnsupported'));
+      return;
+    }
+    acceptImage(image);
+  }
+
+  function removeImage(): void {
+    if (!attachLocked) clearQuickQaImage();
   }
 
   function bindWindow(): void {
@@ -326,8 +391,26 @@
         toast(t('quickQaEmptyText'));
         return;
       }
+      // The image was only staged in the browser. Upload it together with the
+      // recognized question so changing the picture before speaking costs
+      // nothing and no session starts from an attachment alone.
+      const attached = quickQa.attachedImage;
+      let outgoing: QuickQaOutgoingImage | null = null;
+      if (attached) {
+        try {
+          const id = await uploadQuickQaImage({ blob: attached.blob, mediaType: attached.mediaType });
+          outgoing = { id, url: attached.url };
+        } catch (error) {
+          settlePhase();
+          if (disposed) return;
+          const message = error instanceof Error ? error.message : String(error);
+          toast(message || t('quickQaImageUploadFailed'));
+          return;
+        }
+      }
+      if (disposed) return;
       quickQa.phase = 'idle';
-      if (!quickQaAsk(text)) settlePhase();
+      if (!quickQaAsk(text, outgoing)) settlePhase();
     } catch (error) {
       settlePhase();
       if (disposed) return;
@@ -361,8 +444,15 @@
       <Panel class="quickqa-conversation">
         <div class="quickqa-conversation-body" bind:this={conversationBodyEl}>
           {#each quickQa.messages as message}
-            <div class="quickqa-chat-row" class:is-user={message.role === 'user'}>
+            <div
+              class="quickqa-chat-row"
+              class:is-user={message.role === 'user'}
+              class:has-image={message.role === 'user' && Boolean(message.imageUrl)}
+            >
               {#if message.role === 'user'}
+                {#if message.imageUrl}
+                  <div class="quickqa-chat-image"><img src={message.imageUrl} alt="" /></div>
+                {/if}
                 <div class="quickqa-chat-bubble">{message.text}</div>
               {:else}
                 <div class="quickqa-chat-assistant"><Markdown content={message.text} /></div>
@@ -559,6 +649,55 @@
             {/if}
           </div>
 
+          {#if allowAttach}
+            <div class="quickqa-attach">
+              {#if attachedImage}
+                <div class="quickqa-attach-preview">
+                  <img src={attachedImage.url} alt={t('quickQaAttachedImage')} />
+                  <Button
+                    variant="secondary"
+                    size="icon-sm"
+                    class="quickqa-attach-remove rounded-full shadow-none"
+                    aria-label={t('quickQaRemoveImage')}
+                    title={t('quickQaRemoveImage')}
+                    disabled={attachLocked}
+                    onclick={removeImage}
+                  >
+                    <X class="size-[13px]" strokeWidth={2.2} />
+                  </Button>
+                </div>
+              {:else}
+                <Button
+                  variant="outline"
+                  size="lg"
+                  class={cn(attachButtonClass, 'w-12 px-0')}
+                  aria-label={t('quickQaPasteImage')}
+                  title={t('quickQaPasteImage')}
+                  disabled={attachLocked}
+                  onclick={pasteImage}
+                >
+                  <Clipboard class="size-[20px]" strokeWidth={1.8} />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  class={cn(attachButtonClass, 'px-5')}
+                  disabled={attachLocked}
+                  onclick={chooseImage}
+                >
+                  {t('quickQaAttachImage')}
+                </Button>
+              {/if}
+              <input
+                bind:this={fileInputEl}
+                class="quickqa-attach-input"
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                onchange={onFilePicked}
+              />
+            </div>
+          {/if}
+
           {#if phase === 'error'}
             <div class="quickqa-error" role="alert">
               <p>{quickQa.error || t('quickQaError')}</p>
@@ -729,6 +868,52 @@
     transform: translateX(-50%);
   }
 
+  .quickqa-attach {
+    display: flex;
+    min-height: 48px;
+    align-items: center;
+    gap: 10px;
+    /* Reserve one extra hint line ("松开即可发送") that appears while recording. */
+    margin-top: 36px;
+  }
+
+  :global(.quickqa-attach-button) {
+    border-color: var(--border);
+    background: var(--card);
+    color: var(--foreground);
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .quickqa-attach-preview {
+    position: relative;
+    width: 84px;
+    height: 84px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: var(--card);
+  }
+
+  .quickqa-attach-preview img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+  }
+
+  :global(.quickqa-attach-remove) {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    box-shadow: none;
+  }
+
+  .quickqa-attach-input {
+    display: none;
+  }
+
   .quickqa-status-block {
     display: flex;
     flex-direction: column;
@@ -782,9 +967,36 @@
     justify-content: flex-start;
   }
 
-  .quickqa-chat-row.is-user { justify-content: flex-end; }
+  .quickqa-chat-row.is-user {
+    justify-content: flex-end;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .quickqa-chat-image {
+    width: 49px;
+    height: 49px;
+    flex: 0 0 auto;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--card);
+  }
+
+  .quickqa-chat-image img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+  }
+
+  .quickqa-chat-row.is-user.has-image .quickqa-chat-bubble {
+    max-width: min(calc(100% - 57px), 580px);
+  }
 
   .quickqa-chat-bubble {
+    min-width: 0;
     max-width: min(78%, 580px);
     padding: 10px 14px;
     border-radius: 18px 18px 4px 18px;
@@ -1052,6 +1264,7 @@
     }
 
     .quickqa-mic-shell { width: clamp(150px, 27vh, 200px); height: clamp(150px, 27vh, 200px); }
+    .quickqa-attach { margin-top: 24px; }
     :global(.quickqa-conversation) { height: 90vh; padding: 20px 22px; }
     :global(.quickqa-workspace-card) { padding: 16px; max-height: calc(100% - 4px); }
     :global(.quickqa-workspace-item) { min-height: 58px; padding: 10px 12px; }

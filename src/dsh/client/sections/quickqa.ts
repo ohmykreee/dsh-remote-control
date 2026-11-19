@@ -7,7 +7,8 @@
  */
 
 import type * as React from 'react';
-import { Btn, Select, groupHead, h, sectionHead } from '../ui.js';
+import { Btn, Row, Select, Toggle, groupHead, h, sectionHead } from '../ui.js';
+import { effectiveQuickQaModel, quickQaImageInput } from '../logic.js';
 import type {
   PanelApi,
   QuickQaSettings,
@@ -39,6 +40,18 @@ function modelGroup(api: PanelApi): React.ReactElement {
   const groups = quickQaOptions?.model?.groups ?? [];
   const selected = quickQa.model ?? {};
   const selectedGroup = groups.find((group) => group.id === selected.provider) ?? null;
+
+  /** Stage a model change; a text-only target also turns attachments off. */
+  function stageModel(provider: string, modelId: string, reasoningEffort: string): void {
+    const group = groups.find((entry) => entry.id === provider) ?? null;
+    const model = group?.models.find((entry) => entry.id === modelId) ?? null;
+    stage({
+      quickqa: {
+        model: { provider, model: modelId, reasoningEffort },
+        ...(model && model.imageInput === false ? { allowImages: false } : {}),
+      },
+    });
+  }
 
   const providerOptions: Array<{ value: string; label: string }> = [
     { value: '', label: t('quickqaFollowDefault') },
@@ -85,7 +98,7 @@ function modelGroup(api: PanelApi): React.ReactElement {
               ? selected.model ?? ''
               : group?.models[0]?.id ?? '';
             const effort = group?.models.find((entry) => entry.id === model)?.reasoning?.defaultEffort ?? '';
-            stage({ quickqa: { model: { provider: value, model, reasoningEffort: effort } } });
+            stageModel(value, model, effort);
           },
         }),
         h(Select, {
@@ -96,15 +109,7 @@ function modelGroup(api: PanelApi): React.ReactElement {
           onChange: (value) => {
             const effort = selectedGroup?.models
               .find((entry) => entry.id === value)?.reasoning?.defaultEffort ?? '';
-            stage({
-              quickqa: {
-                model: {
-                  provider: selected.provider ?? '',
-                  model: value,
-                  reasoningEffort: effort,
-                },
-              },
-            });
+            stageModel(selected.provider ?? '', value, effort);
           },
         }),
         h(Select, {
@@ -281,6 +286,32 @@ function workspaceGroup(api: PanelApi): React.ReactElement {
     h('p', { className: 'drc-row-desc' }, t('quickqaPushHint')),
   );
 }
+function imageGroup(api: PanelApi): React.ReactElement {
+  const { t, settings, quickQaOptions, stage } = api;
+  const quickQa = settings.quickqa ?? {};
+  const catalog = quickQaOptions?.model;
+  const imageInput = quickQaImageInput(catalog, quickQa);
+  const effective = effectiveQuickQaModel(catalog, quickQa);
+  // Unknown support stays off until the live catalog says the route accepts
+  // images; a model that explicitly declares text-only stays off for good.
+  const supported = imageInput === true;
+  const disabled = quickQaOptions?.voice?.ready !== true || !supported;
+  return h('div', { className: 'drc-group' },
+    groupHead(t('quickqaImageGroup'), t('quickqaImageHint')),
+    h(Row, { title: t('quickqaAllowImages') },
+      h(Toggle, {
+        checked: supported && quickQa.allowImages === true,
+        label: t('quickqaAllowImages'),
+        disabled,
+        onChange: (checked) => stage({ quickqa: { allowImages: checked } }),
+      }),
+    ),
+    !supported && effective
+      ? h('p', { className: 'drc-row-desc' }, t('quickqaImageModelHint'))
+      : null,
+  );
+}
+
 export function renderQuickQa(api: PanelApi): React.ReactElement {
   const { t, quickQaOptions, quickQaBusy } = api;
   const ready = quickQaOptions?.voice?.ready === true;
@@ -296,6 +327,7 @@ export function renderQuickQa(api: PanelApi): React.ReactElement {
       ready ? null : h('p', { className: 'drc-row-desc' }, t('quickqaGateHint')),
       modelGroup(api),
       workspaceGroup(api),
+      imageGroup(api),
     ),
   );
 }

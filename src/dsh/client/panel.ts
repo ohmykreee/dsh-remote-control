@@ -34,6 +34,7 @@ import {
   mergeStaged,
   normalizePageOrder,
   pageLabels,
+  quickQaImageInput,
 } from './logic.js';
 import { Btn, h } from './ui.js';
 import { MenuIcon } from './icons.js';
@@ -519,6 +520,7 @@ export function RemotePanel(): React.ReactElement {
       selectedApps,
       notificationApps,
       order,
+      quickQaImageInput: quickQaImageInput(quickQaOptions?.model, settings.quickqa),
     }));
   };
 

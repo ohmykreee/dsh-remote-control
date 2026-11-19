@@ -37,7 +37,7 @@ Five pages, each with one job:
 |---|---|
 | Home | Large clock and date, current weather with hourly / 7-day forecast, Pomodoro or countdown, system notifications |
 | Sessions | Account balance, today / this week spend, a 7-day spend chart behind the spend card, live sessions and subagents, remote answers |
-| Quick Q&A | A large voice button, default / pinned workspace picker, model answers and follow-ups |
+| Quick Q&A | A large voice button, default / pinned workspace picker, one-image attachment, model answers and follow-ups |
 | Music | Full-bleed blurred artwork, track info, progress and seek, previous / next, play-pause, system volume and mute, NetEase Cloud Music like |
 | Performance | CPU / memory and GPU / VRAM rings, clocks and uptime, hottest temperature and sensor list |
 
@@ -56,7 +56,7 @@ Five pages, each with one job:
 <p align="center">
   <img src="screenshots/en/quickqa.png" alt="Quick Q&amp;A and the completed answer" width="1000">
   <br>
-  <em>Quick Q&amp;A: hold to talk and choose a workspace; the completed answer on the right.</em>
+  <em>Quick Q&amp;A: hold to talk, attach one image, and choose a workspace; the completed answer with an image on the right.</em>
 </p>
 
 - The five pages loop horizontally, one page per gesture; page order, enablement and the navigation rail position are configured on the DSH settings page.
@@ -159,6 +159,7 @@ Turn on **Push inquiries** and sessions waiting for an answer gain an **Answer**
 - Each pinned workspace row holds its checkbox, mode, and permission behavior; the two selects are disabled until the workspace is checked. The default workspace is always checked and can set the same two values. Only the default and pinned workspaces keep these two settings when saved.
 - On the phone, hold the large button to record; releasing it opens the answer card immediately, then transcribes and sends. While holding, move to the Cancel button and release there to discard the recording. Too-short or silent recordings are not sent and a retry hint appears. While the model is thinking, a Stop button sits beside the status; stopping keeps the current chat card open so you can follow up or start a new conversation. If a run fails and returns to the initial page, the old conversation is cleared, so the next hold starts a new conversation.
 - Answering switches to one centered chat card: it shows the recognized question, the previous turns in the same conversation, and the final answer. Reasoning and tool calls stay hidden. Afterwards you can follow up in the same conversation or start a new one. When following up, the recording control stays on the small round button at the bottom of the card instead of returning to the initial page. The bottom buttons hide while the model is answering and return when the answer is complete.
+- Quick Q&A supports attaching one image to each question.
 - The inquiry sheet is controlled by **Notifications → Push inquiries**: when on, the existing sheet opens directly; when off, the page tells you to handle it in DSH. Permission requests still need confirmation in DSH.
 - The microphone uses the phone browser's default input device, with no device picker. The first use needs browser permission; an Allow microphone button appears above the large circle until then. Browsers only allow recording in a secure context (HTTPS, localhost, or a secure-context allowlist); for desktop-browser testing you can configure the allowlist described in [INSTALLATION.md](../INSTALLATION.md#https-与浏览器安全上下文).
 

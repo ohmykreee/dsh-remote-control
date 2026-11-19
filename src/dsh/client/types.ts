@@ -160,6 +160,8 @@ export interface QuickQaSettings {
   defaultWorkspaceId?: string;
   pinnedWorkspaceIds?: string[];
   profiles?: Record<string, QuickQaWorkspaceProfile>;
+  /** Allow the phone to attach one image when the selected model accepts it. */
+  allowImages?: boolean;
 }
 
 export interface QuickQaReasoningEffort {
@@ -175,6 +177,8 @@ export interface QuickQaModelOption {
     efforts: QuickQaReasoningEffort[];
     defaultEffort?: string;
   } | null;
+  /** False only when the route explicitly declares text-only input. */
+  imageInput?: boolean;
 }
 
 export interface QuickQaModelGroup {
@@ -236,6 +240,8 @@ export interface RemoteQuickQaSettings {
   defaultWorkspaceTitle?: string;
   pinned?: Array<{ id: string; title: string; path: string }>;
   pushQuestions?: boolean;
+  /** Whether the phone may show the attach controls for one image. */
+  allowImages?: boolean;
 }
 
 /** Settings object from `/api/settings`; every section is optional on the wire. */

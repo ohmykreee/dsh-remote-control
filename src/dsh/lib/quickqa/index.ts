@@ -15,7 +15,18 @@ import type { PluginLocale, QuickQaWorkspaceProfile, RemoteControlSettings } fro
 import { isRecord, type DshContext, type JsonRecord, type WebSocketClient } from '../shared/types.js';
 import { safeString, serializeError } from '../shared/util.js';
 import type { RemoteSettingsPayload } from '../server/types.js';
-import { bestQuickQaSelection, createQuickQaCatalog, type QuickQaModelSelection, type QuickQaOptions } from './catalog.js';
+import {
+  bestQuickQaSelection,
+  createQuickQaCatalog,
+  modelSupportsImage,
+  type QuickQaModelSelection,
+  type QuickQaOptions,
+} from './catalog.js';
+import {
+  createQuickQaImageStore,
+  type QuickQaImage,
+  type QuickQaImageMediaType,
+} from './image.js';
 import { isVoiceReady, transcribeAudio } from './voice.js';
 
 export interface QuickQaServiceOptions {
@@ -30,6 +41,10 @@ export interface QuickQaService {
   readOptions(force?: boolean): Promise<QuickQaOptions>;
   remoteSettings(): RemoteSettingsPayload['quickqa'];
   isVoiceReady(): boolean;
+  /** Whether this profile lets the phone attach one image to a question. */
+  canAttachImages(): boolean;
+  /** Keep one uploaded image until the next prompt claims it. */
+  saveImage(mediaType: QuickQaImageMediaType, data: Uint8Array): QuickQaImage;
   transcribe(audio: Uint8Array, signal: AbortSignal): Promise<{ text: string; audioSeconds: number }>;
   /** Handle one socket frame; returns true when it belonged to Quick Q&A. */
   handleMessage(client: WebSocketClient, message: unknown): Promise<boolean>;
@@ -91,6 +106,8 @@ interface QuickQaRun {
   workspaceId: string;
   agentPreset: string;
   permissionPreset: string;
+  /** The model this run selected; used to gate later image prompts. */
+  selection: QuickQaModelSelection;
   busy: boolean;
   abort: AbortController | null;
   turnId: number;
@@ -207,10 +224,36 @@ function resolveWorkspaceId(deps: QuickQaServiceOptions, requested: string): str
 
 export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaService {
   const catalog = createQuickQaCatalog(deps.ctx);
+  const images = createQuickQaImageStore();
   const runs = new Map<string, QuickQaRun>();
+  /** Last successful catalog read, used for the synchronous settings push. */
+  let lastCatalog: QuickQaOptions | null = null;
 
   function locale(): PluginLocale {
     return deps.getLocale();
+  }
+
+  async function readOptions(force = false): Promise<QuickQaOptions> {
+    const options = await catalog.read(force);
+    lastCatalog = options;
+    return options;
+  }
+
+  function selectionImageInput(selection: QuickQaModelSelection): boolean {
+    const modelCatalog = lastCatalog?.model;
+    if (!modelCatalog) return true;
+    for (const group of modelCatalog.groups) {
+      if (group.id !== selection.provider) continue;
+      const model = group.models.find((entry) => entry.id === selection.model);
+      if (model) return model.imageInput;
+    }
+    return true;
+  }
+
+  function effectiveSelection(): QuickQaModelSelection {
+    const settings = deps.getSettings();
+    const modelCatalog = lastCatalog?.model;
+    return modelCatalog ? bestQuickQaSelection(settings.quickqa.model, modelCatalog) : settings.quickqa.model;
   }
 
   function sendError(client: WebSocketClient, key: Parameters<typeof hostMessage>[1], sessionId?: string): void {
@@ -245,6 +288,7 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
       defaultWorkspaceTitle: defaultWorkspace?.title ?? '',
       pinned,
       pushQuestions: settings.notifications.pushQuestions,
+      allowImages: settings.quickqa.allowImages && selectionImageInput(effectiveSelection()),
     };
   }
 
@@ -469,6 +513,7 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
   async function prompt(
     run: QuickQaRun,
     text: string,
+    image: QuickQaImage | null,
     controller: SessionControllerService,
     agents: AgentsService | undefined,
     sessions: SessionsService | undefined,
@@ -492,12 +537,14 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
       workspaceId: run.workspaceId,
       question: text,
     });
+    const content: JsonRecord[] = [{ type: 'text', text }];
+    if (image) content.push({ type: 'image', mediaType: image.mediaType, data: image.data });
     try {
       await controller.prompt?.({
         requestId: crypto.randomUUID(),
         sessionId: run.sessionId,
         mode: 'queue',
-        content: [{ type: 'text', text }],
+        content,
       }, abort.signal);
     } catch (errorValue) {
       if (run.turnId !== turnId) return;
@@ -505,7 +552,8 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
       if (run.abort === abort) run.abort = null;
       if (abort.signal.aborted) return;
       deps.log(`quickqa: prompt failed: ${serializeError(errorValue)}`);
-      sendError(run.client, 'quickqaPromptFailed', run.sessionId);
+      const rejectedByImage = image !== null && /image|attachment/i.test(serializeError(errorValue));
+      sendError(run.client, rejectedByImage ? 'quickqaImageRejected' : 'quickqaPromptFailed', run.sessionId);
       return;
     }
     if (run.turnId !== turnId) return;
@@ -521,6 +569,7 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
     client: WebSocketClient,
     text: string,
     requestedWorkspaceId: string,
+    image: QuickQaImage | null,
   ): Promise<void> {
     const controller = service<SessionControllerService>(deps.ctx, 'sessionController');
     if (!controller?.create || !controller.prompt) {
@@ -530,12 +579,20 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
     const settings = deps.getSettings();
     const workspaceId = resolveWorkspaceId(deps, requestedWorkspaceId);
     const profile = profileFor(settings, workspaceId);
+    const options = await readOptions();
+    const selection = bestQuickQaSelection(settings.quickqa.model, options.model);
+    const imageInput = await modelSupportsImage(deps.ctx, selection);
+    if (image && !imageInput) {
+      sendError(client, 'quickqaImageModel');
+      return;
+    }
     const placeholder: QuickQaRun = {
       client,
       sessionId: '',
       workspaceId,
       agentPreset: profile.agentPreset,
       permissionPreset: profile.permissionPreset,
+      selection,
       busy: true,
       abort: null,
       turnId: 0,
@@ -550,12 +607,11 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
       const sessionId = safeString(created?.sessionId, 300);
       if (!sessionId) throw new Error('session was not created');
       placeholder.sessionId = sessionId;
-      const options = await catalog.read();
-      await selectModel(deps, options, sessionId, bestQuickQaSelection(settings.quickqa.model, options.model));
+      await selectModel(deps, options, sessionId, selection);
       selectPermission(deps, sessionId, profile.permissionPreset);
       const agents = service<AgentsService>(deps.ctx, 'agents');
       const sessions = service<SessionsService>(deps.ctx, 'sessions');
-      await prompt(placeholder, text, controller, agents, sessions);
+      await prompt(placeholder, text, image, controller, agents, sessions);
     } catch (errorValue) {
       runs.delete(client.id);
       deps.log(`quickqa: session creation failed: ${serializeError(errorValue)}`);
@@ -567,15 +623,29 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
     }
   }
 
-  async function followUp(client: WebSocketClient, run: QuickQaRun, text: string): Promise<void> {
+  async function followUp(
+    client: WebSocketClient,
+    run: QuickQaRun,
+    text: string,
+    image: QuickQaImage | null,
+  ): Promise<void> {
     const controller = service<SessionControllerService>(deps.ctx, 'sessionController');
     if (!controller?.prompt) {
       sendError(client, 'quickqaUnsupported', run.sessionId);
       return;
     }
+    if (image) {
+      const supported = run.selection.provider && run.selection.model
+        ? await modelSupportsImage(deps.ctx, run.selection)
+        : true;
+      if (!supported) {
+        sendError(client, 'quickqaImageModel', run.sessionId);
+        return;
+      }
+    }
     const agents = service<AgentsService>(deps.ctx, 'agents');
     const sessions = service<SessionsService>(deps.ctx, 'sessions');
-    await prompt(run, text, controller, agents, sessions);
+    await prompt(run, text, image, controller, agents, sessions);
   }
 
   async function handleAsk(client: WebSocketClient, message: JsonRecord): Promise<void> {
@@ -594,16 +664,29 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
       return;
     }
     const requestedSession = safeString(message.sessionId, 300);
-    if (requestedSession) {
-      if (!run || run.sessionId !== requestedSession) {
-        sendError(client, 'quickqaUnknownSession');
+    if (requestedSession && (!run || run.sessionId !== requestedSession)) {
+      sendError(client, 'quickqaUnknownSession');
+      return;
+    }
+    let image: QuickQaImage | null = null;
+    const imageId = safeString(message.imageId, 120).trim();
+    if (imageId) {
+      if (!deps.getSettings().quickqa.allowImages) {
+        sendError(client, 'quickqaImageNotAllowed', run?.sessionId || undefined);
         return;
       }
-      await followUp(client, run, text);
+      image = images.take(imageId);
+      if (!image) {
+        sendError(client, 'quickqaImageExpired', run?.sessionId || undefined);
+        return;
+      }
+    }
+    if (requestedSession && run) {
+      await followUp(client, run, text, image);
       return;
     }
     if (run) runs.delete(client.id);
-    await startNew(client, text, safeString(message.workspaceId, 300));
+    await startNew(client, text, safeString(message.workspaceId, 300), image);
   }
 
   function cancelActiveTurn(run: QuickQaRun): void {
@@ -651,9 +734,16 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
   }
 
   return {
-    readOptions: (force = false) => catalog.read(force),
+    readOptions,
     remoteSettings,
     isVoiceReady: () => isVoiceReady(deps.ctx),
+    canAttachImages: () => deps.getSettings().quickqa.allowImages && selectionImageInput(effectiveSelection()),
+    saveImage(mediaType, data) {
+      if (!deps.getSettings().quickqa.allowImages || !selectionImageInput(effectiveSelection())) {
+        throw new Error('image-not-allowed');
+      }
+      return images.save(mediaType, data);
+    },
     async transcribe(audio: Uint8Array, signal: AbortSignal) {
       if (!audio || audio.length < 44) throw new Error('voice-input-empty');
       if (!isVoiceReady(deps.ctx)) throw new Error('voice-input-not-ready');
@@ -673,6 +763,7 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
         run.abort?.abort();
       }
       runs.clear();
+      images.clear();
     },
   };
 }

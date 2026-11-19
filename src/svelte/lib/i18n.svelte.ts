@@ -310,6 +310,14 @@ export const zh = {
   quickQaStepAsk: '回答',
   quickQaPushOffHint: '「推送问询」已关闭，问询请在 DSH 中处理。',
   quickQaSelected: '当前选择',
+  quickQaAttachImage: '附加图片',
+  quickQaPasteImage: '从剪贴板添加图片',
+  quickQaRemoveImage: '移除图片',
+  quickQaAttachedImage: '已附加的图片',
+  quickQaImageEmpty: '剪贴板里没有图片',
+  quickQaImageUnsupported: '不支持这种图片格式',
+  quickQaImageClipboardFailed: '无法读取剪贴板图片',
+  quickQaImageUploadFailed: '图片上传失败，请重试',
 
   // Question sheet
   sessionQuestion: '会话提问',
@@ -634,6 +642,14 @@ export const en: Record<MessageKey, string> = {
   quickQaStepAsk: 'Answer',
   quickQaPushOffHint: 'Pushed inquiries are off; handle inquiries in DSH.',
   quickQaSelected: 'Selected',
+  quickQaAttachImage: 'Attach image',
+  quickQaPasteImage: 'Add an image from the clipboard',
+  quickQaRemoveImage: 'Remove image',
+  quickQaAttachedImage: 'Attached image',
+  quickQaImageEmpty: 'No image on the clipboard',
+  quickQaImageUnsupported: 'This image format is not supported',
+  quickQaImageClipboardFailed: 'Could not read an image from the clipboard',
+  quickQaImageUploadFailed: 'Image upload failed; try again',
 
   // Question sheet
   sessionQuestion: 'Session question',

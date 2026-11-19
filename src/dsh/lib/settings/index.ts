@@ -196,6 +196,8 @@ export interface QuickQaSettings {
   defaultWorkspaceId: string;
   pinnedWorkspaceIds: string[];
   profiles: Record<string, QuickQaWorkspaceProfile>;
+  /** Let the phone attach one image to a question when the model accepts it. */
+  allowImages: boolean;
 }
 
 /** Browser-side countdown configuration; the console runs the timer itself. */
@@ -344,6 +346,7 @@ export function defaultSettings(): RemoteControlSettings {
       defaultWorkspaceId: '',
       pinnedWorkspaceIds: [],
       profiles: {},
+      allowImages: false,
     },
     pageOrder: ['home', 'sessions', 'quickqa', 'music', 'performance'],
     pageEnabled: { home: true, sessions: true, quickqa: true, music: true, performance: true },
@@ -396,6 +399,7 @@ function normalizeQuickQaSettings(value: unknown): QuickQaSettings {
     defaultWorkspaceId,
     pinnedWorkspaceIds,
     profiles,
+    allowImages: input.allowImages === true,
   };
 }
 
@@ -732,6 +736,7 @@ export function createSettingsStore(): SettingsStore {
         profiles: Object.fromEntries(
           Object.entries(current.quickqa.profiles).map(([id, profile]) => [id, { ...profile }]),
         ),
+        allowImages: current.quickqa.allowImages,
       },
       pageOrder: [...current.pageOrder],
       pageEnabled: { ...current.pageEnabled },

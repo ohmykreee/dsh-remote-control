@@ -7,12 +7,29 @@
 
 import { t } from './i18n.svelte';
 import { app, toast } from './state.svelte';
+import type { QuickQaImageMediaType } from './quickqa-image';
 import { isLiveOpen, sendLive } from './ws';
 import type { QuickQaPending, QuickQaPhase, ServerMessage, SessionItem } from './types';
 
 export interface QuickQaChatMessage {
   role: 'user' | 'assistant';
   text: string;
+  /** Local object URL for the image sent with this user turn, if any. */
+  imageUrl?: string;
+}
+
+export interface QuickQaAttachedImage {
+  /** Original bytes; uploaded together with the question, not on selection. */
+  blob: Blob;
+  mediaType: QuickQaImageMediaType;
+  /** Local object URL used by the preview; revoked when the image is dropped. */
+  url: string;
+}
+
+/** Image id + preview URL handed to one successfully sent question. */
+export interface QuickQaOutgoingImage {
+  id: string;
+  url: string;
 }
 
 export const quickQa = $state({
@@ -27,16 +44,50 @@ export const quickQa = $state({
   pending: null as QuickQaPending | null,
   cancelArmed: false,
   cancelRequested: false,
+  attachedImage: null as QuickQaAttachedImage | null,
 });
+
+/** Image URL waiting for the Host's `thinking` echo to land on the user bubble. */
+let pendingImageUrl: string | null = null;
 
 const BUSY_PHASES: readonly QuickQaPhase[] = ['capturing', 'transcribing', 'thinking', 'streaming'];
 
-function appendChatMessage(role: 'user' | 'assistant', text: string): void {
+function releaseUrl(url: string | null | undefined): void {
+  if (!url || typeof URL === 'undefined' || typeof URL.revokeObjectURL !== 'function') return;
+  try {
+    URL.revokeObjectURL(url);
+  } catch {
+    /* already released */
+  }
+}
+
+/** Replace the one pending attachment, releasing the preview that was replaced. */
+export function setQuickQaImage(image: QuickQaAttachedImage): void {
+  if (quickQa.attachedImage && quickQa.attachedImage.url !== image.url) {
+    releaseUrl(quickQa.attachedImage.url);
+  }
+  quickQa.attachedImage = image;
+}
+
+/** Drop the pending attachment (the close button and page teardown). */
+export function clearQuickQaImage(): void {
+  releaseUrl(quickQa.attachedImage?.url);
+  quickQa.attachedImage = null;
+}
+
+function releaseChatImages(): void {
+  for (const message of quickQa.messages) releaseUrl(message.imageUrl);
+  releaseUrl(pendingImageUrl);
+  pendingImageUrl = null;
+}
+
+function appendChatMessage(role: 'user' | 'assistant', text: string, imageUrl?: string): boolean {
   const value = String(text || '').trim();
-  if (!value) return;
+  if (!value) return false;
   const last = quickQa.messages[quickQa.messages.length - 1];
-  if (last?.role === role && last.text === value) return;
-  quickQa.messages.push({ role, text: value });
+  if (last?.role === role && last.text === value) return false;
+  quickQa.messages.push({ role, text: value, ...(imageUrl ? { imageUrl } : {}) });
+  return true;
 }
 
 function archiveCurrentAnswer(): void {
@@ -93,7 +144,7 @@ export function quickQaCanAsk(): boolean {
 }
 
 /** Send one transcribed question. A null session starts a new DSH Session. */
-export function quickQaAsk(text: string): boolean {
+export function quickQaAsk(text: string, image: QuickQaOutgoingImage | null = null): boolean {
   const content = String(text || '').trim();
   if (!content) {
     toast(t('quickQaEmptyText'));
@@ -111,11 +162,18 @@ export function quickQaAsk(text: string): boolean {
   const sessionId = quickQa.sessionId;
   const workspaceId = quickQa.workspaceId || app.quickqa?.defaultWorkspaceId || '';
   const message = sessionId
-    ? { type: 'quickqa-ask' as const, text: content, sessionId }
-    : { type: 'quickqa-ask' as const, text: content, workspaceId };
+    ? { type: 'quickqa-ask' as const, text: content, sessionId, ...(image ? { imageId: image.id } : {}) }
+    : { type: 'quickqa-ask' as const, text: content, workspaceId, ...(image ? { imageId: image.id } : {}) };
   if (!sendLive(message)) {
     toast(t('connectionLost'));
     return false;
+  }
+  if (image) {
+    // The preview URL now belongs to the pending user message instead of the
+    // attach row, so it must outlive this state transition.
+    if (quickQa.attachedImage?.url === image.url) quickQa.attachedImage = null;
+    releaseUrl(pendingImageUrl);
+    pendingImageUrl = image.url;
   }
   if (sessionId) archiveCurrentAnswer();
   quickQa.phase = 'thinking';
@@ -129,6 +187,8 @@ export function quickQaAsk(text: string): boolean {
 /** Drop the current conversation and return to the default workspace. */
 export function quickQaReset(): void {
   if (quickQa.sessionId) sendLive({ type: 'quickqa-reset' });
+  releaseChatImages();
+  clearQuickQaImage();
   quickQa.phase = 'idle';
   quickQa.sessionId = null;
   quickQa.answer = '';
@@ -194,6 +254,8 @@ export function handleQuickQaMessage(message: ServerMessage): void {
       if (message.workspaceId) quickQa.workspaceId = message.workspaceId;
       if (message.error) {
         const abandoned = quickQa.sessionId || message.sessionId || '';
+        releaseChatImages();
+        clearQuickQaImage();
         quickQa.error = message.error;
         quickQa.answer = '';
         quickQa.messages = [];
@@ -212,7 +274,16 @@ export function handleQuickQaMessage(message: ServerMessage): void {
         quickQa.error = '';
         quickQa.pending = null;
         const question = String(message.question || '').trim();
-        if (question) appendChatMessage('user', question);
+        if (question) {
+          const appended = appendChatMessage('user', question, pendingImageUrl ?? undefined);
+          // A duplicate turn reuses the existing bubble; do not leak the
+          // preview URL that would otherwise have belonged to a new message.
+          if (!appended && pendingImageUrl) releaseUrl(pendingImageUrl);
+          pendingImageUrl = null;
+        } else if (pendingImageUrl) {
+          releaseUrl(pendingImageUrl);
+          pendingImageUrl = null;
+        }
       } else if (phase === 'streaming') {
         quickQa.empty = false;
         quickQa.stopped = false;

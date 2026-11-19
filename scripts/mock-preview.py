@@ -133,6 +133,7 @@ def demo_payloads(locale: str = "zh", timer: str = "pomodoro", theme: str = "dar
                 {"id": "ws-infra", "title": "基础设施", "path": "D:\\demo\\infra"},
             ],
             "pushQuestions": True,
+            "allowImages": True,
         },
         "pomodoro": {
             "enabled": timer == "pomodoro",
@@ -407,9 +408,58 @@ def mock_socket_script(messages: list[dict], locale: str) -> str:
 (function () {
   const params = new URLSearchParams(location.search);
   const wantSheet = params.get('sheet') === '1';
+  const quickDemo = params.get('quickqa');
+  const wantImage = params.get('image') !== '0' && (params.get('image') === '1' || quickDemo === 'done' || quickDemo === 'result');
+  const pinScrollTop = params.get('scroll') === 'top';
   const MESSAGES = __MESSAGES__;
   const MOCK_LOCALE = __LOCALE__;
   const copy = (zh, en) => MOCK_LOCALE === 'en' ? en : zh;
+  const MOCK_IMAGE = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480" viewBox="0 0 480 480">'
+    + '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
+    + '<stop offset="0" stop-color="#ffb46b"/><stop offset="0.55" stop-color="#e75d8d"/><stop offset="1" stop-color="#5b6cff"/>'
+    + '</linearGradient></defs><rect width="480" height="480" fill="url(#g)"/>'
+    + '<circle cx="330" cy="150" r="74" fill="#fff" opacity="0.72"/>'
+    + '<path d="M0 360 L150 210 L270 330 L360 250 L480 370 L480 480 L0 480 Z" fill="#121a2b" opacity="0.35"/>'
+    + '</svg>',
+  );
+  const mockImageState = () => {
+    const quickqa = window.__DSH_QUICKQA__;
+    if (!quickqa || !wantImage) return false;
+    if (quickDemo) {
+      const message = quickqa.messages.find((entry) => entry.role === 'user' && !entry.imageUrl);
+      if (!message) return false;
+      message.imageUrl = MOCK_IMAGE;
+      return true;
+    }
+    if (quickqa.attachedImage) return true;
+    quickqa.attachedImage = { blob: new Blob(), mediaType: 'image/png', url: MOCK_IMAGE };
+    return true;
+  };
+  let mockImageAttempts = 0;
+  const mockImageTimer = setInterval(() => {
+    mockImageAttempts += 1;
+    if (mockImageState() || mockImageAttempts > 40) clearInterval(mockImageTimer);
+  }, 250);
+  if (params.get('capturing') === '1') {
+    let captureAttempts = 0;
+    const captureTimer = setInterval(() => {
+      captureAttempts += 1;
+      const quickqa = window.__DSH_QUICKQA__;
+      if (quickqa) {
+        quickqa.phase = 'capturing';
+        clearInterval(captureTimer);
+      } else if (captureAttempts > 40) {
+        clearInterval(captureTimer);
+      }
+    }, 250);
+  }
+  if (pinScrollTop) {
+    setInterval(() => {
+      const body = document.querySelector('.quickqa-conversation-body');
+      if (body && body.scrollTop > 0) body.scrollTop = 0;
+    }, 250);
+  }
   class MockSocket {
     static CONNECTING = 0;
     static OPEN = 1;
@@ -423,7 +473,6 @@ def mock_socket_script(messages: list[dict], locale: str) -> str:
         this.readyState = 1;
         this._emit('open', {});
         for (const message of MESSAGES) this._emit('message', { data: JSON.stringify(message) });
-        const quickDemo = params.get('quickqa');
         if (quickDemo) {
           const sessionId = 's-quickqa-demo';
           const push = (payload) => this._emit('message', { data: JSON.stringify(payload) });
@@ -441,7 +490,10 @@ def mock_socket_script(messages: list[dict], locale: str) -> str:
                 push({ type: 'quickqa-delta', text: chunks[index++], sessionId });
               }, 160);
             } else if (quickDemo === 'done') {
-              state('thinking', '演示问题：现在项目进展如何？');
+              state('thinking', copy(
+                '演示问题：请把今天从早到晚的安排、会议、待办和依赖关系整理成一个可以直接执行的顺序，并说明哪些任务可以并行、哪些必须等待其他人确认。为了测试长问题在气泡中的换行、图片预览占位和滚动，这一段会比平时写得更长一些。',
+                'Demo question: Turn today’s full schedule, meetings, to-dos, and dependencies into a directly executable order, and call out what can run in parallel and what must wait for another person. This paragraph is deliberately longer to check wrapping, the image preview, and scrolling.',
+              ));
               state('streaming');
               const text = [
                 '### 快速问答长文本测试',
@@ -729,6 +781,9 @@ def main() -> int:
         print(f"theme:       {args.theme}", flush=True)
         print(f"timer:       {args.timer}", flush=True)
         print("question:    ?page=home&sheet=1", flush=True)
+        print("quickqa:     ?page=quickqa&quickqa=done&scroll=top", flush=True)
+        print("attach:      ?page=quickqa&image=1", flush=True)
+        print("recording:   ?page=quickqa&capturing=1", flush=True)
         try:
             server.serve_forever()
         except KeyboardInterrupt:

@@ -1,6 +1,6 @@
 import { setLocale, t } from './i18n.svelte';
 import { DEFAULT_ORDER, normalizeOrder } from './pages';
-import { handleQuickQaMessage, quickQaPendingSession, quickQaSyncSettings } from './quickqa.svelte';
+import { clearQuickQaImage, handleQuickQaMessage, quickQa, quickQaPendingSession, quickQaSyncSettings } from './quickqa.svelte';
 import {
   DEFAULT_COUNTDOWN_PRESETS,
   normalizeCountdown,
@@ -40,6 +40,7 @@ export const app: ConsoleState = $state({
     defaultWorkspaceTitle: '',
     pinned: [],
     pushQuestions: false,
+    allowImages: false,
   },
   balanceDisplay: { showPeakValley: true, spendWindow: 'calendar' },
   pageOrder: [...DEFAULT_ORDER],
@@ -208,6 +209,9 @@ export function applySettings(settings: ConsoleSettings | undefined): void {
       ...settings.quickqa,
       pinned: Array.isArray(settings.quickqa.pinned) ? settings.quickqa.pinned : app.quickqa.pinned,
     };
+    // A disabled setting removes the pending preview so the next question
+    // cannot carry an image the Host would reject.
+    if (app.quickqa.allowImages !== true) clearQuickQaImage();
     quickQaSyncSettings();
   }
   setWakeLockEnabled(settings.tls?.advanced?.wakeLock === true);
@@ -368,4 +372,7 @@ export function restoreUrl(): void {
 
 export function exposeState(): void {
   window.__DSH_REMOTE__ = app;
+  // The local preview harness uses this handle to seed Quick Q&A states (an
+  // attached image, a chat bubble preview) that no WebSocket frame can carry.
+  window.__DSH_QUICKQA__ = quickQa;
 }

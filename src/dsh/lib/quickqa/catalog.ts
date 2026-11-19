@@ -31,6 +31,8 @@ export interface QuickQaModel {
     efforts: QuickQaReasoningEffort[];
     defaultEffort: string;
   } | null;
+  /** Whether the route declares image input; unknown declarations count as capable. */
+  imageInput: boolean;
 }
 
 export interface QuickQaModelGroup {
@@ -106,12 +108,34 @@ interface ResolvedModelLike extends ModelInfoLike {
     efforts?: Array<{ id?: string; name?: string }>;
     defaultEffort?: string;
   };
+  inputModalities?: readonly string[];
 }
 
 interface LlmLike {
   listProviders?(): Array<{ id?: string; name?: string }>;
   listModels?(provider: string): Promise<ModelInfoLike[]>;
   resolveModelInfo?(provider: string, model: string): Promise<ResolvedModelLike>;
+}
+
+/**
+ * An undeclared input modality means the route did not state a limit, which is
+ * the same lenient rule the Session controller applies before admitting an
+ * image. Only an explicit list without `image` proves a text-only route.
+ */
+function imageInputOf(value: unknown): boolean {
+  if (!isRecord(value)) return true;
+  const modalities = value.inputModalities;
+  if (!Array.isArray(modalities)) return true;
+  return modalities.includes('image');
+}
+
+async function resolveImageInput(llm: LlmLike | undefined, provider: string, model: string): Promise<boolean> {
+  if (!llm?.resolveModelInfo) return true;
+  try {
+    return imageInputOf(await llm.resolveModelInfo(provider, model));
+  } catch {
+    return true;
+  }
 }
 
 const EMPTY_SELECTION: QuickQaModelSelection = { provider: '', model: '', reasoningEffort: '' };
@@ -144,6 +168,9 @@ function reasoningOf(value: unknown): QuickQaModel['reasoning'] {
 }
 
 async function readModelCatalog(ctx: DshContext, errors: string[]): Promise<QuickQaModelCatalog> {
+  // The catalog only lists route metadata; image input is resolved through the
+  // official LLM seam exactly like the Session controller does on admission.
+  const llm = ctx.get?.('llm') as LlmLike | undefined;
   const controller = ctx.get?.('sessionController') as
     | { modelCatalog?(): Promise<unknown> }
     | undefined;
@@ -166,11 +193,15 @@ async function readModelCatalog(ctx: DshContext, errors: string[]): Promise<Quic
             name: text(model.name, 200) || id,
             ...(typeof model.description === 'string' ? { description: text(model.description, 500) } : {}),
             reasoning: reasoningOf(model.reasoning),
+            imageInput: true,
           });
         }
         if (models.length === 0) continue;
         groups.push({ id: text(group.id, 200), name: text(group.name, 200) || text(group.id, 200), models });
       }
+      await Promise.all(groups.flatMap((group) => group.models.map(async (model) => {
+        model.imageInput = await resolveImageInput(llm, group.id, model.id);
+      })));
       const failuresRaw = Array.isArray(record.failures) ? record.failures : [];
       const failures = failuresRaw
         .filter(isRecord)
@@ -187,7 +218,6 @@ async function readModelCatalog(ctx: DshContext, errors: string[]): Promise<Quic
 
   // Minimal compositions may not mount the session controller but still have
   // the llm registry. Build the same shape from it.
-  const llm = ctx.get?.('llm') as LlmLike | undefined;
   const groups: QuickQaModelGroup[] = [];
   const failures: QuickQaModelCatalog['failures'] = [];
   if (llm?.listProviders && llm.listModels) {
@@ -213,6 +243,7 @@ async function readModelCatalog(ctx: DshContext, errors: string[]): Promise<Quic
               ? { description: text(resolved?.description ?? info.description, 500) }
               : {}),
             reasoning: reasoningOf(resolved?.reasoning),
+            imageInput: imageInputOf(resolved),
           });
         }
         if (models.length > 0) {
@@ -341,6 +372,15 @@ export function createQuickQaCatalog(ctx: DshContext): { read(force?: boolean): 
   }
 
   return { read };
+}
+
+/** Whether one exact route accepts image input through the official LLM seam. */
+export async function modelSupportsImage(
+  ctx: DshContext,
+  selection: QuickQaModelSelection,
+): Promise<boolean> {
+  if (!selection.provider || !selection.model) return true;
+  return resolveImageInput(ctx.get?.('llm') as LlmLike | undefined, selection.provider, selection.model);
 }
 
 /** Fallback selection when the saved quickqa model is no longer routable. */

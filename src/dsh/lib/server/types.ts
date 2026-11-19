@@ -71,5 +71,7 @@ export interface RemoteSettingsPayload {
     defaultWorkspaceTitle: string;
     pinned: Array<{ id: string; title: string; path: string }>;
     pushQuestions: boolean;
+    /** Whether the page may show the attach controls for one image. */
+    allowImages: boolean;
   };
 }

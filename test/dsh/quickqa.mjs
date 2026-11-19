@@ -54,6 +54,10 @@ const sessionController = {
             defaultEffort: 'high',
           },
         }],
+      }, {
+        id: 'textonly',
+        name: 'Text Only',
+        models: [{ id: 'text-model', name: 'Text Model' }],
       }],
       failures: [],
     };
@@ -145,6 +149,11 @@ const ctx = {
           resolverCalls.push(config);
           return config;
         },
+        resolveModelInfo: async (_provider, model) => ({
+          id: model,
+          name: model,
+          inputModalities: model === 'text-model' ? ['text'] : ['text', 'image'],
+        }),
       };
     }
     return undefined;
@@ -204,6 +213,18 @@ try {
   assert.equal(options.modes.some((mode) => mode.id === 'standard'), true);
   assert.equal(options.permissions.options.some((option) => option.value === 'auto'), true);
   assert.equal(options.settings.defaultWorkspaceId, 'ws-default');
+  const modelGroups = options.model.groups;
+  assert.equal(
+    modelGroups.find((group) => group.id === 'deepseek').models[0].imageInput,
+    true,
+    'an image-capable route is reported through the LLM seam',
+  );
+  assert.equal(
+    modelGroups.find((group) => group.id === 'textonly').models[0].imageInput,
+    false,
+    'a text-only route is reported as not accepting images',
+  );
+  assert.equal(service.settingsStore.get().quickqa.allowImages, false, 'attachments start off');
 
   const token = encodeURIComponent(service.settingsStore.get().token);
   const socket = new WebSocket(`ws://127.0.0.1:${info.port}/ws?token=${token}`);
@@ -244,6 +265,31 @@ try {
   assert.equal(welcome.settings.quickqa.voiceReady, true);
   assert.equal(welcome.settings.quickqa.defaultWorkspaceId, 'ws-default');
   assert.equal(welcome.settings.quickqa.pinned.length, 1);
+  assert.equal(welcome.settings.quickqa.allowImages, false);
+
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d]);
+  const uploadImage = (body = png, type = 'image/png') => fetch(
+    `http://127.0.0.1:${info.port}/api/quickqa/attachment?token=${token}`,
+    { method: 'POST', headers: { 'content-type': type }, body },
+  );
+  const disabledUpload = await uploadImage();
+  assert.equal(disabledUpload.status, 409, 'uploads are refused while the setting is off');
+
+  await service.applySettings({ quickqa: { allowImages: true } });
+  const attachmentSettings = await waitFor((message) => message.type === 'settings');
+  assert.equal(attachmentSettings.data.quickqa.allowImages, true);
+  const unsupportedType = await uploadImage(Buffer.from('not an image'), 'text/plain');
+  assert.equal(unsupportedType.status, 415);
+  const mismatchedBytes = await uploadImage(Buffer.from('not really a png'));
+  assert.equal(mismatchedBytes.status, 400);
+  const imageUpload = await uploadImage();
+  assert.equal(imageUpload.status, 200);
+  const imagePayload = await imageUpload.json();
+  assert.equal(imagePayload.ok, true);
+  assert.equal(imagePayload.mediaType, 'image/png');
+  assert.equal(imagePayload.bytes, png.length);
+  assert.equal(typeof imagePayload.id, 'string');
+  assert.ok(imagePayload.id.length > 10);
 
   socket.send(JSON.stringify({ type: 'quickqa-ask', text: '你好，介绍一下自己', workspaceId: 'ws-default' }));
   await waitFor((message) => message.type === 'quickqa-state' && message.phase === 'thinking');
@@ -275,6 +321,54 @@ try {
   assert.equal(promptCalls.length, 2);
   assert.equal(promptCalls[1].mode, 'queue');
   assert.deepEqual(promptCalls[1].content, [{ type: 'text', text: '再补充一点' }]);
+
+  // One uploaded image travels with the next follow-up and is claimed once.
+  socket.send(JSON.stringify({
+    type: 'quickqa-ask',
+    text: '这张图里是什么',
+    sessionId: 's-quickqa-1',
+    imageId: imagePayload.id,
+  }));
+  await waitFor((message) => message.type === 'quickqa-state' && message.phase === 'thinking');
+  await waitFor((message) => message.type === 'quickqa-state' && message.phase === 'done');
+  assert.equal(promptCalls.length, 3);
+  assert.deepEqual(promptCalls[2].content, [
+    { type: 'text', text: '这张图里是什么' },
+    { type: 'image', mediaType: 'image/png', data: png.toString('base64') },
+  ]);
+
+  socket.send(JSON.stringify({
+    type: 'quickqa-ask',
+    text: '再用一次旧图片',
+    sessionId: 's-quickqa-1',
+    imageId: imagePayload.id,
+  }));
+  const expiredImage = await waitFor((message) => message.type === 'quickqa-state' && message.phase === 'error');
+  assert.match(expiredImage.error, /图片|image/i);
+  assert.equal(promptCalls.length, 3, 'a claimed image id cannot be reused');
+
+  // A text-only model rejects an already-uploaded image before creating a new
+  // Session, and refuses new uploads once the saved model changes.
+  const modelGateUpload = await uploadImage();
+  assert.equal(modelGateUpload.status, 200);
+  const modelGateImage = await modelGateUpload.json();
+  await service.applySettings({ quickqa: { model: { provider: 'textonly', model: 'text-model', reasoningEffort: '' } } });
+  const textOnlySettings = await waitFor((message) => message.type === 'settings');
+  assert.equal(textOnlySettings.data.quickqa.allowImages, false, 'an unsupported model hides the attach controls');
+  const textOnlyUpload = await uploadImage();
+  assert.equal(textOnlyUpload.status, 409, 'an unsupported model also refuses a new upload');
+  const createdBefore = createCalls.length;
+  socket.send(JSON.stringify({
+    type: 'quickqa-ask',
+    text: '文字模型可以看图吗',
+    workspaceId: 'ws-default',
+    imageId: modelGateImage.id,
+  }));
+  const modelRejected = await waitFor((message) => message.type === 'quickqa-state' && message.phase === 'error');
+  assert.match(modelRejected.error, /不支持图片|does not accept images/i);
+  assert.equal(createCalls.length, createdBefore, 'the image gate runs before Session creation');
+  await service.applySettings({ quickqa: { model: { provider: 'deepseek', model: 'deepseek-flash', reasoningEffort: 'high' } } });
+  await waitFor((message) => message.type === 'settings');
 
   // Audio upload reaches the same provider and returns its transcript.
   const audio = Buffer.alloc(128, 0);

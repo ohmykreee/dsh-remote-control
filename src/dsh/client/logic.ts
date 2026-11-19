@@ -5,6 +5,8 @@ import type {
   DraftState,
   LocationResult,
   ProviderLocationSettings,
+  QuickQaModelCatalog,
+  QuickQaModelOption,
   QuickQaSettings,
   RemoteApp,
   RemoteSettings,
@@ -286,6 +288,8 @@ export interface SavePatchInput {
   selectedApps: string[];
   notificationApps: RemoteApp[];
   order: string[];
+  /** Effective-model image support; null when the live catalog is not loaded. */
+  quickQaImageInput: boolean | null;
 }
 
 /** Minutes are posted as typed; empty or invalid fields keep their default. */
@@ -320,10 +324,50 @@ function normalizeLocationSettings(
 }
 
 /**
+ * The model Quick Q&A will actually use: the explicit selection when it is
+ * still routable, otherwise the catalog default and then the first model.
+ */
+export function effectiveQuickQaModel(
+  catalog: QuickQaModelCatalog | undefined,
+  settings: QuickQaSettings | undefined,
+): QuickQaModelOption | null {
+  const groups = catalog?.groups ?? [];
+  if (groups.length === 0) return null;
+  const selected = settings?.model ?? {};
+  const selectedGroup = groups.find((group) => group.id === selected.provider);
+  const selectedModel = selectedGroup?.models.find((model) => model.id === selected.model);
+  if (selectedModel) return selectedModel;
+  const fallback = catalog?.default;
+  if (fallback?.provider && fallback.model) {
+    const group = groups.find((entry) => entry.id === fallback.provider);
+    const model = group?.models.find((entry) => entry.id === fallback.model);
+    if (model) return model;
+  }
+  return groups[0]?.models[0] ?? null;
+}
+
+/**
+ * Image support for the effective model. `null` means the live catalog has not
+ * been read yet, so the caller must not turn the saved option off by guesswork.
+ */
+export function quickQaImageInput(
+  catalog: QuickQaModelCatalog | undefined,
+  settings: QuickQaSettings | undefined,
+): boolean | null {
+  if (!catalog || (catalog.groups?.length ?? 0) === 0) return null;
+  const model = effectiveQuickQaModel(catalog, settings);
+  return model ? model.imageInput !== false : null;
+}
+
+/**
  * Keep only the default and pinned workspaces in the saved quickqa profile.
  * A workspace that is merely available in the picker keeps no saved mode.
+ * A model that explicitly declares text-only input forces image attachments off.
  */
-export function normalizeQuickQaForSave(value: QuickQaSettings | undefined): QuickQaSettings {
+export function normalizeQuickQaForSave(
+  value: QuickQaSettings | undefined,
+  imageInput: boolean | null = null,
+): QuickQaSettings {
   const defaultWorkspaceId = String(value?.defaultWorkspaceId ?? '').trim();
   const pinnedWorkspaceIds: string[] = [];
   for (const entry of Array.isArray(value?.pinnedWorkspaceIds) ? value.pinnedWorkspaceIds : []) {
@@ -349,6 +393,7 @@ export function normalizeQuickQaForSave(value: QuickQaSettings | undefined): Qui
     defaultWorkspaceId,
     pinnedWorkspaceIds,
     profiles,
+    allowImages: imageInput === false ? false : value?.allowImages === true,
   };
 }
 
@@ -395,7 +440,7 @@ export function buildSavePatch(input: SavePatchInput): SavePatch {
       enabled: Boolean(settings.countdown?.enabled),
       presets: normalizeCountdownPresets(draft.countdownPresets),
     },
-    quickqa: normalizeQuickQaForSave(settings.quickqa),
+    quickqa: normalizeQuickQaForSave(settings.quickqa, input.quickQaImageInput),
     pageOrder: [...order],
     pageEnabled: settings.pageEnabled,
     tls: {

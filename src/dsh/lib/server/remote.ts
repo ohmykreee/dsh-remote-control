@@ -14,6 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hostMessage } from '../i18n/index.js';
 import type { QuickQaService } from '../quickqa/index.js';
+import { normalizeQuickQaImageType, QUICKQA_IMAGE_LIMIT_BYTES } from '../quickqa/image.js';
 import { readRecordingLimits } from '../quickqa/voice.js';
 import type { PluginLocale } from '../settings/index.js';
 import { isRecord } from '../shared/types.js';
@@ -51,6 +52,8 @@ const WEB_DIR = fileURLToPath(new URL('../../web/', import.meta.url));
 
 /** Quick Q&A recording upload route on the LAN origin. */
 export const QUICKQA_TRANSCRIBE_PATH = '/api/quickqa/transcribe';
+/** One attached image awaiting the next question. */
+export const QUICKQA_IMAGE_PATH = '/api/quickqa/attachment';
 /** Hard cap for one upload; the speech Remote may advertise a smaller one. */
 const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 
@@ -398,6 +401,59 @@ export function createRemoteServer(
     }
   }
 
+  /**
+   * Accept one image for the next Quick Q&A question.
+   *
+   * The phone has no Session yet, so this only stages the encoded bytes in
+   * memory and returns an id; the question frame claims it exactly once and the
+   * official Session controller promotes it to a durable attachment.
+   */
+  async function handleQuickQaImage(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (req.method !== 'POST') {
+      jsonResponse(res, 405, { ok: false, error: 'method not allowed' });
+      return;
+    }
+    if (!sameOrigin(req)) {
+      jsonResponse(res, 403, { ok: false, error: 'origin rejected' });
+      return;
+    }
+    if (!quickqa.canAttachImages()) {
+      jsonResponse(res, 409, { ok: false, error: hostMessage(locale(), 'quickqaImageNotAllowed') });
+      return;
+    }
+    const mediaType = normalizeQuickQaImageType(req.headers['content-type']);
+    if (!mediaType) {
+      jsonResponse(res, 415, { ok: false, error: hostMessage(locale(), 'quickqaImageUnsupported') });
+      return;
+    }
+    let body: Buffer;
+    try {
+      body = await readBinaryBody(req, QUICKQA_IMAGE_LIMIT_BYTES);
+    } catch (errorValue) {
+      const message = serializeError(errorValue);
+      if (/too large/i.test(message)) {
+        jsonResponse(res, 413, { ok: false, error: hostMessage(locale(), 'quickqaImageTooLarge') });
+      } else {
+        jsonResponse(res, 400, { ok: false, error: message });
+      }
+      return;
+    }
+    try {
+      const image = quickqa.saveImage(mediaType, new Uint8Array(body.buffer, body.byteOffset, body.byteLength));
+      jsonResponse(res, 200, { ok: true, id: image.id, mediaType: image.mediaType, bytes: image.bytes });
+    } catch (errorValue) {
+      const message = serializeError(errorValue);
+      state.log(`quickqa image upload failed: ${message}`);
+      if (/too large/i.test(message)) {
+        jsonResponse(res, 413, { ok: false, error: hostMessage(locale(), 'quickqaImageTooLarge') });
+      } else if (/match their type|empty/i.test(message)) {
+        jsonResponse(res, 400, { ok: false, error: hostMessage(locale(), 'quickqaImageInvalid') });
+      } else {
+        jsonResponse(res, 400, { ok: false, error: hostMessage(locale(), 'quickqaImageUnsupported') });
+      }
+    }
+  }
+
   async function handleRemote(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
       if (!ipAllowed(req.socket.remoteAddress)) {
@@ -443,6 +499,14 @@ export function createRemoteServer(
           return;
         }
         await handleQuickQaTranscribe(req, res);
+        return;
+      }
+      if (pathname === QUICKQA_IMAGE_PATH) {
+        if (!authorized) {
+          jsonResponse(res, 401, { ok: false, error: 'Pairing required' });
+          return;
+        }
+        await handleQuickQaImage(req, res);
         return;
       }
       if (req.method === 'GET' || req.method === 'HEAD') {

@@ -57,7 +57,7 @@ DSH Desktop / dsh web
 └─ profile bundle: dsh-remote-control
    ├─ index.js（Host 入口，inject webServer）
    │  ├─ lib/service.js ── LAN HTTP + WebSocket :38765 ── web/（手机 Svelte）
-   │  ├─ lib/server/remote.js ── 鉴权 / 静态资源 / /api/quickqa/transcribe
+   │  ├─ lib/server/remote.js ── 鉴权 / 静态资源 / /api/quickqa/transcribe + attachment
    │  ├─ lib/quickqa/index.js ── 语音转写 → DSH 会话 / 模型 / 提问
    │  ├─ lib/settings/index.js ── DSH_HOME（或 DSH_PROFILE_DIR）/remote-control/settings.json
    │  └─ lib/probe/index.js ── child_process ── native/bin/<platform>-<arch>/dsh-probe
@@ -184,7 +184,7 @@ window.__ModuleLoader__.load({
 
 - `service.start()`：读取设置、创建适配器、启动 LAN HTTP/HTTPS、启动 WebSocket hub、启动推送循环；`dispose()` 关闭服务器、hub、适配器和定时器。`index.ts` 用 `ctx.effect()` 绑定，DSH 卸载 / 重载插件时自动清理。
 - 数据目录：`DSH_PROFILE_DIR/remote-control`（优先）或 `DSH_HOME/remote-control`，否则 `~/.dsh/remote-control`；文件为 `settings.json` 与通用 `cache.json`（临时文件 + rename 原子写）。旧 `notification-cache.json` 在首次启动时迁移为 `cache.json`。
-- 当前 schema 版本 `3`，字段包括 token、允许网卡（含内部标记 `interfacesInitialized`）、主题、插件语言（`language` / `dshLocale`）、温度单位、天气（提供商 `provider`、共享名称 `name`、按提供商分开的 `locations`、和风天气 `qweather` JWT 凭据 / 月上限 / 刷新间隔）、余额、通知、TLS（`tls.advanced.wakeLock` 独立控制手机唤醒锁，不再要求 HTTPS 开关打开）、导航位置、番茄钟与倒计时（互斥，番茄钟分钟允许两位小数、计时四舍五入到秒，倒计时 1–5 个按分/秒填写的预设）、快速问答（`quickqa.model`、`defaultWorkspaceId`、`pinnedWorkspaceIds`、`profiles`；`profiles` 只为默认 / 置顶工作区保存 `agentPreset` 与 `permissionPreset`）、页面顺序 / 开关。
+- 当前 schema 版本 `3`，字段包括 token、允许网卡（含内部标记 `interfacesInitialized`）、主题、插件语言（`language` / `dshLocale`）、温度单位、天气（提供商 `provider`、共享名称 `name`、按提供商分开的 `locations`、和风天气 `qweather` JWT 凭据 / 月上限 / 刷新间隔）、余额、通知、TLS（`tls.advanced.wakeLock` 独立控制手机唤醒锁，不再要求 HTTPS 开关打开）、导航位置、番茄钟与倒计时（互斥，番茄钟分钟允许两位小数、计时四舍五入到秒，倒计时 1–5 个按分/秒填写的预设）、快速问答（`quickqa.model`、`defaultWorkspaceId`、`pinnedWorkspaceIds`、`profiles`、`allowImages`；`profiles` 只为默认 / 置顶工作区保存 `agentPreset` 与 `permissionPreset`）、页面顺序 / 开关。
 - 天气旧字段 `weather.latitude` / `weather.longitude` 在 normalize 时迁移到三个提供商的 `locations`，共享 `name` 只保存一次；`qweather.apiHost` 会去掉协议与路径。
 - `normalize()` 对每个字段做白名单 / 范围校验，缺失时回落默认值；`update(patch)` 浅合并 + 嵌套对象合并；令牌 24 字节随机 `base64url`，`rotateToken()` 后由 service 断开所有设备。
 - 设置对象不含 token；`/api/info`（以及 `/api/settings` 的 `info`）会带配对 URL 和二维码路径，token 只出现在 URL query 中（客户端另存为 cookie）。
@@ -195,7 +195,7 @@ window.__ModuleLoader__.load({
 
 - `state.ts`：创建 settings / cache / appMapping / pending / weather / performance / adapters / account 并保存运行时状态。
 - `http.ts`：JSON / 文本响应、body 读取、cookie、CIDR / IP、同源检查、证书域名。
-- `remote.ts`：LAN HTTP/HTTPS 生命周期、鉴权、静态资源、计时器提示音、快速问答音频上传、`getInfo()`。
+- `remote.ts`：LAN HTTP/HTTPS 生命周期、鉴权、静态资源、计时器提示音、快速问答音频 / 图片上传、`getInfo()`。
 - `snapshots.ts`：`welcome` / `overview` / `settings` 及通知、天气、余额、性能、媒体快照。
 - `hub.ts`：WebSocket 连接、初始快照、推送循环、动作 / 回答 / 快速问答消息、语音输入就绪状态变化时重推设置。
 - `routes.ts`：侧边栏环回路由。
@@ -207,7 +207,7 @@ window.__ModuleLoader__.load({
 - 静态文件：`web/` 下的页面、`/assets/`、字体、`/manifest.webmanifest`、`/icon.svg`。
 - 鉴权：`tokenEnabled` 时，`/`、静态资源和 `/ws` 需要 `?token=` 或 `dsh_rc` cookie；失败返回 401 页面；`/api/pomodoro/sound` 只对已授权页面开放。
 - 网卡限制：首次启动检测到至少一个可用网卡时，把当前网卡名写成显式 `allowedInterfaces` 并设置 `interfacesInitialized`；此后新增网卡默认不勾选。保存设置时始终提交显式网卡列表，不再用 `null` 表示“全部”，避免新增网卡被自动放行。回环地址始终放行。
-- 请求体上限 64 KiB（`/api/quickqa/transcribe` 例外，接受受限大小的 `audio/wav` 二进制体，硬上限 8 MiB，并受官方语音 Remote 的 `maxAudioBytes` 约束）；JSON 响应带 `no-store`。
+- 请求体上限 64 KiB（`/api/quickqa/transcribe` 与 `/api/quickqa/attachment` 例外：前者接受受限大小的 `audio/wav` 二进制体，硬上限 8 MiB，并受官方语音 Remote 的 `maxAudioBytes` 约束；后者接受 PNG / JPEG / WebP / GIF 二进制体，硬上限 20 MiB）；JSON 响应带 `no-store`。
 - 媒体 / 音量动作通过 `adapters.media.control()` 发给探针，结果以 `action-result` 回给发起端，然后广播新的 `media` 快照。
 
 ### WebSocket 协议
@@ -237,7 +237,7 @@ window.__ModuleLoader__.load({
 |---|---|
 | `action` | `playpause` / `next` / `previous` / `seek` / `like` / `volume` / `mute`，可带 `value` |
 | `answer-question` | `sessionId`、`requestId`、结构化答案 |
-| `quickqa-ask` | `text`；新会话带 `workspaceId`，追问带 `sessionId` |
+| `quickqa-ask` | `text`；新会话带 `workspaceId`，追问带 `sessionId`；可选 `imageId`（同一问题最多一张） |
 | `quickqa-stop` | 中断当前正在思考的快速问答轮次；保留会话供追问 / 新会话 |
 | `quickqa-reset` | 放弃当前快速问答会话 |
 | `refresh` | 重发初始快照 |
@@ -273,12 +273,13 @@ window.__ModuleLoader__.load({
 `src/dsh/lib/quickqa/` 把手机录音变成一次 DSH 会话：
 
 - `voice.ts`：读取官方 `speechToText` 服务的快照；只有选中 provider 的 `preparation.phase` 为 `ready` 或 `standby` 才算就绪，其余状态一律不可用。`transcribeAudio()` 先 `resolve()` 再 `transcribe()`，不提供其他 provider 回退。
-- `catalog.ts`：读取 `sessionController.modelCatalog()`（缺失时回退 `llm` + `agentDefaultModel`）、`workspaceRegistry`、`agentPresets.list()`、`permissionPresets.catalog()`；目录缓存 15 s，语音就绪状态每次实时读取。
-- `index.ts`：每个 WebSocket 客户端一个运行态。新问题用 `sessionController.create({ workspaceId, agentPreset })` 建会话，`agent.model.select()` 只改该会话的模型（不写 DSH 默认值），`permissionPresets.set(session, name)` 设权限行为，然后 `sessionController.prompt({ mode: 'queue', content: [{ type: 'text', text }] }, signal)`（第二个 `AbortSignal` 参数是必需的），再 `follow()`。`follow()` 只取最终 `assistant/message` 的文本块；带 `tool-call` 的步骤一律丢弃，思考内容与工具过程不发送。结果在轮次结束后按块流式发给手机，因此页面只经历“模型思考中”和最终回答；`quickqa-state` 的 `question` 字段回显本次识别文本，供手机聊天卡展示用户问题与多轮上下文。
+- `catalog.ts`：读取 `sessionController.modelCatalog()`（缺失时回退 `llm` + `agentDefaultModel`）、`workspaceRegistry`、`agentPresets.list()`、`permissionPresets.catalog()`；目录缓存 15 s，语音就绪状态每次实时读取。每个模型用官方 `llm.resolveModelInfo()` 的 `inputModalities` 标记 `imageInput`；未声明视为未知（按可接受图片处理），只有显式缺少 `image` 才算纯文本模型。
+- `index.ts`：每个 WebSocket 客户端一个运行态。新问题用 `sessionController.create({ workspaceId, agentPreset })` 建会话，`agent.model.select()` 只改该会话的模型（不写 DSH 默认值），`permissionPresets.set(session, name)` 设权限行为，然后 `sessionController.prompt({ mode: 'queue', content: [...] }, signal)`（第二个 `AbortSignal` 参数是必需的），再 `follow()`。`content` 是文本块加可选的官方图片块 `{ type: 'image', mediaType, data }`；Host 通过 `llm.resolveModelInfo()` 校验当前模型接受图片后才提问。`follow()` 只取最终 `assistant/message` 的文本块；带 `tool-call` 的步骤一律丢弃，思考内容与工具过程不发送。结果在轮次结束后按块流式发给手机，因此页面只经历“模型思考中”和最终回答；`quickqa-state` 的 `question` 字段回显本次识别文本，供手机聊天卡展示用户问题与多轮上下文。
 - 问询：运行期间每 500 ms 读取 `pending.snapshot(sessionId)`，通过 `quickqa-pending` 推送；`pushQuestions` 关闭时只发通用提示，不泄露问题内容。用户问题可直接用既有 `answer-question` 通道回答；权限询问仅展示，仍需在 DSH 处理。
 - 中断：手机发送 `quickqa-stop` 时 Host 递增轮次 token、中止 follow 的 `AbortSignal`，并调用官方 `sessionController.cancel({ sessionId })` 真正停止 Agent 当前 turn，然后回 `quickqa-state` `done` + `stopped: true`；旧轮次的迟到帧会因 token 不匹配被丢弃，会话保留，因此可以继续追问或开新会话。
 - 失败：Host 的 `error` 会清空当前快速问答会话，手机端退回初始页并只显示错误文案（没有重试按钮）；再次按住麦克风会创建新会话，而不是恢复旧卡片。
 - 音频上传：LAN `POST /api/quickqa/transcribe` 接受受限 `audio/wav`（16 kHz 单声道 PCM16），调用官方 `speechToText`，转写后的文字再由手机发回 `quickqa-ask`。
+- 图片附件：LAN `POST /api/quickqa/attachment` 只把客户端选中的一张 PNG / JPEG / WebP / GIF 暂存内存并返回 id（有效期 10 分钟；20 MiB 上限；校验媒体类型与文件头），不创建会话、不写磁盘。手机在转写成功后才上传图片并发送 `quickqa-ask` 的 `imageId`；Host 认领一次后作为官方图片块交给 `sessionController.prompt`，由它持久化为附件引用。`quickqa.allowImages` 关闭、模型 `imageInput === false` 或图片 id 失效时拒绝。聊天卡只在用户气泡前显示该图片的行高预览，不提供放大。
 - 语音未就绪时：侧边栏 `/api/quickqa` 返回未就绪，设置页禁用后续控件；Host 的 `applySettings()` 丢弃 `quickqa` 补丁，`quickqa-ask` 与转写接口直接拒绝。
 
 ### 其他 Host 服务
@@ -296,7 +297,7 @@ window.__ModuleLoader__.load({
 
 ### 安全模型
 
-- LAN 端：token（query / cookie）、可选网卡 CIDR 白名单、可选 HTTPS、Origin 校验、静态路径白名单、64 KiB body 限制（快速问答音频上传例外，见上）；CSP 的 `img-src` 允许 http(s) 远程封面 / 头像。
+- LAN 端：token（query / cookie）、可选网卡 CIDR 白名单、可选 HTTPS、Origin 校验、静态路径白名单、64 KiB body 限制（快速问答音频 / 图片上传例外，见上）；CSP 的 `img-src` 允许 http(s) 远程封面 / 头像。
 - 侧边栏端：依赖 DSH `webServer` 的环回访问控制，并额外做 `sameOrigin`。
 - 设置与映射文件只存本机；仓库不包含路径、令牌、证书、和风天气私钥或通知内容。和风天气私钥会通过环回 `/api/settings` 返回给侧边栏用于回填，但不会随手机端 `welcome` / `settings` 下发。
 - 轮换 token 会断开全部 WebSocket；关闭 token 后 `/` 与 `/ws` 不再要求 token，但网卡白名单仍生效。
@@ -307,7 +308,7 @@ window.__ModuleLoader__.load({
 - Vite `root = src/svelte`，`publicDir = static`，`build.outDir = web`，`assetsDir = assets`，`emptyOutDir = true`，`target = es2022`。
 - 技术栈：Svelte 5 runes + Vite 8 + Tailwind CSS v4 + shadcn-svelte（bits-ui）+ Lucide。图标一律使用 Lucide。AI 回答用 `marked` 解析、`DOMPurify` 清洗后以 `{@html}` 渲染，支持标题、列表、代码块、表格与链接。
 - 页面：`HomePage`、`SessionsPage`、`QuickQaPage`、`MusicPage`、`PerformancePage`；导航 `Rail`；业务组件包括时钟、天气、通知、余额、消费、CPU/内存、GPU、温度、计时、会话列表、问询对话框（`QuestionSheet`）、Toast 等。
-- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`quickqa.svelte.ts` 持有快速问答阶段、选区、流式回答与问询浮层，`quickqa-audio.ts` 负责默认麦克风采集、电平、WAV 转换与转写上传；`pomodoro.svelte.ts` / `countdown.svelte.ts` 各自持有计时状态机，共用 `timer-engine.ts`（引用计数的区间引擎：首尾页克隆各持一个引用，最后一个释放才停表）与 `timer-alarm.svelte.ts`（页面标题 / favicon 提示、`tabAlert` 响应式状态，以及循环响铃时的持续振动）；`wake-lock.ts` 按 `settings.tls.advanced.wakeLock` 在安全上下文中申请屏幕唤醒锁，页面隐藏时释放、回到前台重新申请；设置归一化在纯函数 `settings-normalize.ts`（导航位置 / 番茄钟 / 倒计时预设），节假日与峰谷在 `billing.svelte.ts`（日历，含网络与缓存），北京时区与价格窗口等纯规则在 `billing.ts`；`format.ts` / `weather.ts` / `pages.ts` 为纯工具。
+- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`quickqa.svelte.ts` 持有快速问答阶段、选区、流式回答与问询浮层，`quickqa-audio.ts` 负责默认麦克风采集、电平、WAV 转换与转写上传，`quickqa-image.ts` 负责剪贴板 / 媒体选择器的图片类型归一化、上传与预览 URL；`pomodoro.svelte.ts` / `countdown.svelte.ts` 各自持有计时状态机，共用 `timer-engine.ts`（引用计数的区间引擎：首尾页克隆各持一个引用，最后一个释放才停表）与 `timer-alarm.svelte.ts`（页面标题 / favicon 提示、`tabAlert` 响应式状态，以及循环响铃时的持续振动）；`wake-lock.ts` 按 `settings.tls.advanced.wakeLock` 在安全上下文中申请屏幕唤醒锁，页面隐藏时释放、回到前台重新申请；设置归一化在纯函数 `settings-normalize.ts`（导航位置 / 番茄钟 / 倒计时预设），节假日与峰谷在 `billing.svelte.ts`（日历，含网络与缓存），北京时区与价格窗口等纯规则在 `billing.ts`；`format.ts` / `weather.ts` / `pages.ts` 为纯工具。
 - i18n：`applySettings()` 从 `settings.locale` 调 `setLocale()`；所有组件和 `format.ts` / `weather.ts` 通过 `t()` 取文案，日期格式化使用 `localeTag()`，切换语言无需刷新。`zh` 为基准字典。
 - 视觉：`Panel` 包装 shadcn Card 作为统一容器；按钮、Badge、Slider、Dialog、ScrollArea 优先用 `$lib/components/ui`；只在组件原有 class 上覆盖样式，无 hover 过渡 / 缩放。
 - 性能页占用率使用 `RadialGauge` 圆环；右侧温度保留大号最高温度与热区背景列表。
@@ -317,13 +318,13 @@ window.__ModuleLoader__.load({
 - 分页：每页 `scroll-snap-stop: always`，一次手势最多前进 / 后退一页；页面顺序与开关来自设置，关闭的页面不渲染、不轮询。
 - 字体：`@fontsource-variable/inter`、`noto-sans-sc`、`jetbrains-mono` 由 Vite 打进 `web/assets/`，不依赖手机系统字体；许可见 `web/fonts/LICENSE.txt`。
 - 手机端只读会话；`pushQuestions` 开启后才显示回答入口。
-- 快速问答页：左侧只有大的圆形麦克风与「长按说话」（未授权时在圆钮上方显示红色授权按钮，此时大圆钮禁用，授权只能从该按钮发起；取消按钮既支持移动到上面松开，也支持直接点击取消），右侧是默认 / 置顶工作区选择；按钮统一使用 shadcn-svelte `Button` / `Panel`，不引入 hover 过渡。页面背景直接使用 `--background` 纯色，不加渐变层、光晕或模糊；进入该页时覆盖 body 的应用级渐变背景。麦克风使用默认输入设备，录音转成 16 kHz 单声道 PCM16 WAV 后上传。首次录音松开后立即进入大聊天卡（转写阶段也保持卡片），不回到麦克风和工作区初始界面；按下麦克风时按钮的位置和尺寸保持不变。按住时用 Svelte `Tween`（`cubicOut`）驱动半透明实心圆环，取消按钮位于圆钮上方；追问时录音控制保留在聊天卡底部的小圆钮上，继续追问与新会话左右并排，按下后两个按钮位置不变，取消按钮浮在追问圆钮上方，不会回到初始界面；AI 思考时状态旁提供中断按钮，中断后保留聊天卡并显示「已中断」，底部仍可追问或新会话；AI 输出期间底部按钮隐藏，回答完成后再出现；流式内容会自动滚到聊天卡底部，按钮出现时不会遮住最后一段回答；取消、过短或没有清晰语音时，圆钮下方提示会切换为对应状态；从回答卡片退回初始界面的错误只显示错误信息，不提供重试按钮，并清空旧会话，下一次按住麦克风会开新会话。进入回答模式后隐藏语音与工作区，只保留一张居中的大聊天卡：显示识别出的用户问题、之前轮次的上下文、模型回答与底部继续追问 / 新会话按钮。
+- 快速问答页：左侧只有大的圆形麦克风与「长按说话」（未授权时在圆钮上方显示红色授权按钮，此时大圆钮禁用，授权只能从该按钮发起；取消按钮既支持移动到上面松开，也支持直接点击取消），右侧是默认 / 置顶工作区选择；按钮统一使用 shadcn-svelte `Button` / `Panel`，不引入 hover 过渡。页面背景直接使用 `--background` 纯色，不加渐变层、光晕或模糊；进入该页时覆盖 body 的应用级渐变背景。麦克风使用默认输入设备，录音转成 16 kHz 单声道 PCM16 WAV 后上传。开启「允许附加图片」后，大圆和 hint 下方显示圆形剪贴板按钮与「附加图片」按钮（两者共用同一个 shadcn `Button`、相同的 `size` / 描边 / 高度）；前者读取剪贴板最后一张图片，后者打开媒体选择器；选中后按钮组消失，显示带右上角关闭按钮的方形预览。图片只保留在浏览器内存，转写成功后才随问题上传，选中后仍可关闭更换。首次录音松开后立即进入大聊天卡（转写阶段也保持卡片），不回到麦克风和工作区初始界面；按下麦克风时按钮的位置和尺寸保持不变。按住时用 Svelte `Tween`（`cubicOut`）驱动半透明实心圆环，取消按钮位于圆钮上方；追问时录音控制保留在聊天卡底部的小圆钮上，继续追问与新会话左右并排，按下后两个按钮位置不变，取消按钮浮在追问圆钮上方，不会回到初始界面；AI 思考时状态旁提供中断按钮，中断后保留聊天卡并显示「已中断」，底部仍可追问或新会话；AI 输出期间底部按钮隐藏，回答完成后再出现；流式内容会自动滚到聊天卡底部，按钮出现时不会遮住最后一段回答；取消、过短或没有清晰语音时，圆钮下方提示会切换为对应状态；从回答卡片退回初始界面的错误只显示错误信息，不提供重试按钮，并清空旧会话，下一次按住麦克风会开新会话。进入回答模式后隐藏语音与工作区，只保留一张居中的大聊天卡：显示识别出的用户问题、之前轮次的上下文、模型回答与底部继续追问 / 新会话按钮；带图片的问题在用户气泡前显示与单行气泡等高的图片预览框，不提供点击放大。
 
 ## DSH 侧边栏（React）
 
 - `src/dsh/client` 用 `React.createElement`（`h`）而不是 JSX；React 由 DSH loader 提供。
 - 入口 `src/dsh/client/index.ts` 向 DSH 注册设置页（slot），菜单包含：连接、偏好设置、快速问答、番茄钟 / 倒计时、天气设置、余额显示、通知设置、软件映射、系统信息。
-- 快速问答设置页：第一块只显示官方语音输入就绪 / 未就绪（提供商与状态同一行，不再重复标题）；顶部 hint 说明录音需要 HTTPS（安全上下文）。未就绪时后面的模型与工作区块全部禁用，但保留已保存值。第二块从 `/api/quickqa` 读取模型；回答模型拆成提供商、模型两个下拉，下面保留思考强度。第三块读取工作区、模式与权限行为；默认工作区固定勾选，置顶工作区每行依次为拖拽手柄、勾选框、名称 / 路径、模式、权限行为；已勾选的置顶工作区可拖动排序，未勾选的不能拖动且始终排在置顶工作区下面；`pinnedWorkspaceIds` 的数组顺序就是手机端顺序。保存时只提交默认与置顶工作区的 `profiles`。模式与权限行为的显示名直接使用 Host API 返回值，不额外翻译。
+- 快速问答设置页：第一块只显示官方语音输入就绪 / 未就绪（提供商与状态同一行，不再重复标题）；顶部 hint 说明录音需要 HTTPS（安全上下文）。未就绪时后面的模型与工作区块全部禁用，但保留已保存值。第二块从 `/api/quickqa` 读取模型；回答模型拆成提供商、模型两个下拉，下面保留思考强度。第三块读取工作区、模式与权限行为；默认工作区固定勾选，置顶工作区每行依次为拖拽手柄、勾选框、名称 / 路径、模式、权限行为；已勾选的置顶工作区可拖动排序，未勾选的不能拖动且始终排在置顶工作区下面；`pinnedWorkspaceIds` 的数组顺序就是手机端顺序。最下面是图片附件卡片「允许附加图片」：复用已有 `Row` / `Toggle` / `drc-group` 样式，hint 说明读取剪贴板需要 HTTPS；当前生效模型 `imageInput === false` 时开关显示为关闭并禁用，同时提示先选支持图片的模型，保存时也强制关闭。模式与权限行为的显示名直接使用 Host API 返回值，不额外翻译。
 - 所有设置先进入 `DraftState`，点「保存设置」才 `POST /api/settings` 一次性提交；应用改名、主题同步、令牌轮换、断开设备是即时请求。
 - 连接页始终显示「高级功能」卡片；唤醒锁开关可以独立开启，不再与 HTTPS 开关联动，实际生效仍取决于浏览器安全上下文。当前提供 `tls.advanced.wakeLock` 开关，手机端在安全上下文中申请屏幕唤醒锁。
 - 软件映射页在应用列表上方提供本地搜索，按已保存的应用名称或应用 ID 实时过滤；只过滤当前 UI，不触发服务端请求。
@@ -534,7 +535,9 @@ python scripts/mock-preview.py --web web --port 4173
 pnpm shot -- --timer countdown --out .mock-web/countdown.png
 
 # 快速问答状态：thinking / streaming / question / approval / done / second（第二轮）
-# http://HOST:4173/?page=quickqa&quickqa=done（长回答，用于滚动与底部按钮占位检查）
+# http://HOST:4173/?page=quickqa&quickqa=done（长回答，用于滚动与底部按钮占位检查；done 会注入演示图片与长问题）
+# 附加图片预览：http://HOST:4173/?page=quickqa&image=1
+# mock 通过 exposeState() 暴露的 window.__DSH_QUICKQA__ 注入附件与气泡图片状态
 
 pnpm check                      # tsc（Host + 浏览器端 + 单元测试）+ svelte-check
 pnpm build                      # src/dsh + src/svelte
@@ -554,7 +557,7 @@ Host 集成测试（`test/dsh/`）：
 
 - `smoke.mjs`：临时 `DSH_PROFILE_DIR` 启动服务；令牌页面、`/assets/`、图片 CSP、WebSocket welcome/overview、证书域名提取；动态 HTTPS 切换（端口复用、在线 socket 收到关闭帧、重启后 `/ws` 仍可连接、切回 HTTP）；旧 HTTP overview 路由不存在。
 - `questions.mjs`：推送问询开关、远程回答往返、关闭后剥离与拒绝。
-- `quickqa.mjs`：快速问答目录接口、语音就绪门槛、模型 / 模式 / 权限行为落到会话、`quickqa-ask` 与追问、音频上传、未就绪时拒绝提问与丢弃设置补丁；断言 `prompt` 收到取消信号（`sessionController.prompt` 的第二个参数是必需的）。
+- `quickqa.mjs`：快速问答目录接口、语音就绪门槛、模型 `imageInput`、模型 / 模式 / 权限行为落到会话、`quickqa-ask` 与追问、音频上传、图片上传（关闭 / 非法格式 / 字节不匹配）与一次性 `imageId`、纯文本模型拒绝、未就绪时拒绝提问与丢弃设置补丁；断言 `prompt` 收到取消信号（`sessionController.prompt` 的第二个参数是必需的）并携带官方图片块。
 - `settings.mjs`：语言精确匹配与回退、`dshLocale` 持久化、Host 字典对齐；倒计时预设与秒级范围、番茄钟两位小数、互斥、公开设置深拷贝、`tls.advanced.wakeLock` 默认与嵌套拷贝。
 - `media.mjs`：进度平滑与 seek 规则；探针缺失显式报错；真实 daemon 的并发、重启、禁用与平台能力。探针路径缓存在同一进程内切换时用 `resetProbeCache()`（测试专用）。
 - `notifications.mjs`：通知字段归一化与数量限制、应用名称推导与旧缓存迁移、新通知应用自动启用、Linux 流式监视。
@@ -567,6 +570,7 @@ Host 集成测试（`test/dsh/`）：
 - `media.test.ts`：播放状态判定、可 seek 条件、时长 / seek 上限的钳制、音量钳制。
 - `billing.test.ts`：北京时区取时、跨日 / 跨年、峰谷窗口边界、周末与节假日。
 - `settings-normalize.test.ts`：导航位置白名单、番茄钟两位小数与上下限、倒计时预设数量 / 四舍五入 / 钳制 / 回退。
+- `quickqa-image.test.ts`：图片 MIME / 扩展名归一化与不支持格式拒绝。
 
 ### 文档截图
 

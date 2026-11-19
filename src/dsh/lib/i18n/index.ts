@@ -50,6 +50,13 @@ export const zh = {
   quickqaTranscribeFailed: '语音转写失败',
   quickqaTranscribeEmpty: '没有识别到语音内容',
   quickqaTranscribeTooLarge: '录音太长了，请缩短后重试',
+  quickqaImageNotAllowed: '快速问答的图片附加已关闭',
+  quickqaImageExpired: '附加的图片已失效，请重新选择',
+  quickqaImageModel: '当前模型不支持图片',
+  quickqaImageRejected: '图片无法发送，请换一张',
+  quickqaImageTooLarge: '图片太大了',
+  quickqaImageUnsupported: '不支持这种图片格式',
+  quickqaImageInvalid: '图片内容无效',
 } as const;
 
 export type HostMessageKey = keyof typeof zh;
@@ -89,6 +96,13 @@ export const en: Record<HostMessageKey, string> = {
   quickqaTranscribeFailed: 'Speech transcription failed',
   quickqaTranscribeEmpty: 'No speech was recognized',
   quickqaTranscribeTooLarge: 'The recording is too long; shorten it and try again',
+  quickqaImageNotAllowed: 'Image attachments are turned off for Quick Q&A',
+  quickqaImageExpired: 'The attached image expired; choose it again',
+  quickqaImageModel: 'The selected model does not accept images',
+  quickqaImageRejected: 'The image could not be sent; try another one',
+  quickqaImageTooLarge: 'The image is too large',
+  quickqaImageUnsupported: 'This image format is not supported',
+  quickqaImageInvalid: 'The image content is invalid',
 };
 
 /** Every shipped dictionary, keyed by locale code. */
