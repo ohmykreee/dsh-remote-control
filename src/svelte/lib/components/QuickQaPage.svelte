@@ -1285,7 +1285,9 @@
       height: auto;
       min-height: 100%;
       gap: 18px;
-      padding: 22px 14px;
+      /* Keep the large mic in the middle-upper half; the cancel button floats
+         74px above it, so the top inset also guarantees it stays on screen. */
+      padding: max(96px, 23vh) 14px 22px;
     }
 
     .quickqa-stage { min-height: 52vh; }
