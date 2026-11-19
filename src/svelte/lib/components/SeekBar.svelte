@@ -5,6 +5,7 @@
   import { formatDuration } from '../format';
   import { t } from '../i18n.svelte';
   import { isPlaying, isSeekable, mediaDuration, seekMaximum } from '../media';
+  import { motion } from '../reduced-motion.svelte';
   import type { MediaInfo } from '../types';
   import { cn } from '$lib/utils.js';
 
@@ -70,23 +71,22 @@
   // player was seeked in its own UI — not a stale snapshot pulling the bar.
   const BACKWARD_SEEK_EPS = 1;
 
-  // Only a live, advancing timeline gets the wave. Pausing, dragging and
-  // unavailable timelines (fixed at 100%) fall back to a straight bar.
-  const flowing = $derived(hasTimeline && playing && !dragging);
-
-  const reduceMotion = typeof window !== 'undefined'
-    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Only a live, advancing timeline gets the wave. Pausing, dragging,
+  // unavailable timelines (fixed at 100%) and reduced motion fall back to the
+  // plain progress line.
+  const flowing = $derived(hasTimeline && playing && !dragging && !motion.reduced);
 
   // Freeze the phase (the CSS drift pauses immediately), hold for 120 ms,
   // then tween the wave's amplitude into the line — and the exact reverse
-  // when playback resumes. Both directions share these options. The resting
+  // when playback resumes. Both directions share these options, and reduced
+  // motion collapses the wave without the delay or the morph. The resting
   // value is 0.001, not 0: a singular scaleY culls the path, while 0.001
   // still renders its non-scaling 4px stroke as the straight bar.
   const waveAmplitude = Tween.of(
     () => (flowing ? 1 : 0.001),
     {
-      duration: reduceMotion ? 0 : 320,
-      delay: reduceMotion ? 0 : 120,
+      duration: motion.reduced ? 0 : 320,
+      delay: motion.reduced ? 0 : 120,
       easing: sineInOut,
     },
   );

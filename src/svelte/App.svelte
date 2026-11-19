@@ -3,6 +3,7 @@
   import WifiOff from '@lucide/svelte/icons/wifi-off';
   import { app, exposeState, restoreUrl, startLive, startTicks, stopLive, toast } from './lib/state.svelte';
   import { DEFAULT_ORDER, enabledOrder, normalizeOrder } from './lib/pages';
+  import { motion } from './lib/reduced-motion.svelte';
   import { pageLabel, t } from './lib/i18n.svelte';
   import type { PageKey } from './lib/types';
   import { refreshLive } from './lib/ws';
@@ -68,7 +69,11 @@
     });
   }
 
-  function goTo(key: PageKey, smooth = true): void {
+  /**
+   * Rail taps switch instantly when the OS asks for reduced motion. Gesture
+   * swiping never goes through here, so its snap behaviour is untouched.
+   */
+  function goTo(key: PageKey, smooth = !motion.reduced): void {
     if (!order.includes(key)) return;
     app.hasNavigated = true;
     app.activeKey = key;

@@ -15,6 +15,7 @@
   import { app, toast } from '../state.svelte';
   import { t } from '../i18n.svelte';
   import { imageZoom } from '../image-zoom';
+  import { motion } from '../reduced-motion.svelte';
   import Panel from './Panel.svelte';
   import Markdown from './Markdown.svelte';
   import QuickQaLoader from './QuickQaLoader.svelte';
@@ -70,6 +71,7 @@
   let fileInputEl = $state<HTMLInputElement | null>(null);
   let scrollFrame = 0;
   const waveLevel = new Tween(0, { duration: 140, easing: cubicOut });
+
   let permissionBusy = $state(false);
   /** The DSH companion replaces clipboard reads with a VR screenshot. */
   let companionActive = $state(quickQaImageSource() === 'companion');
@@ -88,6 +90,14 @@
   let lastSampleAt = 0;
   let wasActive = false;
   let cancelButtonEl: HTMLElement | null = $state(null);
+
+  /**
+   * The ring normally eases toward the input level; reduced motion makes it
+   * follow the microphone directly instead of interpolating.
+   */
+  function setWaveLevel(level: number): void {
+    void waveLevel.set(level, { duration: motion.reduced ? 0 : 140 });
+  }
 
   $effect(() => {
     const active = app.activeKey === 'quickqa';
@@ -267,7 +277,7 @@
   function stopFrame(): void {
     if (frame) cancelAnimationFrame(frame);
     frame = 0;
-    void waveLevel.set(0);
+    setWaveLevel(0);
   }
 
   async function beginHold(event: PointerEvent): Promise<void> {
@@ -297,7 +307,7 @@
     maxLevel = 0;
     voicedMs = 0;
     quickQa.phase = 'capturing';
-    void waveLevel.set(0);
+    setWaveLevel(0);
     quickQa.cancelArmed = false;
     if (!quickQa.sessionId) quickQa.answer = '';
     quickQa.error = '';
@@ -333,7 +343,7 @@
       const tick = (): void => {
         if (!holding || quickQa.phase !== 'capturing') return;
         const level = handle.level();
-        void waveLevel.set(level);
+        setWaveLevel(level);
         if (level > maxLevel) maxLevel = level;
         const now = performance.now();
         if (level > 0.12) voicedMs += now - lastSampleAt;

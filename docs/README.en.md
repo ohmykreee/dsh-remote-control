@@ -65,6 +65,7 @@ Five pages, each with one job:
 - The phone UI ships in Simplified Chinese and English. **Follow DSH** uses the current DSH language.
 - Small screens use larger type and easy-to-tap controls.
 - A quick refresh button and a fullscreen button sit at the bottom left.
+- With the system's reduce-motion setting on, tapping the rail switches pages immediately, the music progress shows a plain line, and the mic level ring and loading animation stay still; swiping works as usual.
 
 ## Install
 

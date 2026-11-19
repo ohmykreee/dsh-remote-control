@@ -86,19 +86,22 @@
     to { width: var(--loader-narrow); }
   }
 
+  /* Reduced motion holds the first frame of the oscillation: the bars that
+     would expand keep their starting width and the ones that would shrink keep
+     theirs. `animation-name: none` has to sit on the same selectors that name
+     the animation — the base rules are more specific than `.quickqa-loader-bar`
+     and would otherwise win. */
   @media (prefers-reduced-motion: reduce) {
-    .quickqa-loader-bar {
-      animation: none;
-    }
-
     .quickqa-loader-row:first-child .is-left,
     .quickqa-loader-row:last-child .is-right {
-      width: var(--loader-wide);
+      animation-name: none;
+      width: var(--loader-narrow);
     }
 
     .quickqa-loader-row:first-child .is-right,
     .quickqa-loader-row:last-child .is-left {
-      width: var(--loader-narrow);
+      animation-name: none;
+      width: var(--loader-wide);
     }
   }
 </style>
