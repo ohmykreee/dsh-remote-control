@@ -1,9 +1,9 @@
 /**
  * One-image attachment helpers for Quick Q&A.
  *
- * The clipboard and the file picker both produce a browser Blob; the same
- * helpers normalize its media type and stage it on the Host. Nothing here
- * decodes the image, so the preview can stay a cheap object URL.
+ * The clipboard, the file picker and the DSH companion all produce a browser
+ * Blob; the same helpers normalize its media type and stage it on the Host.
+ * Nothing here decodes the image, so the preview can stay a cheap object URL.
  */
 
 export const QUICKQA_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;
@@ -51,6 +51,54 @@ export async function readClipboardImage(): Promise<QuickQaPickedImage | null> {
     }
   }
   return picked;
+}
+
+/**
+ * Bridge installed by the DSH companion while it replaces the clipboard with
+ * the current VR view. The object is frozen, only exists on the companion
+ * page, and is gone again once the page is reloaded without the feature.
+ */
+export interface DshCompanionApi {
+  version: 1;
+  platform: 'windows';
+  capabilities: { vrScreenshot: true };
+  /** PNG preview of the current VR view, ready to upload as a Blob. */
+  captureVrScreenshot(): Promise<Blob>;
+}
+
+declare global {
+  interface Window {
+    __DSH_COMPANION__?: DshCompanionApi;
+  }
+}
+
+/** The companion bridge, or null when the page runs in a normal browser. */
+export function companionScreenshotApi(): DshCompanionApi | null {
+  if (typeof window === 'undefined') return null;
+  const api = window.__DSH_COMPANION__;
+  return api && typeof api.captureVrScreenshot === 'function' ? api : null;
+}
+
+/** Where the attach button reads its next image from. */
+export type QuickQaImageSource = 'companion' | 'clipboard';
+
+/** Prefer the companion screenshot whenever the bridge is installed. */
+export function quickQaImageSource(): QuickQaImageSource {
+  return companionScreenshotApi() ? 'companion' : 'clipboard';
+}
+
+/**
+ * Capture the current VR view through the companion. A missing bridge returns
+ * null; a failed capture rejects and must be reported to the user instead of
+ * silently falling back to the clipboard, which would show another image.
+ */
+export async function readCompanionImage(): Promise<QuickQaPickedImage | null> {
+  const api = companionScreenshotApi();
+  if (!api) return null;
+  const blob = await api.captureVrScreenshot();
+  // The contract promises PNG; keep the upload type valid if a WebView omits it.
+  const mediaType = quickQaImageMediaType(blob.type) ?? 'image/png';
+  return { blob, mediaType };
 }
 
 /** Read one file chosen from the media picker. */

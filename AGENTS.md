@@ -308,7 +308,7 @@ window.__ModuleLoader__.load({
 - Vite `root = src/svelte`，`publicDir = static`，`build.outDir = web`，`assetsDir = assets`，`emptyOutDir = true`，`target = es2022`。
 - 技术栈：Svelte 5 runes + Vite 8 + Tailwind CSS v4 + shadcn-svelte（bits-ui）+ Lucide。图标一律使用 Lucide。AI 回答用 `marked` 解析、`DOMPurify` 清洗后以 `{@html}` 渲染，支持标题、列表、代码块、表格与链接。
 - 页面：`HomePage`、`SessionsPage`、`QuickQaPage`、`MusicPage`、`PerformancePage`；导航 `Rail`；业务组件包括时钟、天气、通知、余额、消费、CPU/内存、GPU、温度、计时、会话列表、问询对话框（`QuestionSheet`）、Toast 等。
-- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`quickqa.svelte.ts` 持有快速问答阶段、选区、流式回答与问询浮层，`quickqa-audio.ts` 负责默认麦克风采集、电平、WAV 转换与转写上传，`quickqa-image.ts` 负责剪贴板 / 媒体选择器的图片类型归一化、上传与预览 URL；`pomodoro.svelte.ts` / `countdown.svelte.ts` 各自持有计时状态机，共用 `timer-engine.ts`（引用计数的区间引擎：首尾页克隆各持一个引用，最后一个释放才停表）与 `timer-alarm.svelte.ts`（页面标题 / favicon 提示、`tabAlert` 响应式状态，以及循环响铃时的持续振动）；`wake-lock.ts` 按 `settings.tls.advanced.wakeLock` 在安全上下文中申请屏幕唤醒锁，页面隐藏时释放、回到前台重新申请；设置归一化在纯函数 `settings-normalize.ts`（导航位置 / 番茄钟 / 倒计时预设），节假日与峰谷在 `billing.svelte.ts`（日历，含网络与缓存），北京时区与价格窗口等纯规则在 `billing.ts`；`format.ts` / `weather.ts` / `pages.ts` 为纯工具。
+- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`quickqa.svelte.ts` 持有快速问答阶段、选区、流式回答与问询浮层，`quickqa-audio.ts` 负责默认麦克风采集、电平、WAV 转换与转写上传，`quickqa-image.ts` 负责剪贴板 / 媒体选择器 / 伴侣 VR 截图的图片类型归一化、上传与预览 URL；`pomodoro.svelte.ts` / `countdown.svelte.ts` 各自持有计时状态机，共用 `timer-engine.ts`（引用计数的区间引擎：首尾页克隆各持一个引用，最后一个释放才停表）与 `timer-alarm.svelte.ts`（页面标题 / favicon 提示、`tabAlert` 响应式状态，以及循环响铃时的持续振动）；`wake-lock.ts` 按 `settings.tls.advanced.wakeLock` 在安全上下文中申请屏幕唤醒锁，页面隐藏时释放、回到前台重新申请；设置归一化在纯函数 `settings-normalize.ts`（导航位置 / 番茄钟 / 倒计时预设），节假日与峰谷在 `billing.svelte.ts`（日历，含网络与缓存），北京时区与价格窗口等纯规则在 `billing.ts`；`format.ts` / `weather.ts` / `pages.ts` 为纯工具。
 - i18n：`applySettings()` 从 `settings.locale` 调 `setLocale()`；所有组件和 `format.ts` / `weather.ts` 通过 `t()` 取文案，日期格式化使用 `localeTag()`，切换语言无需刷新。`zh` 为基准字典。
 - 视觉：`Panel` 包装 shadcn Card 作为统一容器；按钮、Badge、Slider、Dialog、ScrollArea 优先用 `$lib/components/ui`；只在组件原有 class 上覆盖样式，无 hover 过渡 / 缩放。
 - 性能页占用率使用 `RadialGauge` 圆环；右侧温度保留大号最高温度与热区背景列表。
@@ -318,7 +318,8 @@ window.__ModuleLoader__.load({
 - 分页：每页 `scroll-snap-stop: always`，一次手势最多前进 / 后退一页；页面顺序与开关来自设置，关闭的页面不渲染、不轮询。
 - 字体：`@fontsource-variable/inter`、`noto-sans-sc`、`jetbrains-mono` 由 Vite 打进 `web/assets/`，不依赖手机系统字体；许可见 `web/fonts/LICENSE.txt`。
 - 手机端只读会话；`pushQuestions` 开启后才显示回答入口。
-- 快速问答页：左侧只有大的圆形麦克风与「长按说话」（未授权时在圆钮上方显示红色授权按钮，此时大圆钮禁用，授权只能从该按钮发起；取消按钮既支持移动到上面松开，也支持直接点击取消），右侧是默认 / 置顶工作区选择；按钮统一使用 shadcn-svelte `Button` / `Panel`，不引入 hover 过渡。页面背景直接使用 `--background` 纯色，不加渐变层、光晕或模糊；进入该页时覆盖 body 的应用级渐变背景。麦克风使用默认输入设备，录音转成 16 kHz 单声道 PCM16 WAV 后上传。开启「允许附加图片」后，大圆和 hint 下方显示圆形剪贴板按钮与「附加图片」按钮（两者共用同一个 shadcn `Button`、相同的 `size` / 描边 / 高度）；前者读取剪贴板最后一张图片，后者打开媒体选择器；选中后按钮组消失，显示带右上角关闭按钮的方形预览。图片只保留在浏览器内存，转写成功后才随问题上传，选中后仍可关闭更换。首次录音松开后立即进入大聊天卡（转写阶段也保持卡片），不回到麦克风和工作区初始界面；按下麦克风时按钮的位置和尺寸保持不变。按住时用 Svelte `Tween`（`cubicOut`）驱动半透明实心圆环，取消按钮位于圆钮上方；追问时录音控制保留在聊天卡底部的小圆钮上，继续追问与新会话左右并排，按下后两个按钮位置不变，取消按钮浮在追问圆钮上方，不会回到初始界面；AI 思考时状态旁提供中断按钮，中断后保留聊天卡并显示「已中断」，底部仍可追问或新会话；AI 输出期间底部按钮隐藏，回答完成后再出现；流式内容会自动滚到聊天卡底部，按钮出现时不会遮住最后一段回答；取消、过短或没有清晰语音时，圆钮下方提示会切换为对应状态；从回答卡片退回初始界面的错误只显示错误信息，不提供重试按钮，并清空旧会话，下一次按住麦克风会开新会话。进入回答模式后隐藏语音与工作区，只保留一张居中的大聊天卡：显示识别出的用户问题、之前轮次的上下文、模型回答与底部继续追问 / 新会话按钮；带图片的问题在用户气泡前显示与单行气泡等高的图片预览框，不提供点击放大。竖屏时顶部预留取消按钮与新增提示行的空间，让大圆落在中间偏上位置且取消按钮不越出页面。
+- 快速问答页：左侧只有大的圆形麦克风与「长按说话」（未授权时在圆钮上方显示红色授权按钮，此时大圆钮禁用，授权只能从该按钮发起；取消按钮既支持移动到上面松开，也支持直接点击取消），右侧是默认 / 置顶工作区选择；按钮统一使用 shadcn-svelte `Button` / `Panel`，不引入 hover 过渡。页面背景直接使用 `--background` 纯色，不加渐变层、光晕或模糊；进入该页时覆盖 body 的应用级渐变背景。麦克风使用默认输入设备，录音转成 16 kHz 单声道 PCM16 WAV 后上传。开启「允许附加图片」后，大圆和 hint 下方显示圆形剪贴板按钮与「附加图片」按钮（两者共用同一个 shadcn `Button`、相同的 `size` / 描边 / 高度）；前者读取剪贴板最后一张图片（检测到伴侣桥接时改为相机图标的截图按钮，见下一条），后者打开媒体选择器；选中后按钮组消失，显示带右上角关闭按钮的方形预览。图片只保留在浏览器内存，转写成功后才随问题上传，选中后仍可关闭更换。首次录音松开后立即进入大聊天卡（转写阶段也保持卡片），不回到麦克风和工作区初始界面；按下麦克风时按钮的位置和尺寸保持不变。按住时用 Svelte `Tween`（`cubicOut`）驱动半透明实心圆环，取消按钮位于圆钮上方；追问时录音控制保留在聊天卡底部的小圆钮上，继续追问与新会话左右并排，按下后两个按钮位置不变，取消按钮浮在追问圆钮上方，不会回到初始界面；AI 思考时状态旁提供中断按钮，中断后保留聊天卡并显示「已中断」，底部仍可追问或新会话；AI 输出期间底部按钮隐藏，回答完成后再出现；流式内容会自动滚到聊天卡底部，按钮出现时不会遮住最后一段回答；取消、过短或没有清晰语音时，圆钮下方提示会切换为对应状态；从回答卡片退回初始界面的错误只显示错误信息，不提供重试按钮，并清空旧会话，下一次按住麦克风会开新会话。进入回答模式后隐藏语音与工作区，只保留一张居中的大聊天卡：显示识别出的用户问题、之前轮次的上下文、模型回答与底部继续追问 / 新会话按钮；带图片的问题在用户气泡前显示与单行气泡等高的图片预览框，不提供点击放大。竖屏时顶部预留取消按钮与新增提示行的空间，让大圆落在中间偏上位置且取消按钮不越出页面。
+- 远控伴侣桥接：伴侣可在页面脚本执行前向顶层页面注入冻结对象 `window.__DSH_COMPANION__`（`version: 1`、`platform: 'windows'`、`capabilities.vrScreenshot`、`captureVrScreenshot(): Promise<Blob>`；返回 `image/png`，最长约 35 秒，失败时以面向用户的 `Error` reject）；晚注入时页面可监听 `dsh-companion-ready`。`quickqa-image.ts` 的 `companionScreenshotApi()` / `quickQaImageSource()` / `readCompanionImage()` 只在 `captureVrScreenshot` 是函数时启用：快速问答的剪贴板按钮换成 Lucide `Camera` 图标与 `quickQaCaptureImage` 文案，点击调用 `captureVrScreenshot()`，等待期间按钮禁用并显示紧凑加载动画；取不到图或调用失败只提示 `quickQaImageCompanionFailed`，不回退剪贴板（否则用户不知道拿到的是哪张图）。普通手机浏览器没有该对象，保持原剪贴板逻辑。该桥接只属于手机端页面：侧边栏与 Host 不展示、不推送相关状态，相关文案也只进手机端字典，不加进侧边栏 / Host 字典。
 
 ## DSH 侧边栏（React）
 
@@ -537,6 +538,7 @@ pnpm shot -- --timer countdown --out .mock-web/countdown.png
 # 快速问答状态：thinking / streaming / question / approval / done / second（第二轮）
 # http://HOST:4173/?page=quickqa&quickqa=done（长回答，用于滚动与底部按钮占位检查；done 会注入演示图片与长问题）
 # 附加图片预览：http://HOST:4173/?page=quickqa&image=1
+# 伴侣截图按钮：http://HOST:4173/?page=quickqa&companion=1（伪造 window.__DSH_COMPANION__）
 # mock 通过 exposeState() 暴露的 window.__DSH_QUICKQA__ 注入附件与气泡图片状态
 
 pnpm check                      # tsc（Host + 浏览器端 + 单元测试）+ svelte-check
@@ -570,7 +572,7 @@ Host 集成测试（`test/dsh/`）：
 - `media.test.ts`：播放状态判定、可 seek 条件、时长 / seek 上限的钳制、音量钳制。
 - `billing.test.ts`：北京时区取时、跨日 / 跨年、峰谷窗口边界、周末与节假日。
 - `settings-normalize.test.ts`：导航位置白名单、番茄钟两位小数与上下限、倒计时预设数量 / 四舍五入 / 钳制 / 回退。
-- `quickqa-image.test.ts`：图片 MIME / 扩展名归一化与不支持格式拒绝。
+- `quickqa-image.test.ts`：图片 MIME / 扩展名归一化与不支持格式拒绝；伴侣桥接的检测与优先级（有对象时走截图、无对象时走剪贴板）、缺省 PNG 回退与失败传播。
 
 ### 文档截图
 

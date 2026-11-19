@@ -8,6 +8,7 @@
   import Square from '@lucide/svelte/icons/square';
   import X from '@lucide/svelte/icons/x';
   import Clipboard from '@lucide/svelte/icons/clipboard';
+  import Camera from '@lucide/svelte/icons/camera';
   import { Button } from '$lib/components/ui/button/index.js';
   import { cn } from '$lib/utils.js';
   import { app, toast } from '../state.svelte';
@@ -32,7 +33,9 @@
   } from '../quickqa.svelte';
   import {
     pickedFileImage,
+    quickQaImageSource,
     readClipboardImage,
+    readCompanionImage,
     uploadQuickQaImage,
     type QuickQaPickedImage,
   } from '../quickqa-image';
@@ -66,6 +69,9 @@
   let scrollFrame = 0;
   const waveLevel = new Tween(0, { duration: 140, easing: cubicOut });
   let permissionBusy = $state(false);
+  /** The DSH companion replaces clipboard reads with a VR screenshot. */
+  let companionActive = $state(quickQaImageSource() === 'companion');
+  let screenshotBusy = $state(false);
 
   let captureHandle: QuickQaCapture | null = null;
   /** Set on teardown: no async continuation may touch the UI or send a prompt. */
@@ -130,6 +136,17 @@
     };
   });
 
+  onMount(() => {
+    const syncCompanion = (): void => {
+      companionActive = quickQaImageSource() === 'companion';
+    };
+    // The bridge is normally injected before the page scripts run; the event
+    // covers a companion that installs it later in the session.
+    syncCompanion();
+    window.addEventListener('dsh-companion-ready', syncCompanion);
+    return () => window.removeEventListener('dsh-companion-ready', syncCompanion);
+  });
+
   async function requestMicPermission(): Promise<void> {
     if (permissionBusy) return;
     permissionBusy = true;
@@ -159,17 +176,25 @@
     setQuickQaImage({ blob: image.blob, mediaType: image.mediaType, url });
   }
 
+  /** Read the next attachment from the companion screenshot or the clipboard. */
   async function pasteImage(): Promise<void> {
-    if (attachLocked) return;
+    if (attachLocked || screenshotBusy) return;
+    const usingCompanion = companionActive;
+    if (usingCompanion) screenshotBusy = true;
     try {
-      const image = await readClipboardImage();
+      const image = usingCompanion ? await readCompanionImage() : await readClipboardImage();
+      if (disposed) return;
       if (!image) {
-        toast(t('quickQaImageEmpty'));
+        toast(t(usingCompanion ? 'quickQaImageCompanionFailed' : 'quickQaImageEmpty'));
         return;
       }
       acceptImage(image);
     } catch {
-      toast(t('quickQaImageClipboardFailed'));
+      if (!disposed) {
+        toast(t(usingCompanion ? 'quickQaImageCompanionFailed' : 'quickQaImageClipboardFailed'));
+      }
+    } finally {
+      screenshotBusy = false;
     }
   }
 
@@ -671,12 +696,18 @@
                   variant="outline"
                   size="lg"
                   class={cn(attachButtonClass, 'w-12 px-0')}
-                  aria-label={t('quickQaPasteImage')}
-                  title={t('quickQaPasteImage')}
-                  disabled={attachLocked}
+                  aria-label={companionActive ? t('quickQaCaptureImage') : t('quickQaPasteImage')}
+                  title={companionActive ? t('quickQaCaptureImage') : t('quickQaPasteImage')}
+                  disabled={attachLocked || screenshotBusy}
                   onclick={pasteImage}
                 >
-                  <Clipboard class="size-[20px]" strokeWidth={1.8} />
+                  {#if screenshotBusy}
+                    <QuickQaLoader compact />
+                  {:else if companionActive}
+                    <Camera class="size-[20px]" strokeWidth={1.8} />
+                  {:else}
+                    <Clipboard class="size-[20px]" strokeWidth={1.8} />
+                  {/if}
                 </Button>
                 <Button
                   variant="outline"

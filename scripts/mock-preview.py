@@ -441,6 +441,45 @@ def mock_socket_script(messages: list[dict], locale: str) -> str:
     mockImageAttempts += 1;
     if (mockImageState() || mockImageAttempts > 40) clearInterval(mockImageTimer);
   }, 250);
+  if (params.get('companion') === '1') {
+    // Fake the companion bridge so the VR screenshot button can be previewed.
+    const canvas = document.createElement('canvas');
+    canvas.width = 480;
+    canvas.height = 480;
+    const context = canvas.getContext('2d');
+    const sky = context.createLinearGradient(0, 0, 480, 480);
+    sky.addColorStop(0, '#5b6cff');
+    sky.addColorStop(0.55, '#e75d8d');
+    sky.addColorStop(1, '#ffb46b');
+    context.fillStyle = sky;
+    context.fillRect(0, 0, 480, 480);
+    context.fillStyle = 'rgba(255,255,255,0.24)';
+    context.beginPath();
+    context.moveTo(0, 360);
+    context.lineTo(150, 210);
+    context.lineTo(270, 330);
+    context.lineTo(360, 250);
+    context.lineTo(480, 370);
+    context.lineTo(480, 480);
+    context.lineTo(0, 480);
+    context.closePath();
+    context.fill();
+    context.fillStyle = 'rgba(255,255,255,0.9)';
+    context.font = '600 42px sans-serif';
+    context.fillText('VR', 208, 190);
+    const capture = () => new Promise((resolve, reject) => {
+      setTimeout(() => {
+        canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('mock capture failed'))), 'image/png');
+      }, 1200);
+    });
+    window.__DSH_COMPANION__ = Object.freeze({
+      version: 1,
+      platform: 'windows',
+      capabilities: Object.freeze({ vrScreenshot: true }),
+      captureVrScreenshot: capture,
+    });
+    window.dispatchEvent(new Event('dsh-companion-ready'));
+  }
   if (params.get('capturing') === '1') {
     let captureAttempts = 0;
     const captureTimer = setInterval(() => {
@@ -783,6 +822,7 @@ def main() -> int:
         print("question:    ?page=home&sheet=1", flush=True)
         print("quickqa:     ?page=quickqa&quickqa=done&scroll=top", flush=True)
         print("attach:      ?page=quickqa&image=1", flush=True)
+        print("companion:   ?page=quickqa&companion=1", flush=True)
         print("recording:   ?page=quickqa&capturing=1", flush=True)
         try:
             server.serve_forever()
