@@ -72,6 +72,10 @@ jobs:
       - name: Build plugin and phone console
         run: pnpm build
 
+      - name: Rust format check
+        working-directory: src/rust
+        run: cargo fmt --all -- --check
+
       - name: Build the native probe
         run: node scripts/build-rust.mjs
 
@@ -80,10 +84,6 @@ jobs:
 
       - name: Phone console unit tests
         run: pnpm test:unit
-
-      - name: Rust format check
-        working-directory: src/rust
-        run: cargo fmt --all -- --check
 
       - name: Rust check
         working-directory: src/rust
