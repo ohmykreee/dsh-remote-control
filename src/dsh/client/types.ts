@@ -524,10 +524,13 @@ export interface PanelApi {
   refreshQuickQaOptions: (force?: boolean) => Promise<void>;
   draggingKey: string | null;
   dragIndex: number | null;
+  draggingWorkspaceId: string | null;
+  workspaceDragIndex: number | null;
   selectedInterfaces: string[];
   selectedApps: string[];
   appNames: Record<string, string>;
   orderListRef: React.RefObject<HTMLDivElement | null>;
+  workspaceListRef: React.RefObject<HTMLDivElement | null>;
   setDraft: React.Dispatch<React.SetStateAction<DraftState>>;
   setError: (value: string) => void;
   setAppNames: React.Dispatch<React.SetStateAction<Record<string, string>>>;
@@ -546,4 +549,5 @@ export interface PanelApi {
   toggleInterface: (name: string) => void;
   togglePage: (key: string) => void;
   startOrderDrag: (key: string, event: React.PointerEvent<HTMLElement>) => void;
+  startWorkspaceDrag: (key: string, event: React.PointerEvent<HTMLElement>) => void;
 }

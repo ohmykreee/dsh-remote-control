@@ -128,7 +128,10 @@ export function RemotePanel(): React.ReactElement {
   const [quickQaBusy, setQuickQaBusy] = useState(false);
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [draggingWorkspaceId, setDraggingWorkspaceId] = useState<string | null>(null);
+  const [workspaceDragIndex, setWorkspaceDragIndex] = useState<number | null>(null);
   const orderListRef = useRef<HTMLDivElement | null>(null);
+  const workspaceListRef = useRef<HTMLDivElement | null>(null);
   const dragCleanupRef = useRef<(() => void) | null>(null);
   /** Latest merged settings, used by pointer handlers that outlive a render. */
   const settingsRef = useRef<RemoteSettings | null>(null);
@@ -409,6 +412,78 @@ export function RemotePanel(): React.ReactElement {
     };
   };
 
+  const computeWorkspaceInsertIndex = (clientY: number): number => {
+    const list = workspaceListRef.current;
+    if (!list) return 0;
+    const rows = [...list.querySelectorAll<HTMLElement>('.drc-quickqa-draggable:not(.is-dragging)')];
+    for (let index = 0; index < rows.length; index += 1) {
+      const rect = rows[index].getBoundingClientRect();
+      if (clientY < rect.top + rect.height / 2) return index;
+    }
+    return rows.length;
+  };
+
+  const startWorkspaceDrag = (key: string, event: React.PointerEvent<HTMLElement>): void => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const dragTarget = event.target;
+    if (dragTarget instanceof Element && dragTarget.closest('button, input, a, select, textarea, .drc-quickqa-workspace-check')) return;
+    event.preventDefault();
+    const pointerId = event.pointerId;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const configured = settingsRef.current?.quickqa;
+    const known = new Set((quickQaOptions?.workspaces ?? []).map((workspace) => workspace.id));
+    const order = [...new Set(configured?.pinnedWorkspaceIds ?? [])]
+      .filter((id) => id && id !== configured?.defaultWorkspaceId && (known.size === 0 || known.has(id)));
+    if (!order.includes(key)) return;
+    const originalIndex = order.indexOf(key);
+    let started = false;
+
+    const finish = (upEvent: PointerEvent): void => {
+      if (upEvent.pointerId !== pointerId) return;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      document.body.classList.remove('drc-sorting');
+      dragCleanupRef.current = null;
+      if (!started || upEvent.type === 'pointercancel') {
+        setDraggingWorkspaceId(null);
+        setWorkspaceDragIndex(null);
+        return;
+      }
+      const remaining = order.filter((item) => item !== key);
+      const insertAt = Math.max(0, Math.min(computeWorkspaceInsertIndex(upEvent.clientY), remaining.length));
+      const next = [...remaining.slice(0, insertAt), key, ...remaining.slice(insertAt)];
+      if (next.join('|') !== order.join('|')) stage({ quickqa: { pinnedWorkspaceIds: next } });
+      setDraggingWorkspaceId(null);
+      setWorkspaceDragIndex(null);
+    };
+
+    const onMove = (moveEvent: PointerEvent): void => {
+      if (moveEvent.pointerId !== pointerId) return;
+      if (!started) {
+        if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) < 5) return;
+        started = true;
+        setDraggingWorkspaceId(key);
+        setWorkspaceDragIndex(originalIndex);
+        document.body.classList.add('drc-sorting');
+      }
+      moveEvent.preventDefault();
+      const next = computeWorkspaceInsertIndex(moveEvent.clientY);
+      setWorkspaceDragIndex((current) => (current === next ? current : next));
+    };
+
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+    dragCleanupRef.current = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      document.body.classList.remove('drc-sorting');
+    };
+  };
+
   if (loading) {
     return h('div', { className: 'drc-page' },
       h('style', null, CSS),
@@ -467,10 +542,13 @@ export function RemotePanel(): React.ReactElement {
     refreshQuickQaOptions,
     draggingKey,
     dragIndex,
+    draggingWorkspaceId,
+    workspaceDragIndex,
     selectedInterfaces,
     selectedApps,
     appNames,
     orderListRef,
+    workspaceListRef,
     setDraft,
     setError,
     setAppNames,
@@ -489,6 +567,7 @@ export function RemotePanel(): React.ReactElement {
     toggleInterface,
     togglePage,
     startOrderDrag,
+    startWorkspaceDrag,
   };
 
   const content: React.ReactElement = section === 'connection' ? renderConnection(api)

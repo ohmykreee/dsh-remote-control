@@ -167,14 +167,43 @@ function workspaceGroup(api: PanelApi): React.ReactElement {
   const pinned = quickQa.pinnedWorkspaceIds ?? [];
   const byId = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
   const defaultWorkspace = byId.get(defaultId) ?? null;
-  const pinnedWorkspaces = workspaces.filter((workspace) => workspace.id !== defaultId);
+  const candidates = workspaces.filter((workspace) => workspace.id !== defaultId);
+  const pinnedWorkspaces = [...new Set(pinned)]
+    .filter((id) => id !== defaultId)
+    .map((id) => byId.get(id))
+    .filter((workspace): workspace is QuickQaWorkspaceOption => workspace !== undefined);
+  const unpinnedWorkspaces = candidates.filter((workspace) => !pinned.includes(workspace.id));
+  const dragging = api.draggingWorkspaceId;
+  const remaining = dragging ? pinnedWorkspaces.filter((workspace) => workspace.id !== dragging) : pinnedWorkspaces;
+  const rawIndex = dragging ? (api.workspaceDragIndex ?? pinnedWorkspaces.findIndex((workspace) => workspace.id === dragging)) : -1;
+  const insertAt = dragging ? Math.max(0, Math.min(rawIndex, remaining.length)) : -1;
 
-  function workspaceRow(workspace: QuickQaWorkspaceOption, checked: boolean, locked: boolean): React.ReactElement {
+  function workspaceRow(
+    workspace: QuickQaWorkspaceOption,
+    checked: boolean,
+    locked: boolean,
+    options: { dragging?: boolean } = {},
+  ): React.ReactElement {
     const isDefault = workspace.id === defaultId;
+    const isDragging = options.dragging === true;
+    const canDrag = checked && !locked && !disabled && !isDragging;
     return h('div', {
-      className: `drc-quickqa-workspace-row${checked ? ' is-checked' : ''}`,
+      className: [
+        'drc-quickqa-workspace-row',
+        'drc-order-row',
+        checked ? 'drc-quickqa-draggable' : 'is-disabled',
+        locked ? 'is-locked' : '',
+        isDragging ? 'is-dragging' : '',
+      ].filter(Boolean).join(' '),
       key: workspace.id,
+      onPointerDown: canDrag
+        ? (event: React.PointerEvent<HTMLElement>) => api.startWorkspaceDrag(workspace.id, event)
+        : undefined,
     },
+      h('span', {
+        className: `drc-drag-handle${canDrag ? '' : ' is-disabled'}`,
+        'aria-hidden': 'true',
+      }, canDrag ? '⋮⋮' : ''),
       h('label', { className: 'drc-quickqa-workspace-check' },
         h('input', {
           type: 'checkbox',
@@ -201,6 +230,22 @@ function workspaceGroup(api: PanelApi): React.ReactElement {
       workspaceModeSelects(api, workspace, quickQa, disabled || !checked),
     );
   }
+
+  const placeholder = (): React.ReactElement => h('div', { className: 'drc-order-placeholder', key: 'workspace-placeholder' },
+    h('span', { className: 'drc-drag-handle', 'aria-hidden': 'true' }, '⋮⋮'),
+    h('span', { className: 'drc-order-placeholder-title' }, byId.get(dragging ?? '')?.title ?? ''),
+  );
+  const pinnedRows: React.ReactElement[] = [];
+  for (const workspace of pinnedWorkspaces) {
+    if (workspace.id === dragging) {
+      pinnedRows.push(workspaceRow(workspace, true, false, { dragging: true }));
+      continue;
+    }
+    if (dragging && remaining.findIndex((item) => item.id === workspace.id) === insertAt) pinnedRows.push(placeholder());
+    pinnedRows.push(workspaceRow(workspace, true, false));
+  }
+  if (dragging && insertAt >= remaining.length) pinnedRows.push(placeholder());
+  pinnedRows.push(...unpinnedWorkspaces.map((workspace) => workspaceRow(workspace, false, false)));
 
   return h('div', { className: 'drc-group' },
     groupHead(t('quickqaWorkspacesGroup'), t('quickqaWorkspacesHint')),
@@ -232,9 +277,7 @@ function workspaceGroup(api: PanelApi): React.ReactElement {
       : null,
     h('div', { className: 'drc-divider' }),
     h('div', { className: 'drc-row-main' }, h('div', { className: 'drc-row-title' }, t('quickqaPinnedWorkspaces'))),
-    h('div', { className: 'drc-quickqa-workspaces' },
-      pinnedWorkspaces.map((workspace) => workspaceRow(workspace, pinned.includes(workspace.id), false)),
-    ),
+    h('div', { className: 'drc-quickqa-workspaces', ref: api.workspaceListRef }, pinnedRows),
     h('p', { className: 'drc-row-desc' }, t('quickqaPushHint')),
   );
 }
