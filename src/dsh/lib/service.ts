@@ -155,9 +155,20 @@ export function createRemoteControlService(
     return next;
   }
 
+  function initializeInterfaceSelection(): void {
+    const value = state.settingsStore.get();
+    if (value.interfacesInitialized) return;
+    const names = [...new Set(remote.interfaceEntries(false).map((entry) => entry.name).filter(Boolean))];
+    if (names.length === 0) return;
+    const patch: Record<string, unknown> = { interfacesInitialized: true };
+    if (value.allowedInterfaces === null) patch.allowedInterfaces = names;
+    state.settingsStore.update(patch);
+  }
+
   async function start(): Promise<InfoPayload> {
     if (state.disposed) return remote.getInfo();
     const info = await remote.start();
+    initializeInterfaceSelection();
     const server = remote.getServer();
     if (server && state.disposed) {
       hub?.dispose();

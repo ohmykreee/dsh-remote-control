@@ -149,6 +149,30 @@ assert.deepEqual(missingState.apps, []);
 assert.equal(missingService.status().available, false);
 missingService.dispose();
 
+/* ------------------------------------------------- new notification apps */
+
+const { newNotificationApps } = await import('../../lib/server/snapshots.js');
+
+assert.deepEqual(
+  newNotificationApps([], [{ key: 'Any' }], () => false),
+  [],
+  'an empty allowlist means all apps, so there is nothing to add',
+);
+assert.deepEqual(
+  newNotificationApps(
+    ['QQ'],
+    [{ key: 'QQ' }, { key: 'WeChat' }, { key: 'Known' }, { key: 'WeChat' }],
+    (key) => key === 'Known',
+  ),
+  ['WeChat'],
+  'new notification apps are added once; known and selected apps are skipped',
+);
+assert.deepEqual(
+  newNotificationApps(['QQ'], [{ key: 'QQ' }], () => false),
+  [],
+  'no additions when every app is already selected',
+);
+
 /* ------------------------------------------------------ Linux watch stream */
 
 // Exercise the Linux streaming wrapper without a Linux host: point the probe at

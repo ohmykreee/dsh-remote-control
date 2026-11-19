@@ -210,7 +210,7 @@ export function applySettings(settings: ConsoleSettings | undefined): void {
     };
     quickQaSyncSettings();
   }
-  setWakeLockEnabled(settings.tls?.enabled === true && settings.tls?.advanced?.wakeLock === true);
+  setWakeLockEnabled(settings.tls?.advanced?.wakeLock === true);
   if (settings.balance) {
     app.balanceDisplay = {
       showPeakValley: settings.balance.showPeakValley !== false,

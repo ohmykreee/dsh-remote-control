@@ -223,6 +223,8 @@ export interface RemoteControlSettings {
   tokenRotatedAt: number;
   tokenEnabled: boolean;
   allowedInterfaces: string[] | null;
+  /** Set after the first startup that found at least one usable interface. */
+  interfacesInitialized: boolean;
   theme: ThemeSetting;
   dshTheme: DshTheme;
   /** Plugin UI language: follow DSH or force a shipped language. */
@@ -300,6 +302,7 @@ export function defaultSettings(): RemoteControlSettings {
     tokenRotatedAt: now,
     tokenEnabled: true,
     allowedInterfaces: null,
+    interfacesInitialized: false,
     theme: 'dsh',
     dshTheme: 'dark',
     language: 'dsh',
@@ -550,6 +553,7 @@ function normalize(raw: unknown): RemoteControlSettings {
     tokenRotatedAt: Number.isFinite(Number(input.tokenRotatedAt)) ? Number(input.tokenRotatedAt) : base.tokenRotatedAt,
     tokenEnabled: input.tokenEnabled !== false,
     allowedInterfaces: input.allowedInterfaces === null ? null : normalizeStringArray(input.allowedInterfaces),
+    interfacesInitialized: input.interfacesInitialized === true,
     theme,
     dshTheme,
     language,

@@ -354,8 +354,7 @@ export function normalizeQuickQaForSave(value: QuickQaSettings | undefined): Qui
 
 /** Build the single batch body posted by "save settings". */
 export function buildSavePatch(input: SavePatchInput): SavePatch {
-  const { data, settings, draft, selectedInterfaces, selectedApps, notificationApps, order } = input;
-  const allInterfaces = [...new Set((data.interfaces ?? []).map((entry) => entry.name))];
+  const { settings, draft, selectedInterfaces, selectedApps, notificationApps, order } = input;
   const weatherProvider = normalizeWeatherProvider(settings.weather?.provider);
   const nextWeather: WeatherSettings = {
     mode: settings.weather?.mode === 'manual' ? 'manual' : 'auto',
@@ -379,7 +378,7 @@ export function buildSavePatch(input: SavePatchInput): SavePatch {
     },
   };
   return {
-    allowedInterfaces: selectedInterfaces.length === allInterfaces.length ? null : selectedInterfaces,
+    allowedInterfaces: [...new Set(selectedInterfaces)],
     tokenEnabled: settings.tokenEnabled,
     temperatureUnit: settings.temperatureUnit === 'fahrenheit' ? 'fahrenheit' : 'celsius',
     theme: settings.theme,

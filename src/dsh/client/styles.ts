@@ -595,7 +595,8 @@ export const CSS = `
 .drc-field select:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Quick Q&A: compact voice row and one horizontal settings row per workspace. */
-.drc-quickqa-gated { display: flex; flex-direction: column; gap: 16px; opacity: 0.62; }
+.drc-quickqa-groups { display: flex; flex-direction: column; gap: 10px; }
+.drc-quickqa-gated { opacity: 0.62; }
 .drc-quickqa-voice-row {
   display: flex;
   align-items: center;

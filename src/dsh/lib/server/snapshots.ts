@@ -142,6 +142,24 @@ export interface Snapshots {
   getSettingsPayload(): Promise<SettingsPayload>;
 }
 
+/** New notification-source apps that are not covered by the saved allowlist. */
+export function newNotificationApps(
+  enabledApps: readonly string[],
+  apps: ReadonlyArray<{ key?: string }>,
+  isKnownNotificationApp: (key: string) => boolean,
+): string[] {
+  if (enabledApps.length === 0) return [];
+  const seen = new Set(enabledApps);
+  const additions: string[] = [];
+  for (const app of apps) {
+    const key = typeof app.key === 'string' ? app.key : '';
+    if (!key || seen.has(key) || isKnownNotificationApp(key)) continue;
+    seen.add(key);
+    additions.push(key);
+  }
+  return additions;
+}
+
 export function createSnapshots(deps: SnapshotDeps): Snapshots {
   const { state, quickqa, remote } = deps;
   const settings = (): ReturnType<ServiceState['settingsStore']['get']> => state.settingsStore.get();
@@ -206,6 +224,19 @@ export function createSnapshots(deps: SnapshotDeps): Snapshots {
       raw = await state.adapters.notifications.getNotifications();
     } catch (errorValue) {
       raw = { available: false, reason: serializeError(errorValue), notifications: [], apps: [] };
+    }
+    const enabledApps = settings().notifications.enabledApps;
+    if (Array.isArray(raw.apps)) {
+      const additions = newNotificationApps(
+        enabledApps,
+        raw.apps,
+        (key) => state.appMapping.get(key)?.sources.includes('notification') === true,
+      );
+      if (additions.length > 0) {
+        state.settingsStore.update({
+          notifications: { enabledApps: [...enabledApps, ...additions] },
+        });
+      }
     }
     if (Array.isArray(raw.apps)) {
       state.appMapping.record(

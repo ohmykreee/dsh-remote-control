@@ -56,7 +56,7 @@ assert.equal(store.public().locale, 'en', 'unsupported DSH locales fall back to 
 store.setDshLocale('en');
 assert.equal(store.public().locale, 'en');
 
-// The HTTPS-gated wake lock rides in tls.advanced and defaults off.
+// The wake-lock switch is independent of the HTTPS switch and defaults off.
 assert.equal(store.get().tls.advanced.wakeLock, false);
 store.update({ tls: { advanced: { wakeLock: true } } });
 assert.equal(store.get().tls.advanced.wakeLock, true);

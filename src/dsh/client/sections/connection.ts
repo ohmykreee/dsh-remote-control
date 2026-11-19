@@ -67,8 +67,7 @@ function tlsGroup(api: PanelApi): React.ReactElement {
 
 function advancedGroup(api: PanelApi): React.ReactElement {
   const { t, settings, stage } = api;
-  const httpsEnabled = settings.tls?.enabled === true;
-  const wakeLock = httpsEnabled && settings.tls?.advanced?.wakeLock === true;
+  const wakeLock = settings.tls?.advanced?.wakeLock === true;
   return h('div', { className: 'drc-group' },
     groupHead(t('advanced'), t('advancedHint')),
     h(Row, {
@@ -76,7 +75,6 @@ function advancedGroup(api: PanelApi): React.ReactElement {
       description: t('wakeLockHint'),
     }, h(Toggle, {
       checked: wakeLock,
-      disabled: !httpsEnabled,
       label: t('wakeLock'),
       onChange: (checked) => stage({ tls: { advanced: { wakeLock: checked } } }),
     })),

@@ -249,7 +249,7 @@ export function renderQuickQa(api: PanelApi): React.ReactElement {
       ? h('p', { className: 'drc-banner is-error' }, `${t('quickqaOptionsError')} ${errors.join('; ')}`)
       : null,
     voiceGroup(api),
-    h('div', { className: ready ? '' : 'drc-quickqa-gated' },
+    h('div', { className: `drc-quickqa-groups${ready ? '' : ' drc-quickqa-gated'}` },
       ready ? null : h('p', { className: 'drc-row-desc' }, t('quickqaGateHint')),
       modelGroup(api),
       workspaceGroup(api),

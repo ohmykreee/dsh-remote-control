@@ -84,6 +84,7 @@ The agent installs the plugin, reads both documents, builds the component and te
 - Optional HTTPS: provide certificate and private-key file paths. If the certificate is invalid the console stays on HTTP and shows the error on the connection page.
 - When HTTPS is active and the certificate carries a concrete DNS name (SAN or CN), the pairing link and QR code use that domain instead of the interface IP; wildcard-only or IP-only certificates keep the LAN address.
 - Switching HTTPS in the settings moves the console to the matching address right away and keeps the same port. Reopen that new address on the phone; the old page does not follow automatically.
+- The phone microphone and screen wake lock need a browser secure context: use HTTPS, a reverse proxy, or a localhost address. For desktop-browser testing you can also allow the LAN origin as a secure context. See [INSTALLATION.md](../INSTALLATION.md#https-与浏览器安全上下文).
 - If the port is taken, another available port is chosen automatically. The connection page always shows the actual address.
 
 ## Settings
@@ -92,7 +93,7 @@ The **Remote control** sidebar has these groups:
 
 | Group | Contents |
 |---|---|
-| Connection | QR code, console address, allowed interfaces, access verification, HTTPS, and advanced features (disabled while HTTPS is off) |
+| Connection | QR code, console address, allowed interfaces, access verification, HTTPS, and advanced features (wake lock needs a secure context) |
 | Preferences | Plugin language, temperature unit, theme, page order and toggles, navigation position |
 | Quick Q&A | Official voice-input status, reply model and reasoning effort, default / pinned workspaces with their mode and permission behavior |
 | Pomodoro / countdown | Enable switch (mutually exclusive), focus / break lengths, countdown presets, alert sound |
@@ -158,7 +159,7 @@ Turn on **Push inquiries** and sessions waiting for an answer gain an **Answer**
 - On the phone, hold the large button to record; releasing it opens the answer card immediately, then transcribes and sends. While holding, move to the Cancel button and release there to discard the recording. Too-short or silent recordings are not sent and a retry hint appears. While the model is thinking, a Stop button sits beside the status; stopping keeps the current chat card open so you can follow up or start a new conversation. If a run fails and returns to the initial page, the old conversation is cleared, so the next hold starts a new conversation.
 - Answering switches to one centered chat card: it shows the recognized question, the previous turns in the same conversation, and the final answer. Reasoning and tool calls stay hidden. Afterwards you can follow up in the same conversation or start a new one. When following up, the recording control stays on the small round button at the bottom of the card instead of returning to the initial page. The bottom buttons hide while the model is answering and return when the answer is complete.
 - The inquiry sheet is controlled by **Notifications → Push inquiries**: when on, the existing sheet opens directly; when off, the page tells you to handle it in DSH. Permission requests still need confirmation in DSH.
-- The microphone uses the phone browser's default input device, with no device picker. The first use needs browser permission; an Allow microphone button appears above the large circle until then. Browsers only allow recording on HTTPS or localhost pages.
+- The microphone uses the phone browser's default input device, with no device picker. The first use needs browser permission; an Allow microphone button appears above the large circle until then. Browsers only allow recording in a secure context (HTTPS, localhost, or a secure-context allowlist); for desktop-browser testing you can configure the allowlist described in [INSTALLATION.md](../INSTALLATION.md#https-与浏览器安全上下文).
 
 ## Music
 
@@ -208,8 +209,8 @@ Turn on **Push inquiries** and sessions waiting for an answer gain an **Answer**
 - Only players that support seek allow dragging the progress bar; some players show progress only or offer no transport controls.
 - NetEase Cloud Music's like state and exact progress require an optional feature; they may be briefly unavailable after a page refresh.
 - The sessions page is read-only; media and volume are writable; tool approvals cannot be handled remotely.
-- Quick Q&A needs the official DSH Voice Input plugin to be enabled and prepared; otherwise it cannot be configured or used. The phone microphone needs HTTPS or a localhost page and browser permission.
-- The wake lock needs HTTPS and browser support; the system releases it while the page is in the background and it is restored when the page returns.
+- Quick Q&A needs the official DSH Voice Input plugin to be enabled and prepared; otherwise it cannot be configured or used. The phone microphone needs HTTPS or a localhost page and browser permission; without a secure context, configure HTTPS or a browser allowlist as described in the installation guide.
+- The wake-lock switch only takes effect in a secure context such as HTTPS. The system releases it while the page is in the background and it is restored when the page returns.
 - Pomodoro and countdown run only in the phone browser, so refreshing or closing the page loses them.
 - Landscape pages stay one screen tall; portrait pages scroll vertically and cards grow with their content.
 
