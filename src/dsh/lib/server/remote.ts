@@ -8,6 +8,7 @@ import { createServer as createHttpServer } from 'node:http';
 import type { IncomingMessage, Server as HttpServer, ServerResponse } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import type { Server as HttpsServer } from 'node:https';
+import type { Socket } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -77,7 +78,6 @@ export interface InfoPayload {
 export interface RemoteServer {
   start(): Promise<InfoPayload>;
   stop(): Promise<void>;
-  restart(): Promise<InfoPayload>;
   getInfo(): InfoPayload;
   getServer(): HttpServer | HttpsServer | null;
   recomputeUrls(): void;
@@ -98,7 +98,11 @@ export function createRemoteServer(
   const preferredPort = parsePort(process.env.DSH_REMOTE_CONTROL_PORT || DEFAULT_PORT);
 
   let server: HttpServer | HttpsServer | null = null;
+  /** Every accepted TCP socket, including ones upgraded to `/ws`. */
+  let sockets = new Set<Socket>();
   let port: number | null = null;
+  /** Last bound port, reused after a restart so a protocol switch keeps the URL. */
+  let lastPort: number | null = null;
   let running = false;
   let protocol: 'http' | 'https' = 'http';
   let tlsActive = false;
@@ -518,6 +522,15 @@ export function createRemoteServer(
       void handleRemote(req, res);
     };
     const instance = tlsOptions ? createHttpsServer(tlsOptions, handler) : createHttpServer(handler);
+    // `server.close()` only waits for sockets the HTTP parser still tracks; an
+    // upgraded WebSocket no longer counts, so keep our own list to be able to
+    // tear the listener down while phones are connected.
+    const tracked = new Set<Socket>();
+    sockets = tracked;
+    instance.on('connection', (socket: Socket) => {
+      tracked.add(socket);
+      socket.once('close', () => tracked.delete(socket));
+    });
     instance.keepAliveTimeout = 30_000;
     instance.headersTimeout = 35_000;
     return instance;
@@ -527,16 +540,27 @@ export function createRemoteServer(
     if (server || running) return getInfo();
     try {
       const instance = await createInstance();
-      try {
-        await listen(instance, preferredPort);
-      } catch (listenError) {
-        const code = isRecord(listenError) ? listenError.code : undefined;
-        if (code !== 'EADDRINUSE' || preferredPort === 0) throw listenError;
-        await listen(instance, 0);
+      // Reuse the port this instance was already reachable on: a dynamic HTTPS
+      // toggle should only change the scheme of the pairing URL, not its port.
+      const candidates: number[] = [];
+      if (lastPort !== null) candidates.push(lastPort);
+      if (!candidates.includes(preferredPort)) candidates.push(preferredPort);
+      let bound = false;
+      for (const candidate of candidates) {
+        try {
+          await listen(instance, candidate);
+          bound = true;
+          break;
+        } catch (listenError) {
+          const code = isRecord(listenError) ? listenError.code : undefined;
+          if (code !== 'EADDRINUSE') throw listenError;
+        }
       }
+      if (!bound) await listen(instance, 0);
       server = instance;
       const address = server.address();
       port = typeof address === 'object' && address ? address.port : preferredPort;
+      lastPort = port;
       running = true;
       error = null;
       recomputeUrls();
@@ -552,30 +576,52 @@ export function createRemoteServer(
 
   async function stop(): Promise<void> {
     const instance = server;
+    const live = sockets;
+    sockets = new Set();
     server = null;
     running = false;
     port = null;
     urls = [];
     primaryUrl = '';
     tlsDomain = null;
+    protocol = 'http';
+    tlsActive = false;
     if (!instance) return;
+    // Stop accepting first, then let the hub's close frames flush before
+    // dropping every accepted socket — including the upgraded `/ws` ones that
+    // `close()` would otherwise wait on forever. This is what makes a dynamic
+    // HTTP <-> HTTPS switch finish immediately.
+    const closed = new Promise<void>((resolve) => {
+      try {
+        instance.close(() => resolve());
+      } catch {
+        resolve();
+      }
+    });
     try {
       instance.closeAllConnections?.();
-      await new Promise<void>((resolve) => instance.close(() => resolve()));
     } catch {
       /* ignore */
     }
-  }
-
-  async function restart(): Promise<InfoPayload> {
-    await stop();
-    return start();
+    await Promise.race([
+      closed,
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, 150).unref?.();
+      }),
+    ]);
+    for (const socket of live) {
+      try {
+        socket.destroy();
+      } catch {
+        /* ignore */
+      }
+    }
+    await closed;
   }
 
   return {
     start,
     stop,
-    restart,
     getInfo,
     getServer: () => server,
     recomputeUrls,

@@ -161,6 +161,97 @@ assert.deepEqual(overview.data.settings.pageEnabled, {
   performance: true,
 });
 
+/* ---------------------------------------------- dynamic HTTPS switching */
+
+/** Resolve once a fresh `/ws` connection has received `welcome`. */
+function openSocket(port) {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${token}`);
+    const timer = setTimeout(() => {
+      try {
+        socket.close();
+      } catch {
+        /* ignore */
+      }
+      reject(new Error(`WebSocket timeout on port ${port}`));
+    }, 15_000);
+    socket.addEventListener('message', (event) => {
+      if (JSON.parse(event.data).type === 'welcome') {
+        clearTimeout(timer);
+        resolve(socket);
+      }
+    });
+    socket.addEventListener('error', () => {
+      clearTimeout(timer);
+      reject(new Error(`WebSocket failed on port ${port}`));
+    });
+  });
+}
+
+/** Fail fast instead of hanging the whole test run. */
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms} ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+// Changing TLS replaces the LAN listener. The hub must rebind to the new
+// listener, the old listener must shut down while a phone is still connected,
+// and the pairing port must survive so only the scheme changes.
+const live = await openSocket(info.port);
+const liveClosed = new Promise((resolve) => {
+  live.addEventListener('close', (event) => resolve(event.code));
+});
+
+await withTimeout(
+  service.applySettings({
+    tls: {
+      enabled: true,
+      certPath: path.join(profile, 'missing-cert.pem'),
+      keyPath: path.join(profile, 'missing-key.pem'),
+    },
+  }),
+  10_000,
+  'switching to HTTPS',
+);
+
+const httpsFallback = service.getInfo();
+assert.equal(httpsFallback.tls.configured, true);
+assert.equal(httpsFallback.tls.active, false, 'an unreadable certificate keeps the console on HTTP');
+assert.ok(httpsFallback.tls.error);
+assert.equal(httpsFallback.protocol, 'http');
+assert.equal(httpsFallback.port, info.port, 'the pairing port survives the protocol restart');
+assert.equal(await withTimeout(liveClosed, 5_000, 'closing the old socket'), 1001);
+
+const reboundHttps = await openSocket(httpsFallback.port);
+assert.ok(reboundHttps, 'a WebSocket connects again after the TLS restart');
+const reboundHttpsClosed = new Promise((resolve) => {
+  reboundHttps.addEventListener('close', (event) => resolve(event.code));
+});
+
+await withTimeout(service.applySettings({ tls: { enabled: false } }), 10_000, 'switching back to HTTP');
+const httpAgain = service.getInfo();
+assert.equal(httpAgain.tls.configured, false);
+assert.equal(httpAgain.tls.active, false);
+assert.equal(httpAgain.protocol, 'http');
+assert.equal(httpAgain.port, info.port);
+assert.equal(await withTimeout(reboundHttpsClosed, 5_000, 'closing the HTTPS socket'), 1001);
+const reboundHttp = await openSocket(httpAgain.port);
+assert.ok(reboundHttp, 'a WebSocket connects again after switching back to HTTP');
+
+// Finish with a normal close handshake so the shutdown path is not racing a
+// client that is still writing.
+await withTimeout(
+  new Promise((resolve) => {
+    reboundHttp.addEventListener('close', resolve);
+    reboundHttp.close();
+  }),
+  5_000,
+  'closing the HTTP socket',
+);
+
 const changedUnit = service.settingsStore.update({ temperatureUnit: 'fahrenheit' });
 assert.equal(changedUnit.temperatureUnit, 'fahrenheit');
 assert.equal(service.settingsStore.public().temperatureUnit, 'fahrenheit');

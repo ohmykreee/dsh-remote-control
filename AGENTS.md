@@ -201,8 +201,9 @@ window.__ModuleLoader__.load({
 - `routes.ts`：侧边栏环回路由。
 - `service.ts`：组合根，串起上述模块并实现 `applySettings()` / `dispose()`。
 
-- 默认端口 `38765`，可用 `DSH_REMOTE_CONTROL_PORT` 覆盖；绑定 `0.0.0.0`；端口占用时回退随机可用端口。
+- 默认端口 `38765`，可用 `DSH_REMOTE_CONTROL_PORT` 覆盖；绑定 `0.0.0.0`；端口占用时回退随机可用端口；重启时优先复用上次实际绑定的端口，因此切换协议只改变地址的协议和主机，端口不变（该端口被占用后才换端口）。
 - 可选 HTTPS：读取 PEM 证书 / 私钥；配置无效时回退 HTTP，并在 `info.tls.error` 报告。HTTPS 生效后从证书 SAN（回退 CN）取第一个具体域名作为 `primaryUrl`，扫码与配对链接优先使用该域名；`urls` 仍保留各网卡 IP 供诊断。
+- 动态切换 TLS（`applySettings()` 检测到 `tls.enabled` / `certPath` / `keyPath` 变化）必须走 `service.restart()`：先 `hub.closeAll()` 再 `hub.dispose()`，然后 `remote.stop()` / `remote.start()`，最后把 hub 重新 `attach()` 到新监听器。`server.close()` 不会等待已升级成 `/ws` 的 socket，所以 `remote.stop()` 自己记录每条 `connection` socket 并在关闭前逐个 `destroy()`；否则手机在线时保存 HTTPS 会一直挂起。`createWebSocketHub` 绑定的是具体 server 实例，重启后不重新 attach 会让 `/ws`（含 wss）在插件重载前完全不可用。切换后手机页面留在旧地址，需要用新协议地址重新打开。
 - 静态文件：`web/` 下的页面、`/assets/`、字体、`/manifest.webmanifest`、`/icon.svg`。
 - 鉴权：`tokenEnabled` 时，`/`、静态资源和 `/ws` 需要 `?token=` 或 `dsh_rc` cookie；失败返回 401 页面；`/api/pomodoro/sound` 只对已授权页面开放。
 - 网卡限制：`allowedInterfaces` 为 null 表示全部；否则按 CIDR 匹配来源 IP，回环地址始终放行。
@@ -550,7 +551,7 @@ pnpm build:rust
 
 Host 集成测试（`test/dsh/`）：
 
-- `smoke.mjs`：临时 `DSH_PROFILE_DIR` 启动服务；令牌页面、`/assets/`、图片 CSP、WebSocket welcome/overview、证书域名提取；旧 HTTP overview 路由不存在。
+- `smoke.mjs`：临时 `DSH_PROFILE_DIR` 启动服务；令牌页面、`/assets/`、图片 CSP、WebSocket welcome/overview、证书域名提取；动态 HTTPS 切换（端口复用、在线 socket 收到关闭帧、重启后 `/ws` 仍可连接、切回 HTTP）；旧 HTTP overview 路由不存在。
 - `questions.mjs`：推送问询开关、远程回答往返、关闭后剥离与拒绝。
 - `quickqa.mjs`：快速问答目录接口、语音就绪门槛、模型 / 模式 / 权限行为落到会话、`quickqa-ask` 与追问、音频上传、未就绪时拒绝提问与丢弃设置补丁；断言 `prompt` 收到取消信号（`sessionController.prompt` 的第二个参数是必需的）。
 - `settings.mjs`：语言精确匹配与回退、`dshLocale` 持久化、Host 字典对齐；倒计时预设与秒级范围、番茄钟两位小数、互斥、公开设置深拷贝、`tls.advanced.wakeLock` 默认与嵌套拷贝。

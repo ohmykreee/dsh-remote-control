@@ -128,7 +128,7 @@ export function createRemoteControlService(
       hub?.closeAll('settings changed');
     }
     if (tlsChanged) {
-      await remote.restart();
+      await restart();
     } else {
       remote.recomputeUrls();
     }
@@ -173,6 +173,12 @@ export function createRemoteControlService(
   }
 
   async function restart(): Promise<InfoPayload> {
+    if (state.disposed) return remote.getInfo();
+    // The hub is tied to one listener object. Closing phones and detaching it
+    // before the listener goes away lets the fresh server accept `/ws` again
+    // right after a TLS change instead of staying dead until a plugin reload.
+    hub?.closeAll('protocol changed');
+    hub?.dispose();
     await remote.stop();
     return start();
   }

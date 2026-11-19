@@ -83,6 +83,7 @@ The agent installs the plugin, reads both documents, builds the component and te
 - You can allow only selected network interfaces / subnets.
 - Optional HTTPS: provide certificate and private-key file paths. If the certificate is invalid the console stays on HTTP and shows the error on the connection page.
 - When HTTPS is active and the certificate carries a concrete DNS name (SAN or CN), the pairing link and QR code use that domain instead of the interface IP; wildcard-only or IP-only certificates keep the LAN address.
+- Switching HTTPS in the settings moves the console to the matching address right away and keeps the same port. Reopen that new address on the phone; the old page does not follow automatically.
 - If the port is taken, another available port is chosen automatically. The connection page always shows the actual address.
 
 ## Settings

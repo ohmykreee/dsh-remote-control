@@ -290,6 +290,10 @@ export function createHubController(
   }
 
   function attach(server: NonNullable<ReturnType<RemoteServer['getServer']>>): void {
+    // A TLS change replaces the LAN listener. The previous hub owns the old
+    // server's `upgrade` listener and its clients, so drop it before wiring the
+    // new one; otherwise `/ws` would never accept a wss handshake again.
+    hub?.dispose();
     hub = createWebSocketHub({
       server,
       path: '/ws',
