@@ -13,6 +13,7 @@
   import { t } from '../i18n.svelte';
   import Panel from './Panel.svelte';
   import Markdown from './Markdown.svelte';
+  import QuickQaLoader from './QuickQaLoader.svelte';
   import {
     quickQa,
     quickQaAsk,
@@ -372,7 +373,7 @@
           {#if phase === 'thinking'}
             <div class="quickqa-chat-row is-assistant">
               <div class="quickqa-chat-thinking">
-                <div class="quickqa-orb"><span></span><span></span><span></span></div>
+                <QuickQaLoader />
                 <span>{t('quickQaThinking')}</span>
                 <Button
                   variant="outline"
@@ -405,7 +406,7 @@
           {#if phase === 'transcribing'}
             <div class="quickqa-chat-row is-assistant">
               <div class="quickqa-follow-transcribing">
-                <div class="quickqa-orb"><span></span><span></span><span></span></div>
+                <QuickQaLoader compact />
                 <span>{t('quickQaTranscribing')}</span>
               </div>
             </div>
@@ -552,7 +553,7 @@
               {/if}
             {:else if phase === 'transcribing'}
               <div class="quickqa-status-block">
-                <div class="quickqa-orb"><span></span><span></span><span></span></div>
+                <QuickQaLoader />
                 <p class="quickqa-status">{t('quickQaTranscribing')}</p>
               </div>
             {/if}
@@ -736,25 +737,6 @@
     padding: 42px 0;
   }
 
-  .quickqa-orb {
-    display: inline-flex;
-    align-items: center;
-    gap: 9px;
-    height: 40px;
-  }
-
-  .quickqa-orb span {
-    width: 11px;
-    height: 11px;
-    border-radius: 50%;
-    background: var(--brand);
-    opacity: 0.35;
-    animation: quickqa-pulse 1.05s ease-in-out infinite;
-  }
-
-  .quickqa-orb span:nth-child(2) { animation-delay: 0.14s; }
-  .quickqa-orb span:nth-child(3) { animation-delay: 0.28s; }
-
   .quickqa-status {
     margin: 0;
     color: var(--muted-foreground);
@@ -876,16 +858,6 @@
     padding: 8px 0;
     color: var(--muted-foreground);
     font-size: 14px;
-  }
-
-  .quickqa-follow-transcribing .quickqa-orb {
-    height: 24px;
-    gap: 6px;
-  }
-
-  .quickqa-follow-transcribing .quickqa-orb span {
-    width: 8px;
-    height: 8px;
   }
 
   .quickqa-actions {
@@ -1067,11 +1039,6 @@
     color: var(--muted-foreground);
     font-size: 16px;
     text-align: center;
-  }
-
-  @keyframes quickqa-pulse {
-    0%, 100% { transform: translateY(0); opacity: 0.28; }
-    50% { transform: translateY(-4px); opacity: 1; }
   }
 
   @keyframes quickqa-blink {
