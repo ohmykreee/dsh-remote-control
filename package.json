@@ -111,6 +111,7 @@
     "cn": "^0.5.2",
     "dompurify": "^3.4.18",
     "marked": "^18.2.1",
+    "medium-zoom": "^1.1.2",
     "playwright-core": "^1.65.0",
     "shadcn-svelte": "^1.8.1",
     "svelte": "^5.57.3",

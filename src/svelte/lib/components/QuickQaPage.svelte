@@ -14,6 +14,7 @@
   import { cn } from '$lib/utils.js';
   import { app, toast } from '../state.svelte';
   import { t } from '../i18n.svelte';
+  import { imageZoom } from '../image-zoom';
   import Panel from './Panel.svelte';
   import Markdown from './Markdown.svelte';
   import QuickQaLoader from './QuickQaLoader.svelte';
@@ -477,7 +478,7 @@
             >
               {#if message.role === 'user'}
                 {#if message.imageUrl}
-                  <div class="quickqa-chat-image"><img src={message.imageUrl} alt="" /></div>
+                  <div class="quickqa-chat-image"><img src={message.imageUrl} alt="" use:imageZoom /></div>
                 {/if}
                 <div class="quickqa-chat-bubble">{message.text}</div>
               {:else}
@@ -679,7 +680,7 @@
             <div class="quickqa-attach">
               {#if attachedImage}
                 <div class="quickqa-attach-preview">
-                  <img src={attachedImage.url} alt={t('quickQaAttachedImage')} />
+                  <img src={attachedImage.url} alt={t('quickQaAttachedImage')} use:imageZoom />
                   <Button
                     variant="secondary"
                     size="icon-sm"
@@ -932,7 +933,6 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    pointer-events: none;
   }
 
   :global(.quickqa-attach-remove) {
@@ -1020,7 +1020,6 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    pointer-events: none;
   }
 
   .quickqa-chat-row.is-user.has-image .quickqa-chat-bubble {

@@ -20,6 +20,7 @@ let activeSession = '';
 const createCalls = [];
 const promptCalls = [];
 const promptSignals = [];
+const followRequests = [];
 const modelSelections = [];
 const permissionCalls = [];
 const resolverCalls = [];
@@ -75,25 +76,118 @@ const sessionController = {
     return { accepted: true };
   },
   async *follow(request, signal) {
+    followRequests.push(request);
     const turn = lastTurn;
+    const firstAttempt = `attempt-${turn}-1`;
+    const finalAttempt = `attempt-${turn}-2`;
     yield {
       type: 'snapshot',
       records: [
         { type: 'event', event: { type: 'turn/start', seq: 1, time: Date.now(), data: { turn } } },
-        {
-          type: 'event',
-          event: {
-            type: 'assistant/message',
-            seq: 2,
-            time: Date.now(),
-            data: {
-              turn,
-              message: { role: 'assistant', content: [{ type: 'text', text: `第 ${turn} 轮回答` }] },
-            },
-          },
-        },
-        { type: 'event', event: { type: 'turn/end', seq: 3, time: Date.now(), data: { turn, reason: { kind: 'completed' } } } },
       ],
+    };
+    // The first model attempt has visible prose, then a tool call. The Host
+    // must forward the prose, ignore the tool chunk, and start the next
+    // attempt on a fresh line.
+    yield {
+      type: 'assistant-stream',
+      frame: {
+        type: 'start',
+        attemptId: firstAttempt,
+        revision: 1,
+        startedAfterSeq: 0,
+        turn,
+        step: 0,
+      },
+    };
+    yield {
+      type: 'assistant-stream',
+      frame: {
+        type: 'chunk',
+        attemptId: firstAttempt,
+        revision: 1,
+        index: 0,
+        time: Date.now(),
+        chunk: {
+          type: 'text-chunks',
+          time0: Date.now(),
+          index: 0,
+          dt: [],
+          texts: ['我先确认一下。'],
+        },
+      },
+    };
+    yield {
+      type: 'assistant-stream',
+      frame: {
+        type: 'chunk',
+        attemptId: firstAttempt,
+        revision: 1,
+        index: 1,
+        time: Date.now(),
+        chunk: {
+          type: 'tool-call-chunks',
+          time0: Date.now(),
+          index: 1,
+          dt: [],
+          id: 'tool-1',
+          name: 'read_file',
+          args: ['{}'],
+        },
+      },
+    };
+    yield {
+      type: 'assistant-stream',
+      frame: { type: 'end', attemptId: firstAttempt, revision: 1, index: 2, outcome: { kind: 'abandoned' } },
+    };
+    yield {
+      type: 'assistant-stream',
+      frame: {
+        type: 'start',
+        attemptId: finalAttempt,
+        revision: 1,
+        startedAfterSeq: 0,
+        turn,
+        step: 1,
+      },
+    };
+    yield {
+      type: 'assistant-stream',
+      frame: {
+        type: 'chunk',
+        attemptId: finalAttempt,
+        revision: 1,
+        index: 0,
+        time: Date.now(),
+        chunk: {
+          type: 'text-chunks',
+          time0: Date.now(),
+          index: 0,
+          dt: [],
+          texts: [`第 ${turn} 轮回答`],
+        },
+      },
+    };
+    yield {
+      type: 'event',
+      event: {
+        type: 'assistant/message',
+        seq: 2,
+        time: Date.now(),
+        data: {
+          turn,
+          message: { role: 'assistant', content: [{ type: 'text', text: `第 ${turn} 轮回答` }] },
+        },
+      },
+    };
+    yield {
+      type: 'event',
+      event: {
+        type: 'turn/end',
+        seq: 3,
+        time: Date.now(),
+        data: { turn, reason: { kind: 'completed' } },
+      },
     };
     if (signal.aborted) return;
   },
@@ -312,6 +406,13 @@ try {
   assert.equal(promptCalls[0].mode, 'queue');
   const answerDeltas = inbox.filter((message) => message.type === 'quickqa-delta').map((message) => message.text).join('');
   assert.match(answerDeltas, /第 1 轮回答/);
+  assert.equal(followRequests.length, 1);
+  assert.equal(followRequests[0].assistantStream, true, 'live assistant stream frames are requested');
+  assert.equal(
+    answerDeltas,
+    '我先确认一下。\n\n第 1 轮回答',
+    'intermediate prose is forwarded, tool chunks are skipped, and the next attempt starts on a new line',
+  );
 
   // Follow-up keeps the same session and advances to the next turn.
   socket.send(JSON.stringify({ type: 'quickqa-ask', text: '再补充一点', sessionId: 's-quickqa-1' }));

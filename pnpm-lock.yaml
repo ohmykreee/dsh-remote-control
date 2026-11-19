@@ -51,6 +51,9 @@ importers:
       marked:
         specifier: ^18.2.1
         version: 18.2.1
+      medium-zoom:
+        specifier: ^1.1.2
+        version: 1.1.2
       playwright-core:
         specifier: ^1.65.0
         version: 1.65.0
@@ -598,6 +601,9 @@ packages:
     resolution: {integrity: sha512-ii4bxCTCqqwpT86XZWgJNs+ZnAIZksmLGYMViWA7PDIXYIeNo1x6cDdX3JOip9NM/cI6p8z57FxliACboTruMA==}
     engines: {node: '>= 20'}
     hasBin: true
+
+  medium-zoom@1.1.2:
+    resolution: {integrity: sha512-0wTqeCQ4NGzjPghi7i2lMI6RyGj9N60fGvzY9HiNcxDTcvOw7S+ri7K3xVkrIZ+2uzUg4w/KSVMDdZXYMtHkdw==}
 
   mri@1.2.0:
     resolution: {integrity: sha512-tzzskb3bG8LvYGFF/mDTpq3jpI6Q9wc3LEmBaghu+DdCssd1FakN7Bc0hVNmEyGq1bq3RgfkCb3cmQLpNPOroA==}
@@ -1218,6 +1224,8 @@ snapshots:
       '@jridgewell/sourcemap-codec': 1.6.0
 
   marked@18.2.1: {}
+
+  medium-zoom@1.1.2: {}
 
   mri@1.2.0: {}
 

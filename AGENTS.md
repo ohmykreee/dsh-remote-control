@@ -226,7 +226,7 @@ window.__ModuleLoader__.load({
 | `action-result` | 媒体 / 音量动作结果 |
 | `answer-result` | 远程回答结果 |
 | `quickqa-state` | 快速问答阶段：`thinking` / `streaming` / `done` / `error`，可带 `sessionId`、`workspaceId`、`question`（本次识别文本）、`error`、`empty`、`stopped`（用户中断） |
-| `quickqa-delta` | 最终回答的流式文本片段 |
+| `quickqa-delta` | 可见回答的流式文本片段；包含中途可见回复，思考与工具调用不发送，新 attempt 之间用空行分隔 |
 | `quickqa-pending` | 快速问答中的用户问询 / 权限询问；`clear: true` 表示已结束 |
 | `error` | 初始化失败 |
 | `pong` | 心跳回应 |
@@ -274,12 +274,12 @@ window.__ModuleLoader__.load({
 
 - `voice.ts`：读取官方 `speechToText` 服务的快照；只有选中 provider 的 `preparation.phase` 为 `ready` 或 `standby` 才算就绪，其余状态一律不可用。`transcribeAudio()` 先 `resolve()` 再 `transcribe()`，不提供其他 provider 回退。
 - `catalog.ts`：读取 `sessionController.modelCatalog()`（缺失时回退 `llm` + `agentDefaultModel`）、`workspaceRegistry`、`agentPresets.list()`、`permissionPresets.catalog()`；目录缓存 15 s，语音就绪状态每次实时读取。每个模型用官方 `llm.resolveModelInfo()` 的 `inputModalities` 标记 `imageInput`；未声明视为未知（按可接受图片处理），只有显式缺少 `image` 才算纯文本模型。
-- `index.ts`：每个 WebSocket 客户端一个运行态。新问题用 `sessionController.create({ workspaceId, agentPreset })` 建会话，`agent.model.select()` 只改该会话的模型（不写 DSH 默认值），`permissionPresets.set(session, name)` 设权限行为，然后 `sessionController.prompt({ mode: 'queue', content: [...] }, signal)`（第二个 `AbortSignal` 参数是必需的），再 `follow()`。`content` 是文本块加可选的官方图片块 `{ type: 'image', mediaType, data }`；Host 通过 `llm.resolveModelInfo()` 校验当前模型接受图片后才提问。`follow()` 只取最终 `assistant/message` 的文本块；带 `tool-call` 的步骤一律丢弃，思考内容与工具过程不发送。结果在轮次结束后按块流式发给手机，因此页面只经历“模型思考中”和最终回答；`quickqa-state` 的 `question` 字段回显本次识别文本，供手机聊天卡展示用户问题与多轮上下文。
+- `index.ts`：每个 WebSocket 客户端一个运行态。新问题用 `sessionController.create({ workspaceId, agentPreset })` 建会话，`agent.model.select()` 只改该会话的模型（不写 DSH 默认值），`permissionPresets.set(session, name)` 设权限行为，然后 `sessionController.prompt({ mode: 'queue', content: [...] }, signal)`（第二个 `AbortSignal` 参数是必需的），再 `follow({ assistantStream: true })`。`content` 是文本块加可选的官方图片块 `{ type: 'image', mediaType, data }`；Host 通过 `llm.resolveModelInfo()` 校验当前模型接受图片后才提问。`follow()` 的官方 `assistantStream: true` 提供进程内逐块帧：只转发可见的 `text-chunks` / `text-delta`，丢弃 `reasoning-chunks`、`reasoning-delta` 与全部 tool-call 内容；每次新的 assistant attempt（例如工具调用之后）在手机上另起一段（`\n\n`），因此工具调用前的可见说明也会保留下来并在最终回答上方换行。轮次结束时用最终 `assistant/message` 的文本补齐/校准；没有收到任何流帧时回退到原来的 `streamAnswer()` 节奏。`quickqa-state` 的 `question` 字段回显本次识别文本，供手机聊天卡展示用户问题与多轮上下文。
 - 问询：运行期间每 500 ms 读取 `pending.snapshot(sessionId)`，通过 `quickqa-pending` 推送；`pushQuestions` 关闭时只发通用提示，不泄露问题内容。用户问题可直接用既有 `answer-question` 通道回答；权限询问仅展示，仍需在 DSH 处理。
 - 中断：手机发送 `quickqa-stop` 时 Host 递增轮次 token、中止 follow 的 `AbortSignal`，并调用官方 `sessionController.cancel({ sessionId })` 真正停止 Agent 当前 turn，然后回 `quickqa-state` `done` + `stopped: true`；旧轮次的迟到帧会因 token 不匹配被丢弃，会话保留，因此可以继续追问或开新会话。
 - 失败：Host 的 `error` 会清空当前快速问答会话，手机端退回初始页并只显示错误文案（没有重试按钮）；再次按住麦克风会创建新会话，而不是恢复旧卡片。
 - 音频上传：LAN `POST /api/quickqa/transcribe` 接受受限 `audio/wav`（16 kHz 单声道 PCM16），调用官方 `speechToText`，转写后的文字再由手机发回 `quickqa-ask`。
-- 图片附件：LAN `POST /api/quickqa/attachment` 只把客户端选中的一张 PNG / JPEG / WebP / GIF 暂存内存并返回 id（有效期 10 分钟；20 MiB 上限；校验媒体类型与文件头），不创建会话、不写磁盘。手机在转写成功后才上传图片并发送 `quickqa-ask` 的 `imageId`；Host 认领一次后作为官方图片块交给 `sessionController.prompt`，由它持久化为附件引用。`quickqa.allowImages` 关闭、模型 `imageInput === false` 或图片 id 失效时拒绝。聊天卡只在用户气泡前显示该图片的行高预览，不提供放大。
+- 图片附件：LAN `POST /api/quickqa/attachment` 只把客户端选中的一张 PNG / JPEG / WebP / GIF 暂存内存并返回 id（有效期 10 分钟；20 MiB 上限；校验媒体类型与文件头），不创建会话、不写磁盘。手机在转写成功后才上传图片并发送 `quickqa-ask` 的 `imageId`；Host 认领一次后作为官方图片块交给 `sessionController.prompt`，由它持久化为附件引用。`quickqa.allowImages` 关闭、模型 `imageInput === false` 或图片 id 失效时拒绝。聊天卡只在用户气泡前显示该图片的行高预览；手机端用 devDependency `medium-zoom` 给附加图片提供点击悬浮放大。
 - 语音未就绪时：侧边栏 `/api/quickqa` 返回未就绪，设置页禁用后续控件；Host 的 `applySettings()` 丢弃 `quickqa` 补丁，`quickqa-ask` 与转写接口直接拒绝。
 
 ### 其他 Host 服务
@@ -308,7 +308,7 @@ window.__ModuleLoader__.load({
 - Vite `root = src/svelte`，`publicDir = static`，`build.outDir = web`，`assetsDir = assets`，`emptyOutDir = true`，`target = es2022`。
 - 技术栈：Svelte 5 runes + Vite 8 + Tailwind CSS v4 + shadcn-svelte（bits-ui）+ Lucide。图标一律使用 Lucide。AI 回答用 `marked` 解析、`DOMPurify` 清洗后以 `{@html}` 渲染，支持标题、列表、代码块、表格与链接。
 - 页面：`HomePage`、`SessionsPage`、`QuickQaPage`、`MusicPage`、`PerformancePage`；导航 `Rail`；业务组件包括时钟、天气、通知、余额、消费、CPU/内存、GPU、温度、计时、会话列表、问询对话框（`QuestionSheet`）、Toast 等。
-- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`quickqa.svelte.ts` 持有快速问答阶段、选区、流式回答与问询浮层，`quickqa-audio.ts` 负责默认麦克风采集、电平、WAV 转换与转写上传，`quickqa-image.ts` 负责剪贴板 / 媒体选择器 / 伴侣 VR 截图的图片类型归一化、上传与预览 URL；`pomodoro.svelte.ts` / `countdown.svelte.ts` 各自持有计时状态机，共用 `timer-engine.ts`（引用计数的区间引擎：首尾页克隆各持一个引用，最后一个释放才停表）与 `timer-alarm.svelte.ts`（页面标题 / favicon 提示、`tabAlert` 响应式状态，以及循环响铃时的持续振动）；`wake-lock.ts` 按 `settings.tls.advanced.wakeLock` 在安全上下文中申请屏幕唤醒锁，页面隐藏时释放、回到前台重新申请；设置归一化在纯函数 `settings-normalize.ts`（导航位置 / 番茄钟 / 倒计时预设），节假日与峰谷在 `billing.svelte.ts`（日历，含网络与缓存），北京时区与价格窗口等纯规则在 `billing.ts`；`format.ts` / `weather.ts` / `pages.ts` 为纯工具。
+- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`quickqa.svelte.ts` 持有快速问答阶段、选区、流式回答与问询浮层，`quickqa-audio.ts` 负责默认麦克风采集、电平、WAV 转换与转写上传，`quickqa-image.ts` 负责剪贴板 / 媒体选择器 / 伴侣 VR 截图的图片类型归一化、上传与预览 URL，`image-zoom.ts` 用 devDependency `medium-zoom` 给附加图片提供点击悬浮放大；`pomodoro.svelte.ts` / `countdown.svelte.ts` 各自持有计时状态机，共用 `timer-engine.ts`（引用计数的区间引擎：首尾页克隆各持一个引用，最后一个释放才停表）与 `timer-alarm.svelte.ts`（页面标题 / favicon 提示、`tabAlert` 响应式状态，以及循环响铃时的持续振动）；`wake-lock.ts` 按 `settings.tls.advanced.wakeLock` 在安全上下文中申请屏幕唤醒锁，页面隐藏时释放、回到前台重新申请；设置归一化在纯函数 `settings-normalize.ts`（导航位置 / 番茄钟 / 倒计时预设），节假日与峰谷在 `billing.svelte.ts`（日历，含网络与缓存），北京时区与价格窗口等纯规则在 `billing.ts`；`format.ts` / `weather.ts` / `pages.ts` 为纯工具。
 - i18n：`applySettings()` 从 `settings.locale` 调 `setLocale()`；所有组件和 `format.ts` / `weather.ts` 通过 `t()` 取文案，日期格式化使用 `localeTag()`，切换语言无需刷新。`zh` 为基准字典。
 - 视觉：`Panel` 包装 shadcn Card 作为统一容器；按钮、Badge、Slider、Dialog、ScrollArea 优先用 `$lib/components/ui`；只在组件原有 class 上覆盖样式，无 hover 过渡 / 缩放。
 - 性能页占用率使用 `RadialGauge` 圆环；右侧温度保留大号最高温度与热区背景列表。
@@ -318,7 +318,7 @@ window.__ModuleLoader__.load({
 - 分页：每页 `scroll-snap-stop: always`，一次手势最多前进 / 后退一页；页面顺序与开关来自设置，关闭的页面不渲染、不轮询。
 - 字体：`@fontsource-variable/inter`、`noto-sans-sc`、`jetbrains-mono` 由 Vite 打进 `web/assets/`，不依赖手机系统字体；许可见 `web/fonts/LICENSE.txt`。
 - 手机端只读会话；`pushQuestions` 开启后才显示回答入口。
-- 快速问答页：左侧只有大的圆形麦克风与「长按说话」（未授权时在圆钮上方显示红色授权按钮，此时大圆钮禁用，授权只能从该按钮发起；取消按钮既支持移动到上面松开，也支持直接点击取消），右侧是默认 / 置顶工作区选择；按钮统一使用 shadcn-svelte `Button` / `Panel`，不引入 hover 过渡。页面背景直接使用 `--background` 纯色，不加渐变层、光晕或模糊；进入该页时覆盖 body 的应用级渐变背景。麦克风使用默认输入设备，录音转成 16 kHz 单声道 PCM16 WAV 后上传。开启「允许附加图片」后，大圆和 hint 下方显示圆形剪贴板按钮与「附加图片」按钮（两者共用同一个 shadcn `Button`、相同的 `size` / 描边 / 高度）；前者读取剪贴板最后一张图片（检测到伴侣桥接时改为相机图标的截图按钮，见下一条），后者打开媒体选择器；选中后按钮组消失，显示带右上角关闭按钮的方形预览。图片只保留在浏览器内存，转写成功后才随问题上传，选中后仍可关闭更换。首次录音松开后立即进入大聊天卡（转写阶段也保持卡片），不回到麦克风和工作区初始界面；按下麦克风时按钮的位置和尺寸保持不变。按住时用 Svelte `Tween`（`cubicOut`）驱动半透明实心圆环，取消按钮位于圆钮上方；追问时录音控制保留在聊天卡底部的小圆钮上，继续追问与新会话左右并排，按下后两个按钮位置不变，取消按钮浮在追问圆钮上方，不会回到初始界面；AI 思考时状态旁提供中断按钮，中断后保留聊天卡并显示「已中断」，底部仍可追问或新会话；AI 输出期间底部按钮隐藏，回答完成后再出现；流式内容会自动滚到聊天卡底部，按钮出现时不会遮住最后一段回答；取消、过短或没有清晰语音时，圆钮下方提示会切换为对应状态；从回答卡片退回初始界面的错误只显示错误信息，不提供重试按钮，并清空旧会话，下一次按住麦克风会开新会话。进入回答模式后隐藏语音与工作区，只保留一张居中的大聊天卡：显示识别出的用户问题、之前轮次的上下文、模型回答与底部继续追问 / 新会话按钮；带图片的问题在用户气泡前显示与单行气泡等高的图片预览框，不提供点击放大。竖屏时顶部预留取消按钮与新增提示行的空间，让大圆落在中间偏上位置且取消按钮不越出页面。
+- 快速问答页：左侧只有大的圆形麦克风与「长按说话」（未授权时在圆钮上方显示红色授权按钮，此时大圆钮禁用，授权只能从该按钮发起；取消按钮既支持移动到上面松开，也支持直接点击取消），右侧是默认 / 置顶工作区选择；按钮统一使用 shadcn-svelte `Button` / `Panel`，不引入 hover 过渡。页面背景直接使用 `--background` 纯色，不加渐变层、光晕或模糊；进入该页时覆盖 body 的应用级渐变背景。麦克风使用默认输入设备，录音转成 16 kHz 单声道 PCM16 WAV 后上传。开启「允许附加图片」后，大圆和 hint 下方显示圆形剪贴板按钮与「附加图片」按钮（两者共用同一个 shadcn `Button`、相同的 `size` / 描边 / 高度）；前者读取剪贴板最后一张图片（检测到伴侣桥接时改为相机图标的截图按钮，见下一条），后者打开媒体选择器；选中后按钮组消失，显示带右上角关闭按钮的方形预览。图片只保留在浏览器内存，转写成功后才随问题上传，选中后仍可关闭更换。首次录音松开后立即进入大聊天卡（转写阶段也保持卡片），不回到麦克风和工作区初始界面；按下麦克风时按钮的位置和尺寸保持不变。按住时用 Svelte `Tween`（`cubicOut`）驱动半透明实心圆环，取消按钮位于圆钮上方；追问时录音控制保留在聊天卡底部的小圆钮上，继续追问与新会话左右并排，按下后两个按钮位置不变，取消按钮浮在追问圆钮上方，不会回到初始界面；AI 思考时状态旁提供中断按钮，中断后保留聊天卡并显示「已中断」，底部仍可追问或新会话；AI 输出期间底部按钮隐藏，回答完成后再出现；流式内容会自动滚到聊天卡底部，按钮出现时不会遮住最后一段回答；取消、过短或没有清晰语音时，圆钮下方提示会切换为对应状态；从回答卡片退回初始界面的错误只显示错误信息，不提供重试按钮，并清空旧会话，下一次按住麦克风会开新会话。进入回答模式后隐藏语音与工作区，只保留一张居中的大聊天卡：显示识别出的用户问题、之前轮次的上下文、模型回答与底部继续追问 / 新会话按钮；带图片的问题在用户气泡前显示与单行气泡等高的图片预览框；点击任一附加图片会用 `medium-zoom` 打开悬浮放大预览，点击遮罩或按 Esc 关闭。竖屏时顶部预留取消按钮与新增提示行的空间，让大圆落在中间偏上位置且取消按钮不越出页面。
 - 远控伴侣桥接：伴侣可在页面脚本执行前向顶层页面注入冻结对象 `window.__DSH_COMPANION__`（`version: 1`、`platform: 'windows'`、`capabilities.vrScreenshot`、`captureVrScreenshot(): Promise<Blob>`；返回 `image/png`，最长约 35 秒，失败时以面向用户的 `Error` reject）；晚注入时页面可监听 `dsh-companion-ready`。`quickqa-image.ts` 的 `companionScreenshotApi()` / `quickQaImageSource()` / `readCompanionImage()` 只在 `captureVrScreenshot` 是函数时启用：快速问答的剪贴板按钮换成 Lucide `Camera` 图标与 `quickQaCaptureImage` 文案，点击调用 `captureVrScreenshot()`，等待期间按钮禁用并显示旋转的圆形加载图标；取不到图或调用失败只提示 `quickQaImageCompanionFailed`，不回退剪贴板（否则用户不知道拿到的是哪张图）。普通手机浏览器没有该对象，保持原剪贴板逻辑。该桥接只属于手机端页面：侧边栏与 Host 不展示、不推送相关状态，相关文案也只进手机端字典，不加进侧边栏 / Host 字典。
 
 ## DSH 侧边栏（React）
@@ -559,7 +559,7 @@ Host 集成测试（`test/dsh/`）：
 
 - `smoke.mjs`：临时 `DSH_PROFILE_DIR` 启动服务；令牌页面、`/assets/`、图片 CSP、WebSocket welcome/overview、证书域名提取；动态 HTTPS 切换（端口复用、在线 socket 收到关闭帧、重启后 `/ws` 仍可连接、切回 HTTP）；旧 HTTP overview 路由不存在。
 - `questions.mjs`：推送问询开关、远程回答往返、关闭后剥离与拒绝。
-- `quickqa.mjs`：快速问答目录接口、语音就绪门槛、模型 `imageInput`、模型 / 模式 / 权限行为落到会话、`quickqa-ask` 与追问、音频上传、图片上传（关闭 / 非法格式 / 字节不匹配）与一次性 `imageId`、纯文本模型拒绝、未就绪时拒绝提问与丢弃设置补丁；断言 `prompt` 收到取消信号（`sessionController.prompt` 的第二个参数是必需的）并携带官方图片块。
+- `quickqa.mjs`：快速问答目录接口、语音就绪门槛、模型 `imageInput`、模型 / 模式 / 权限行为落到会话、`quickqa-ask` 与追问、音频上传、图片上传（关闭 / 非法格式 / 字节不匹配）与一次性 `imageId`、纯文本模型拒绝、未就绪时拒绝提问与丢弃设置补丁；断言 `prompt` 收到取消信号（`sessionController.prompt` 的第二个参数是必需的）并携带官方图片块；还断言 `follow({ assistantStream: true })`、只转发中途文本并在新 attempt 前插入空行、工具块被丢弃。
 - `settings.mjs`：语言精确匹配与回退、`dshLocale` 持久化、Host 字典对齐；倒计时预设与秒级范围、番茄钟两位小数、互斥、公开设置深拷贝、`tls.advanced.wakeLock` 默认与嵌套拷贝。
 - `media.mjs`：进度平滑与 seek 规则；探针缺失显式报错；真实 daemon 的并发、重启、禁用与平台能力。探针路径缓存在同一进程内切换时用 `resetProbeCache()`（测试专用）。
 - `notifications.mjs`：通知字段归一化与数量限制、应用名称推导与旧缓存迁移、新通知应用自动启用、Linux 流式监视。

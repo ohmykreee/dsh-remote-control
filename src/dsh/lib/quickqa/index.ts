@@ -141,6 +141,27 @@ function messageText(message: unknown): string {
   return parts.join('').trim();
 }
 
+/**
+ * Read visible assistant text from one process-local stream record.
+ *
+ * The official follow stream may pack text deltas into `text-chunks`, or send
+ * a raw `text-delta`. Reasoning and tool-call records are deliberately ignored;
+ * they never reach the phone.
+ */
+function assistantText(value: unknown): string {
+  if (!isRecord(value)) return '';
+  if (value.type === 'text-chunks') {
+    const texts = Array.isArray(value.texts) ? value.texts : [];
+    return texts.filter((entry): entry is string => typeof entry === 'string').join('');
+  }
+  if (value.type === 'text-delta' && typeof value.text === 'string') return value.text;
+  if (value.type === 'chunk' && isRecord(value.chunk)) {
+    const chunk = value.chunk;
+    if (chunk.type === 'text-delta' && typeof chunk.text === 'string') return chunk.text;
+  }
+  return '';
+}
+
 function turnOf(event: JsonRecord): number {
   const data = isRecord(event.data) ? event.data : {};
   return Number(data.turn) || 0;
@@ -378,6 +399,48 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
     let settled = false;
     let timedOut = false;
     let failed = false;
+    /** Visible assistant text accumulated from live assistant stream frames. */
+    let liveText = '';
+    let liveAttemptId = '';
+    let liveStreaming = false;
+
+    /** Append one live text fragment to the phone's streaming answer. */
+    const sendLiveText = (text: string): void => {
+      if (!text || run.turnId !== turnId) return;
+      if (!liveStreaming) {
+        liveStreaming = true;
+        run.client.send({
+          type: 'quickqa-state',
+          phase: 'streaming',
+          sessionId: run.sessionId,
+          workspaceId: run.workspaceId,
+        });
+      }
+      liveText += text;
+      run.client.send({ type: 'quickqa-delta', text, sessionId: run.sessionId });
+    };
+
+    /** Put each further assistant attempt on a fresh line above the last. */
+    const separateLiveAttempt = (): void => {
+      if (!liveText || liveText.endsWith('\n\n')) return;
+      sendLiveText(liveText.endsWith('\n') ? '\n' : '\n\n');
+    };
+
+    /** Rebuild text already streaming when a follow opening carries a baseline. */
+    const adoptAssistantBaseline = (value: unknown): void => {
+      if (!isRecord(value)) return;
+      const attempt = isRecord(value.activeAttempt) ? value.activeAttempt : null;
+      if (!attempt || Number(attempt.turn) !== targetTurn) return;
+      const attemptId = safeString(attempt.attemptId, 200);
+      if (!attemptId) return;
+      liveAttemptId = attemptId;
+      const records = Array.isArray(attempt.stream) ? attempt.stream : [];
+      for (const record of records) {
+        const text = assistantText(record);
+        if (text) sendLiveText(text);
+      }
+    };
+
     const pendingTimer = setInterval(() => {
       try {
         const list = deps.pending.snapshot(run.sessionId);
@@ -404,8 +467,8 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
         const message = isRecord(data.message) ? data.message : {};
         const blocks = Array.isArray(message.content) ? message.content : [];
         const hasToolCall = blocks.some((block) => isRecord(block) && block.type === 'tool-call');
-        // Intermediate steps (tool calls and their preamble) never reach the
-        // page; only a text-only assistant message can be the final answer.
+        // Visible prose is forwarded live from assistant stream frames; this
+        // value is the final text-only message used to reconcile at turn end.
         answer = hasToolCall ? '' : messageText(message);
         return;
       }
@@ -424,19 +487,42 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
           if (record.type === 'event' && isRecord(record.event)) processEvent(record.event);
           else if (typeof record.type === 'string') processEvent(record);
         }
+        adoptAssistantBaseline(value.assistantStream);
+        return;
+      }
+      if (value.type === 'assistant-stream' && isRecord(value.frame)) {
+        const frame = value.frame;
+        const frameType = String(frame.type || '');
+        if (frameType === 'start') {
+          if (Number(frame.turn) !== targetTurn) return;
+          const attemptId = safeString(frame.attemptId, 200);
+          if (!attemptId) return;
+          // A new model attempt (for example after a tool call) starts a new
+          // visible paragraph instead of overwriting what the user already saw.
+          if (liveAttemptId && liveAttemptId !== attemptId) separateLiveAttempt();
+          else if (!liveAttemptId && liveText) separateLiveAttempt();
+          liveAttemptId = attemptId;
+          return;
+        }
+        if (frameType === 'chunk') {
+          if (!liveAttemptId || safeString(frame.attemptId, 200) !== liveAttemptId) return;
+          const text = assistantText(frame.chunk);
+          if (text) sendLiveText(text);
+          return;
+        }
+        if (frameType === 'end' && safeString(frame.attemptId, 200) === liveAttemptId) {
+          liveAttemptId = '';
+        }
         return;
       }
       if (value.type === 'event' && isRecord(value.event)) {
         processEvent(value.event);
-        return;
       }
-      // Assistant stream frames are intentionally ignored: only the final
-      // assistant text is shown, after the turn settles.
     };
 
     try {
       const iterable = controller.follow(
-        { address: { kind: 'session', sessionId: run.sessionId }, assistantStream: false },
+        { address: { kind: 'session', sessionId: run.sessionId }, assistantStream: true },
         abort.signal,
       );
       const iterator = iterable[Symbol.asyncIterator]();
@@ -503,7 +589,23 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
     }
 
     try {
-      await streamAnswer(run, answer, abort.signal, turnId);
+      if (liveText) {
+        const finalText = String(answer || '').trim();
+        if (finalText && !liveText.trimEnd().endsWith(finalText)) {
+          separateLiveAttempt();
+          sendLiveText(finalText);
+        }
+        run.client.send({
+          type: 'quickqa-state',
+          phase: 'done',
+          sessionId: run.sessionId,
+          workspaceId: run.workspaceId,
+        });
+      } else {
+        // Older Hosts or a session without process-local stream frames still
+        // receive the final answer through the existing paced fallback.
+        await streamAnswer(run, answer, abort.signal, turnId);
+      }
     } finally {
       run.busy = false;
       pushPending(run, null);
