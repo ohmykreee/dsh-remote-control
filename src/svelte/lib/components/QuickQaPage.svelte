@@ -8,7 +8,7 @@
   import Square from '@lucide/svelte/icons/square';
   import X from '@lucide/svelte/icons/x';
   import Clipboard from '@lucide/svelte/icons/clipboard';
-  import Camera from '@lucide/svelte/icons/camera';
+  import ScanSearch from '@lucide/svelte/icons/scan-search';
   import LoaderCircle from '@lucide/svelte/icons/loader-circle';
   import { Button } from '$lib/components/ui/button/index.js';
   import { cn } from '$lib/utils.js';
@@ -716,7 +716,7 @@
                   {#if screenshotBusy}
                     <LoaderCircle class="size-[20px] animate-spin" strokeWidth={1.8} />
                   {:else if companionActive}
-                    <Camera class="size-[20px]" strokeWidth={1.8} />
+                    <ScanSearch class="size-[20px]" strokeWidth={1.8} />
                   {:else}
                     <Clipboard class="size-[20px]" strokeWidth={1.8} />
                   {/if}
