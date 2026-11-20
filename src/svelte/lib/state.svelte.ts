@@ -1,5 +1,5 @@
 import { setLocale, t } from './i18n.svelte';
-import { DEFAULT_ORDER, normalizeOrder } from './pages';
+import { DEFAULT_CUSTOM_PAGE_URL, DEFAULT_ORDER, normalizeOrder, resolveCustomPageUrl } from './pages';
 import { clearQuickQaImage, handleQuickQaMessage, quickQa, quickQaPendingSession, quickQaSyncSettings } from './quickqa.svelte';
 import {
   DEFAULT_COUNTDOWN_PRESETS,
@@ -43,8 +43,9 @@ export const app: ConsoleState = $state({
     allowImages: false,
   },
   balanceDisplay: { showPeakValley: true, spendWindow: 'calendar' },
+  customPageUrl: DEFAULT_CUSTOM_PAGE_URL,
   pageOrder: [...DEFAULT_ORDER],
-  pageEnabled: { home: true, sessions: true, quickqa: true, music: true, performance: true },
+  pageEnabled: { home: true, sessions: true, quickqa: true, music: true, performance: true, custom: false },
   pageRevision: 0,
 
   overview: null,
@@ -221,6 +222,9 @@ export function applySettings(settings: ConsoleSettings | undefined): void {
       spendWindow: settings.balance.spendWindow === 'rolling' ? 'rolling' : 'calendar',
     };
   }
+  // The custom page address rides on every settings snapshot; an older Host
+  // that omits it leaves the built-in default in place.
+  if (settings.customPageUrl !== undefined) app.customPageUrl = resolveCustomPageUrl(settings.customPageUrl);
   // Every settings push carries the full page configuration, so only a real
   // change may bump the revision: bumping unconditionally re-runs the pager's
   // scroll reconciliation while the user may be swiping.

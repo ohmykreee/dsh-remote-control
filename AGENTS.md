@@ -184,7 +184,7 @@ window.__ModuleLoader__.load({
 
 - `service.start()`：读取设置、创建适配器、启动 LAN HTTP/HTTPS、启动 WebSocket hub、启动推送循环；`dispose()` 关闭服务器、hub、适配器和定时器。`index.ts` 用 `ctx.effect()` 绑定，DSH 卸载 / 重载插件时自动清理。
 - 数据目录：`DSH_PROFILE_DIR/remote-control`（优先）或 `DSH_HOME/remote-control`，否则 `~/.dsh/remote-control`；文件为 `settings.json` 与通用 `cache.json`（临时文件 + rename 原子写）。旧 `notification-cache.json` 在首次启动时迁移为 `cache.json`。
-- 当前 schema 版本 `3`，字段包括 token、允许网卡（含内部标记 `interfacesInitialized`）、主题、插件语言（`language` / `dshLocale`）、温度单位、天气（提供商 `provider`、共享名称 `name`、按提供商分开的 `locations`、和风天气 `qweather` JWT 凭据 / 月上限 / 刷新间隔）、余额、通知、TLS（`tls.advanced.wakeLock` 独立控制手机唤醒锁，不再要求 HTTPS 开关打开）、导航位置、番茄钟与倒计时（互斥，番茄钟分钟允许两位小数、计时四舍五入到秒，倒计时 1–5 个按分/秒填写的预设）、快速问答（`quickqa.model`、`defaultWorkspaceId`、`pinnedWorkspaceIds`、`profiles`、`allowImages`；`profiles` 只为默认 / 置顶工作区保存 `agentPreset` 与 `permissionPreset`）、页面顺序 / 开关。
+- 当前 schema 版本 `3`，字段包括 token、允许网卡（含内部标记 `interfacesInitialized`）、主题、插件语言（`language` / `dshLocale`）、温度单位、天气（提供商 `provider`、共享名称 `name`、按提供商分开的 `locations`、和风天气 `qweather` JWT 凭据 / 月上限 / 刷新间隔）、余额、通知、TLS（`tls.advanced.wakeLock` 独立控制手机唤醒锁，不再要求 HTTPS 开关打开）、导航位置、番茄钟与倒计时（互斥，番茄钟分钟允许两位小数、计时四舍五入到秒，倒计时 1–5 个按分/秒填写的预设）、快速问答（`quickqa.model`、`defaultWorkspaceId`、`pinnedWorkspaceIds`、`profiles`、`allowImages`；`profiles` 只为默认 / 置顶工作区保存 `agentPreset` 与 `permissionPreset`）、页面顺序 / 开关（`custom` 在末尾且默认关闭）、自定网页地址（`customPageUrl`，裸主机补 `https://`，只接受 http(s)，留空时由手机端回落到内置地址）。
 - 天气旧字段 `weather.latitude` / `weather.longitude` 在 normalize 时迁移到三个提供商的 `locations`，共享 `name` 只保存一次；`qweather.apiHost` 会去掉协议与路径。
 - `normalize()` 对每个字段做白名单 / 范围校验，缺失时回落默认值；`update(patch)` 浅合并 + 嵌套对象合并；令牌 24 字节随机 `base64url`，`rotateToken()` 后由 service 断开所有设备。
 - 设置对象不含 token；`/api/info`（以及 `/api/settings` 的 `info`）会带配对 URL 和二维码路径，token 只出现在 URL query 中（客户端另存为 cookie）。
@@ -297,7 +297,7 @@ window.__ModuleLoader__.load({
 
 ### 安全模型
 
-- LAN 端：token（query / cookie）、可选网卡 CIDR 白名单、可选 HTTPS、Origin 校验、静态路径白名单、64 KiB body 限制（快速问答音频 / 图片上传例外，见上）；CSP 的 `img-src` 允许 http(s) 远程封面 / 头像。
+- LAN 端：token（query / cookie）、可选网卡 CIDR 白名单、可选 HTTPS、Origin 校验、静态路径白名单、64 KiB body 限制（快速问答音频 / 图片上传例外，见上）；CSP 的 `img-src` 允许 http(s) 远程封面 / 头像，`frame-src` 允许 http(s) 供自定网页 iframe 使用。
 - 侧边栏端：依赖 DSH `webServer` 的环回访问控制，并额外做 `sameOrigin`。
 - 设置与映射文件只存本机；仓库不包含路径、令牌、证书、和风天气私钥或通知内容。和风天气私钥会通过环回 `/api/settings` 返回给侧边栏用于回填，但不会随手机端 `welcome` / `settings` 下发。
 - 轮换 token 会断开全部 WebSocket；关闭 token 后 `/` 与 `/ws` 不再要求 token，但网卡白名单仍生效。
@@ -307,15 +307,16 @@ window.__ModuleLoader__.load({
 - 入口：`src/svelte/index.html` → `src/svelte/main.ts` → `App.svelte`。
 - Vite `root = src/svelte`，`publicDir = static`，`build.outDir = web`，`assetsDir = assets`，`emptyOutDir = true`，`target = es2022`。
 - 技术栈：Svelte 5 runes + Vite 8 + Tailwind CSS v4 + shadcn-svelte（bits-ui）+ Lucide。图标一律使用 Lucide。AI 回答用 `marked` 解析、`DOMPurify` 清洗后以 `{@html}` 渲染，支持标题、列表、代码块、表格与链接。
-- 页面：`HomePage`、`SessionsPage`、`QuickQaPage`、`MusicPage`、`PerformancePage`；导航 `Rail`；业务组件包括时钟、天气、通知、余额、消费、CPU/内存、GPU、温度、计时、会话列表、问询对话框（`QuestionSheet`）、Toast 等。
-- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`quickqa.svelte.ts` 持有快速问答阶段、选区、流式回答与问询浮层，`quickqa-audio.ts` 负责默认麦克风采集、电平、WAV 转换与转写上传，`quickqa-image.ts` 负责剪贴板 / 媒体选择器 / 伴侣 VR 截图的图片类型归一化、上传与预览 URL，`image-zoom.ts` 用 devDependency `medium-zoom` 给附加图片提供点击悬浮放大；`pomodoro.svelte.ts` / `countdown.svelte.ts` 各自持有计时状态机，共用 `timer-engine.ts`（引用计数的区间引擎：首尾页克隆各持一个引用，最后一个释放才停表）与 `timer-alarm.svelte.ts`（页面标题 / favicon 提示、`tabAlert` 响应式状态，以及循环响铃时的持续振动）；`wake-lock.ts` 按 `settings.tls.advanced.wakeLock` 在安全上下文中申请屏幕唤醒锁，页面隐藏时释放、回到前台重新申请；`reduced-motion.svelte.ts` 用 `matchMedia` 镜像系统的 `prefers-reduced-motion`，供导航、进度条、麦克风电平环读取；设置归一化在纯函数 `settings-normalize.ts`（导航位置 / 番茄钟 / 倒计时预设），节假日与峰谷在 `billing.svelte.ts`（日历，含网络与缓存），北京时区与价格窗口等纯规则在 `billing.ts`；`format.ts` / `weather.ts` / `pages.ts` 为纯工具。
+- 页面：`HomePage`、`SessionsPage`、`QuickQaPage`、`MusicPage`、`PerformancePage`、`CustomPage`（占满页面的 iframe，地址来自设置，缺失或为空时用内置地址；透明页面显示纯色 `--background`，页面本身无边框 / 圆角 / 阴影，与快速问答一致；iframe 设 `color-scheme: normal`，避免继承控制台的深色方案后透明文档被绘制成白底）；导航 `Rail`；业务组件包括时钟、天气、通知、余额、消费、CPU/内存、GPU、温度、计时、会话列表、问询对话框（`QuestionSheet`）、Toast 等。
+- 自定网页 iframe：手机端页面为 HTTP 时可以直接嵌入 `http://` 地址；手机端切到 HTTPS 后，浏览器会按混合内容拦截 `http://` iframe（CSP 的 `frame-src http:` 不能覆盖混合内容规则），Host 不会改写用户填写的协议。目标站点返回 `X-Frame-Options` 或 CSP `frame-ancestors` 限制时同样显示空白，跨域下无法检测。
+- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`quickqa.svelte.ts` 持有快速问答阶段、选区、流式回答与问询浮层，`quickqa-audio.ts` 负责默认麦克风采集、电平、WAV 转换与转写上传，`quickqa-image.ts` 负责剪贴板 / 媒体选择器 / 伴侣 VR 截图的图片类型归一化、上传与预览 URL，`image-zoom.ts` 用 devDependency `medium-zoom` 给附加图片提供点击悬浮放大；`pomodoro.svelte.ts` / `countdown.svelte.ts` 各自持有计时状态机，共用 `timer-engine.ts`（引用计数的区间引擎：首尾页克隆各持一个引用，最后一个释放才停表）与 `timer-alarm.svelte.ts`（页面标题 / favicon 提示、`tabAlert` 响应式状态，以及循环响铃时的持续振动）；`wake-lock.ts` 按 `settings.tls.advanced.wakeLock` 在安全上下文中申请屏幕唤醒锁，页面隐藏时释放、回到前台重新申请；`reduced-motion.svelte.ts` 用 `matchMedia` 镜像系统的 `prefers-reduced-motion`，供导航、进度条、麦克风电平环读取；设置归一化在纯函数 `settings-normalize.ts`（导航位置 / 番茄钟 / 倒计时预设），节假日与峰谷在 `billing.svelte.ts`（日历，含网络与缓存），北京时区与价格窗口等纯规则在 `billing.ts`；`format.ts` / `weather.ts` / `pages.ts`（页面顺序与自定网页地址归一化）为纯工具。
 - i18n：`applySettings()` 从 `settings.locale` 调 `setLocale()`；所有组件和 `format.ts` / `weather.ts` 通过 `t()` 取文案，日期格式化使用 `localeTag()`，切换语言无需刷新。`zh` 为基准字典。
 - 视觉：`Panel` 包装 shadcn Card 作为统一容器；按钮、Badge、Slider、Dialog、ScrollArea 优先用 `$lib/components/ui`；只在组件原有 class 上覆盖样式，无 hover 过渡 / 缩放。
 - 性能页占用率使用 `RadialGauge` 圆环；右侧温度保留大号最高温度与热区背景列表。
 - 音乐封面支持 data URL 和 http(s) URL，用 `<img referrerpolicy="no-referrer">` 渲染并把封面地址加入 CSP `img-src`；后端未返回封面时显示占位，不伪造。
 - 音乐进度：`SeekBar.svelte` 视觉同 shadcn Slider，但拖动轨道自行实现，用 100 ms 本地时钟推进以避免快照拉回；松手只提交一次 seek；播放时显示 SVG 正弦波，暂停 / 拖动 / 无时间轴时收平；`canSeek=false` 用只读轨道，无时间轴时固定 100% 并显示 `--:--`。后端快照的 `position` 比上一份低超过 1 s 时视为播放器内手动 seek 并重新锚定（可拖动与只读轨道都适用）；重复 / 缓存的同值快照不会触发回退。
 - 天气卡片：`airQuality` 有值时把 AQI 与等级放在体感 / 湿度 / 风速同一行，没有数据时整项隐藏；NMC 没有逐小时数据时 `WeatherPanel` 自动改用 7 天预报，不显示空行。
-- 分页：每页 `scroll-snap-stop: always`，一次手势最多前进 / 后退一页；页面顺序与开关来自设置，关闭的页面不渲染、不轮询。
+- 分页：每页 `scroll-snap-stop: always`，一次手势最多前进 / 后退一页；页面顺序与开关来自设置，关闭的页面不渲染、不轮询（自定网页默认关闭）。
 - 字体：`@fontsource-variable/inter`、`noto-sans-sc`、`jetbrains-mono` 由 Vite 打进 `web/assets/`，不依赖手机系统字体；许可见 `web/fonts/LICENSE.txt`。
 - 手机端只读会话；`pushQuestions` 开启后才显示回答入口。
 - 快速问答页：左侧只有大的圆形麦克风与「长按说话」（未授权时在圆钮上方显示红色授权按钮，此时大圆钮禁用，授权只能从该按钮发起；取消按钮既支持移动到上面松开，也支持直接点击取消），右侧是默认 / 置顶工作区选择；按钮统一使用 shadcn-svelte `Button` / `Panel`，不引入 hover 过渡。页面背景直接使用 `--background` 纯色，不加渐变层、光晕或模糊；进入该页时覆盖 body 的应用级渐变背景。麦克风使用默认输入设备，录音转成 16 kHz 单声道 PCM16 WAV 后上传。开启「允许附加图片」后，大圆和 hint 下方显示圆形剪贴板按钮与「附加图片」按钮（两者共用同一个 shadcn `Button`、相同的 `size` / 描边 / 高度）；前者读取剪贴板最后一张图片（检测到伴侣桥接时改为相机图标的截图按钮，见下一条），后者打开媒体选择器；选中后按钮组消失，显示带右上角关闭按钮的方形预览。图片只保留在浏览器内存，转写成功后才随问题上传，选中后仍可关闭更换。首次录音松开后立即进入大聊天卡（转写阶段也保持卡片），不回到麦克风和工作区初始界面；按下麦克风时按钮的位置和尺寸保持不变。按住时用 Svelte `Tween`（`cubicOut`）驱动半透明实心圆环，取消按钮位于圆钮上方；追问时录音控制保留在聊天卡底部的小圆钮上，继续追问与新会话左右并排，按下后两个按钮位置不变，取消按钮浮在追问圆钮上方，不会回到初始界面；AI 思考时状态旁提供中断按钮，中断后保留聊天卡并显示「已中断」，底部仍可追问或新会话；AI 输出期间底部按钮隐藏，回答完成后再出现；流式内容会自动滚到聊天卡底部，按钮出现时不会遮住最后一段回答；取消、过短或没有清晰语音时，圆钮下方提示会切换为对应状态；从回答卡片退回初始界面的错误只显示错误信息，不提供重试按钮，并清空旧会话，下一次按住麦克风会开新会话。进入回答模式后隐藏语音与工作区，只保留一张居中的大聊天卡：显示识别出的用户问题、之前轮次的上下文、模型回答与底部继续追问 / 新会话按钮；带图片的问题在用户气泡前显示与单行气泡等高的图片预览框；点击任一附加图片会用 `medium-zoom` 打开悬浮放大预览，点击遮罩或按 Esc 关闭。竖屏时顶部预留取消按钮与新增提示行的空间，让大圆落在中间偏上位置且取消按钮不越出页面。
@@ -331,6 +332,7 @@ window.__ModuleLoader__.load({
 - 软件映射页在应用列表上方提供本地搜索，按已保存的应用名称或应用 ID 实时过滤；只过滤当前 UI，不触发服务端请求。
 - 天气设置按「定位权限 → 数据提供商 → 和风天气 JWT（仅选中时）→ 位置 → 显示方式」排列。位置只提供城市搜索，匹配到的经纬度 / 站点 ID 只显示在提示里，不再提供名称 / 经纬度输入框；城市搜索用 POST `/api/geocode` 携带当前编辑中的 provider 与和风凭据，切换提供商后无需先保存即可搜索。和风天气分组可生成 Ed25519 密钥对、填入私钥并显示 / 复制公钥，JWT 由 Host 按请求自动生成。系统信息页的天气状态 detail 显示实际使用的提供商。
 - 偏好设置的第一个设置组是 **插件语言**（跟随 DSH / 简体中文 / English）；保存后 `hydrate()` 调 `setPluginLanguage()` 立即重绘，Host 同时把解析后的 `locale` 推给手机端。
+- 页面顺序列表末尾是「自定网页」：名称后紧跟与行高相同的网页地址输入框，地址存在 `DraftState.customPageUrl`，随「保存设置」和 `pageOrder` / `pageEnabled` 一起提交；输入框不触发拖拽，页面关闭时禁用，占位符显示内置地址。
 - 主题：`theme = dsh` 时跟随 DSH 的 `dshTheme`，由 `/api/theme` 同步；也可固定 light/dark。
 - 样式集中在 `src/dsh/client/styles.ts`：按 DSH 设置页的 188px 导航、54px 顶栏、卡片分组与 14px 行文字实现，只读取 `--dsw-*` 令牌，不复制宿主颜色值；`--drc-*` 仅为旧版 DSH 缺失令牌提供回退。
 - 窗口窄于 767px 时导航由 `matchMedia` 切换为原生 `<select>`。
@@ -557,10 +559,10 @@ pnpm build:rust
 
 Host 集成测试（`test/dsh/`）：
 
-- `smoke.mjs`：临时 `DSH_PROFILE_DIR` 启动服务；令牌页面、`/assets/`、图片 CSP、WebSocket welcome/overview、证书域名提取；动态 HTTPS 切换（端口复用、在线 socket 收到关闭帧、重启后 `/ws` 仍可连接、切回 HTTP）；旧 HTTP overview 路由不存在。
+- `smoke.mjs`：临时 `DSH_PROFILE_DIR` 启动服务；令牌页面、`/assets/`、图片 / iframe CSP、WebSocket welcome/overview、证书域名提取；动态 HTTPS 切换（端口复用、在线 socket 收到关闭帧、重启后 `/ws` 仍可连接、切回 HTTP）；旧 HTTP overview 路由不存在。
 - `questions.mjs`：推送问询开关、远程回答往返、关闭后剥离与拒绝。
 - `quickqa.mjs`：快速问答目录接口、语音就绪门槛、模型 `imageInput`、模型 / 模式 / 权限行为落到会话、`quickqa-ask` 与追问、音频上传、图片上传（关闭 / 非法格式 / 字节不匹配）与一次性 `imageId`、纯文本模型拒绝、未就绪时拒绝提问与丢弃设置补丁；断言 `prompt` 收到取消信号（`sessionController.prompt` 的第二个参数是必需的）并携带官方图片块；还断言 `follow({ assistantStream: true })`、只转发中途文本并在新 attempt 前插入空行、工具块被丢弃。
-- `settings.mjs`：语言精确匹配与回退、`dshLocale` 持久化、Host 字典对齐；倒计时预设与秒级范围、番茄钟两位小数、互斥、公开设置深拷贝、`tls.advanced.wakeLock` 默认与嵌套拷贝。
+- `settings.mjs`：语言精确匹配与回退、`dshLocale` 持久化、Host 字典对齐；倒计时预设与秒级范围、番茄钟两位小数、互斥、公开设置深拷贝、`tls.advanced.wakeLock` 默认与嵌套拷贝；自定网页默认关闭、地址归一化与公开快照拷贝。
 - `media.mjs`：进度平滑与 seek 规则；探针缺失显式报错；真实 daemon 的并发、重启、禁用与平台能力。探针路径缓存在同一进程内切换时用 `resetProbeCache()`（测试专用）。
 - `notifications.mjs`：通知字段归一化与数量限制、应用名称推导与旧缓存迁移、新通知应用自动启用、Linux 流式监视。
 - `weather.mjs`：v1 → v2 天气设置迁移、按提供商分开的 locations、QWeather 凭据与刷新间隔下限、`cache.json` 迁移 / 月调用计数 / NMC 城市缓存、JWT 结构与 Ed25519 签名校验、密钥对生成、天气代码 / AQI 归一化、NMC 城市匹配。
@@ -568,7 +570,7 @@ Host 集成测试（`test/dsh/`）：
 手机端单元测试（`test/svelte/`，只测无 runes、无 DOM 的纯函数，导入源码时写 `.ts` 后缀）：
 
 - `session-tree.test.ts`：父子分组、孤儿 / 自指 / 环路兜底、按状态与活跃时间排序、缺 id 时的位置兜底。
-- `pages.test.ts`：页面顺序归一化（未知值、去重、补全、上限）与启用过滤（全关时回退首页）。
+- `pages.test.ts`：页面顺序归一化（未知值、去重、补全、上限）与启用过滤（全关时回退首页）；自定网页地址的 https 补全、http(s) 校验与内置地址回退。
 - `media.test.ts`：播放状态判定、可 seek 条件、时长 / seek 上限的钳制、音量钳制。
 - `billing.test.ts`：北京时区取时、跨日 / 跨年、峰谷窗口边界、周末与节假日。
 - `settings-normalize.test.ts`：导航位置白名单、番茄钟两位小数与上下限、倒计时预设数量 / 四舍五入 / 钳制 / 回退。

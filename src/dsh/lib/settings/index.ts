@@ -8,7 +8,11 @@ import type { JsonRecord } from '../shared/types.js';
 import { isRecord } from '../shared/types.js';
 
 const SETTINGS_VERSION = 3;
-const PAGE_KEYS = ['home', 'sessions', 'quickqa', 'music', 'performance'] as const;
+/**
+ * Phone pages in their default order. `custom` is appended last and starts
+ * disabled; it embeds a user-provided web page instead of pushing Host data.
+ */
+const PAGE_KEYS = ['home', 'sessions', 'quickqa', 'music', 'performance', 'custom'] as const;
 
 export type PageKey = (typeof PAGE_KEYS)[number];
 export type ThemeSetting = 'dsh' | 'light' | 'dark';
@@ -242,6 +246,8 @@ export interface RemoteControlSettings {
   pomodoro: PomodoroSettings;
   countdown: CountdownSettings;
   quickqa: QuickQaSettings;
+  /** Address embedded by the phone's "custom page"; empty means the page default. */
+  customPageUrl: string;
   pageOrder: PageKey[];
   pageEnabled: Record<PageKey, boolean>;
   updatedAt: number;
@@ -265,6 +271,7 @@ export interface PublicSettings {
   pomodoro: PomodoroSettings;
   countdown: CountdownSettings;
   quickqa: QuickQaSettings;
+  customPageUrl: string;
   pageOrder: PageKey[];
   pageEnabled: Record<PageKey, boolean>;
   updatedAt: number;
@@ -348,8 +355,9 @@ export function defaultSettings(): RemoteControlSettings {
       profiles: {},
       allowImages: false,
     },
-    pageOrder: ['home', 'sessions', 'quickqa', 'music', 'performance'],
-    pageEnabled: { home: true, sessions: true, quickqa: true, music: true, performance: true },
+    customPageUrl: '',
+    pageOrder: ['home', 'sessions', 'quickqa', 'music', 'performance', 'custom'],
+    pageEnabled: { home: true, sessions: true, quickqa: true, music: true, performance: true, custom: false },
     updatedAt: now,
   };
 }
@@ -462,6 +470,28 @@ function normalizeQWeatherHost(value: unknown): string {
   return host.slice(0, 120);
 }
 
+/**
+ * Normalize the phone's custom-page address. A bare host gets `https://`, only
+ * http(s) URLs are kept, and an empty or unusable value means the page falls
+ * back to its built-in address.
+ */
+function normalizeCustomPageUrl(value: unknown): string {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) return '';
+  const scheme = /^([a-z][a-z0-9+.-]*):\/\//iu.exec(raw);
+  if (scheme && !/^https?$/iu.test(scheme[1])) return '';
+  const candidate = scheme ? raw : `https://${raw.replace(/^\/\//u, '')}`;
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+    if (!url.hostname) return '';
+    const href = url.toString();
+    return href.length > 2048 ? '' : href;
+  } catch {
+    return '';
+  }
+}
+
 function normalizeQWeatherSettings(value: unknown): QWeatherSettings {
   const input: JsonRecord = isRecord(value) ? value : {};
   const limitInput = Number(input.monthlyLimit);
@@ -545,10 +575,11 @@ function normalize(raw: unknown): RemoteControlSettings {
   for (const key of PAGE_KEYS) if (!pageOrder.includes(key)) pageOrder.push(key);
   const normalizedOrder = pageOrder.slice(0, PAGE_KEYS.length);
   const pageEnabledInput: JsonRecord = isRecord(input.pageEnabled) ? input.pageEnabled : {};
-  const pageEnabled = Object.fromEntries(PAGE_KEYS.map((key) => [key, pageEnabledInput[key] !== false])) as Record<
-    PageKey,
-    boolean
-  >;
+  // Every page is on by default except the custom page, which stays hidden
+  // until the user explicitly enables it.
+  const pageEnabled = Object.fromEntries(
+    PAGE_KEYS.map((key) => [key, key === 'custom' ? pageEnabledInput[key] === true : pageEnabledInput[key] !== false]),
+  ) as Record<PageKey, boolean>;
   if (!Object.values(pageEnabled).some(Boolean)) pageEnabled.home = true;
 
   return {
@@ -598,6 +629,7 @@ function normalize(raw: unknown): RemoteControlSettings {
     pomodoro: pomodoroSettings,
     countdown: countdownSettings,
     quickqa: normalizeQuickQaSettings(input.quickqa),
+    customPageUrl: normalizeCustomPageUrl(input.customPageUrl),
     pageOrder: normalizedOrder,
     pageEnabled,
     updatedAt: Number.isFinite(Number(input.updatedAt)) ? Number(input.updatedAt) : Date.now(),
@@ -738,6 +770,7 @@ export function createSettingsStore(): SettingsStore {
         ),
         allowImages: current.quickqa.allowImages,
       },
+      customPageUrl: current.customPageUrl,
       pageOrder: [...current.pageOrder],
       pageEnabled: { ...current.pageEnabled },
       updatedAt: current.updatedAt,

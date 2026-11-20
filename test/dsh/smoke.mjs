@@ -80,6 +80,8 @@ assert.equal(page.status, 200);
 const pageCsp = page.headers.get('content-security-policy') || '';
 assert.match(pageCsp, /img-src[^;]*https:/);
 assert.match(pageCsp, /img-src[^;]*http:/);
+assert.match(pageCsp, /frame-src[^;]*https:/);
+assert.match(pageCsp, /frame-src[^;]*http:/);
 const pageText = await page.text();
 assert.match(pageText, /DSH Home/);
 
@@ -142,6 +144,7 @@ assert.ok(messages.some((message) => message.type === 'welcome'));
 const welcome = messages.find((message) => message.type === 'welcome');
 assert.equal(welcome.now, undefined);
 assert.equal(welcome.settings.temperatureUnit, 'celsius');
+assert.equal(welcome.settings.customPageUrl, '');
 assert.deepEqual(welcome.settings.tls, { enabled: false, advanced: { wakeLock: false } });
 assert.equal('certPath' in welcome.settings.tls, false);
 const overview = messages.find((message) => message.type === 'overview');
@@ -152,14 +155,16 @@ assert.equal(overview.data.settings.temperatureUnit, 'celsius');
 assert.equal(overview.data.sessions.length, 0);
 assert.equal(overview.data.account.signedIn, false);
 assert.ok(overview.data.weather);
-assert.deepEqual(overview.data.settings.pageOrder, ['home', 'sessions', 'quickqa', 'music', 'performance']);
+assert.deepEqual(overview.data.settings.pageOrder, ['home', 'sessions', 'quickqa', 'music', 'performance', 'custom']);
 assert.deepEqual(overview.data.settings.pageEnabled, {
   home: true,
   sessions: true,
   quickqa: true,
   music: true,
   performance: true,
+  custom: false,
 });
+assert.equal(overview.data.settings.customPageUrl, '');
 
 /* ---------------------------------------------- dynamic HTTPS switching */
 

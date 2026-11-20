@@ -70,6 +70,39 @@ const publicTls = store.public();
 publicTls.tls.advanced.wakeLock = false;
 assert.equal(store.get().tls.advanced.wakeLock, true);
 
+/* ----------------------------------------------------------- custom page */
+
+// The custom page is part of the page order but starts hidden, and an empty
+// address means the phone uses its built-in page.
+assert.deepEqual(store.get().pageOrder, ['home', 'sessions', 'quickqa', 'music', 'performance', 'custom']);
+assert.equal(store.get().pageEnabled.custom, false);
+assert.equal(store.get().customPageUrl, '');
+assert.equal(store.public().pageEnabled.custom, false);
+assert.equal(store.public().customPageUrl, '');
+
+// Bare hosts gain https, http(s) survives, and everything else is dropped.
+store.update({ customPageUrl: 'www.example.com/show' });
+assert.equal(store.get().customPageUrl, 'https://www.example.com/show');
+store.update({ customPageUrl: 'http://example.com/a?b=1' });
+assert.equal(store.get().customPageUrl, 'http://example.com/a?b=1');
+store.update({ customPageUrl: 'javascript://alert(1)' });
+assert.equal(store.get().customPageUrl, '');
+store.update({ customPageUrl: 'ftp://example.com' });
+assert.equal(store.get().customPageUrl, '');
+store.update({ customPageUrl: 'not a url' });
+assert.equal(store.get().customPageUrl, '');
+
+// Only an explicit true enables the page, and the public snapshot is a copy.
+store.update({
+  customPageUrl: 'https://example.com/',
+  pageEnabled: { home: true, sessions: true, quickqa: true, music: true, performance: true, custom: true },
+});
+assert.equal(store.get().pageEnabled.custom, true);
+const publicPage = store.public();
+assert.equal(publicPage.customPageUrl, 'https://example.com/');
+publicPage.pageEnabled.custom = false;
+assert.equal(store.get().pageEnabled.custom, true);
+
 // The synced locale and the preference survive a reload of the same profile.
 store.update({ language: 'zh' });
 store.setDshLocale('en');

@@ -258,6 +258,8 @@ export interface RemoteSettings {
   pomodoro?: PomodoroSettings;
   countdown?: CountdownSettings;
   quickqa?: QuickQaSettings;
+  /** Address embedded by the phone's custom page; empty means its default. */
+  customPageUrl?: string;
   pageOrder?: string[];
   pageEnabled?: Record<string, boolean>;
   weather?: WeatherSettings;
@@ -407,6 +409,8 @@ export interface DraftState {
   pomodoroSound: string;
   /** Editable preset rows; one to five entries before save. */
   countdownPresets: CountdownPresetDraft[];
+  /** Editable address for the phone's custom page. */
+  customPageUrl: string;
 }
 
 /** Nested patch accumulated until the user presses "save settings". */
@@ -438,6 +442,7 @@ export interface SavePatch {
   pomodoro: { enabled: boolean; focusMinutes: number; breakMinutes: number; soundPath: string; loopAlarm: boolean };
   countdown: { enabled: boolean; presets: number[] };
   quickqa: QuickQaSettings;
+  customPageUrl: string;
   pageOrder: string[];
   pageEnabled?: Record<string, boolean>;
   tls: {

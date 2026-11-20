@@ -62,6 +62,8 @@ export interface RemoteSettingsPayload {
       wakeLock: boolean;
     };
   };
+  /** Address embedded by the phone's custom page; empty means its default. */
+  customPageUrl: string;
   pageOrder: string[];
   pageEnabled: Record<string, boolean>;
   /** Quick Q&A workspace choices, voice readiness, and page defaults. */

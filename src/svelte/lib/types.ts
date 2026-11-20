@@ -1,4 +1,4 @@
-export type PageKey = 'home' | 'sessions' | 'quickqa' | 'music' | 'performance';
+export type PageKey = 'home' | 'sessions' | 'quickqa' | 'music' | 'performance' | 'custom';
 export type TemperatureUnit = 'celsius' | 'fahrenheit';
 export type Theme = 'dark' | 'light';
 export type NavPosition = 'left' | 'right' | 'top' | 'bottom';
@@ -29,6 +29,8 @@ export interface ConsoleSettings {
   countdown?: Partial<CountdownSettings>;
   tls?: { enabled?: boolean; advanced?: { wakeLock?: boolean } };
   quickqa?: QuickQaSettings;
+  /** Address embedded by the custom page; missing or empty uses the built-in default. */
+  customPageUrl?: string;
   pageOrder?: string[];
   pageEnabled?: Partial<Record<PageKey, boolean>>;
 }
@@ -297,6 +299,8 @@ export interface ConsoleState {
   countdown: CountdownSettings;
   quickqa: QuickQaSettings;
   balanceDisplay: { showPeakValley: boolean; spendWindow: 'calendar' | 'rolling' };
+  /** Address embedded by the custom page; never empty once normalized. */
+  customPageUrl: string;
   pageOrder: PageKey[];
   pageEnabled: Record<PageKey, boolean>;
   pageRevision: number;

@@ -57,6 +57,39 @@ function themeGroup(api: PanelApi): React.ReactElement {
   );
 }
 
+/**
+ * Extra controls that belong to one page row. The custom page keeps its
+ * address inline, right after its name, so the row itself stays the only
+ * place where that page is configured.
+ */
+function orderRowExtras(api: PanelApi, key: string): React.ReactElement[] {
+  const { t, draft, setDraft, settings } = api;
+  if (key !== 'custom') return [];
+  return [h('input', {
+    className: 'drc-order-input',
+    type: 'url',
+    inputMode: 'url',
+    spellCheck: false,
+    autoComplete: 'off',
+    value: draft.customPageUrl,
+    placeholder: t('pageCustomUrlPlaceholder'),
+    'aria-label': t('pageCustomUrl'),
+    title: t('pageCustomUrl'),
+    // The address only matters while the page is on; keep it visible but
+    // locked when the user has switched the custom page off.
+    disabled: settings.pageEnabled?.custom !== true,
+    onChange: (event: React.ChangeEvent<HTMLInputElement>) => setDraft((current) => ({
+      ...current,
+      customPageUrl: event.target.value,
+    })),
+  })];
+}
+
+/** Page names grow for normal rows; the custom row keeps room for its input. */
+function orderLabelClass(key: string): string {
+  return key === 'custom' ? 'drc-order-label is-custom' : 'drc-order-label';
+}
+
 function orderRows(api: PanelApi): React.ReactElement[] {
   const { t, order, labels, draggingKey, dragIndex, settings, togglePage, startOrderDrag } = api;
   const rows: React.ReactElement[] = [];
@@ -76,7 +109,8 @@ function orderRows(api: PanelApi): React.ReactElement[] {
       rows.push(h('div', { className: 'drc-order-row is-dragging', key },
         h('span', { className: 'drc-drag-handle', 'aria-hidden': 'true' }, '⋮⋮'),
         h('b', null, ''),
-        h('span', { className: 'drc-order-label' }, labels[key]),
+        h('span', { className: orderLabelClass(key) }, labels[key]),
+        ...orderRowExtras(api, key),
         h(Toggle, { checked: settings.pageEnabled?.[key] !== false, label: labels[key], onChange: () => togglePage(key) }),
       ));
       continue;
@@ -90,7 +124,8 @@ function orderRows(api: PanelApi): React.ReactElement[] {
     },
     h('span', { className: 'drc-drag-handle', 'aria-hidden': 'true' }, '⋮⋮'),
     h('b', null, String(visualIndex)),
-    h('span', { className: 'drc-order-label' }, labels[key]),
+    h('span', { className: orderLabelClass(key) }, labels[key]),
+    ...orderRowExtras(api, key),
     h(Toggle, { checked: settings.pageEnabled?.[key] !== false, label: labels[key], onChange: () => togglePage(key) }),
     ));
   }

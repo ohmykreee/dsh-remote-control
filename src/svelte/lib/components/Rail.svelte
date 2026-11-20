@@ -10,6 +10,7 @@
   import Mic from '@lucide/svelte/icons/mic';
   import Music2 from '@lucide/svelte/icons/music-2';
   import Cpu from '@lucide/svelte/icons/cpu';
+  import Globe from '@lucide/svelte/icons/globe';
   import Maximize2 from '@lucide/svelte/icons/maximize-2';
   import Minimize2 from '@lucide/svelte/icons/minimize-2';
   import RefreshCw from '@lucide/svelte/icons/refresh-cw';
@@ -41,6 +42,7 @@
     quickqa: Mic,
     music: Music2,
     performance: Cpu,
+    custom: Globe,
   };
 
   const fullscreenTitle = $derived(app.fullscreen ? t('fullscreenExit') : t('fullscreenEnter'));

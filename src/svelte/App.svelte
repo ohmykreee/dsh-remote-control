@@ -9,6 +9,7 @@
   import { refreshLive } from './lib/ws';
   import { tabAlert } from './lib/timer-alarm.svelte';
   import { releaseWakeLock } from './lib/wake-lock';
+  import CustomPage from './lib/components/CustomPage.svelte';
   import HomePage from './lib/components/HomePage.svelte';
   import MusicPage from './lib/components/MusicPage.svelte';
   import PerformancePage from './lib/components/PerformancePage.svelte';
@@ -286,6 +287,8 @@
           <MusicPage />
         {:else if item.key === 'performance'}
           <PerformancePage />
+        {:else if item.key === 'custom'}
+          <CustomPage />
         {/if}
       </section>
     {/each}

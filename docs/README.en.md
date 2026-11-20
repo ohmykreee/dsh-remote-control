@@ -31,7 +31,7 @@ When your phone and computer share a LAN, open the console address in the phone 
 
 ## The pages
 
-Five pages, each with one job:
+Six pages; the custom page is off by default:
 
 | Page | What it shows |
 |---|---|
@@ -40,6 +40,7 @@ Five pages, each with one job:
 | Quick Q&A | A large voice button, default / pinned workspace picker, one-image attachment, model answers and follow-ups |
 | Music | Full-bleed blurred artwork, track info, progress and seek, previous / next, play-pause, system volume and mute, NetEase Cloud Music like |
 | Performance | CPU / memory and GPU / VRAM rings, clocks and uptime, hottest temperature and sensor list |
+| Custom page | Enter a web address under Preferences; the page shows it in a full-page iframe |
 
 <p align="center">
   <img src="screenshots/en/overview.png" alt="Home and sessions" width="1000">
@@ -59,7 +60,7 @@ Five pages, each with one job:
   <em>Quick Q&amp;A: hold to talk, attach one image, and choose a workspace; the completed answer with an image on the right.</em>
 </p>
 
-- The five pages loop horizontally, one page per gesture; page order, enablement and the navigation rail position are configured on the DSH settings page.
+- The enabled pages loop horizontally, one page per gesture; page order, enablement and the navigation rail position are configured on the DSH settings page.
 - Disabled pages do not appear in the phone rail.
 - In landscape each page is one screen tall, with notifications, sessions and temperature sensors scrolling inside their cards; portrait allows the whole page to scroll.
 - The phone UI ships in Simplified Chinese and English. **Follow DSH** uses the current DSH language.
@@ -95,7 +96,7 @@ The **Remote control** sidebar has these groups:
 | Group | Contents |
 |---|---|
 | Connection | QR code, console address, allowed interfaces, access verification, HTTPS, and advanced features (wake lock needs a secure context) |
-| Preferences | Plugin language, temperature unit, theme, page order and toggles, navigation position |
+| Preferences | Plugin language, temperature unit, theme, page order and toggles (the custom page takes a web address), navigation position |
 | Quick Q&A | Official voice-input status, reply model and reasoning effort, default / pinned workspaces with their mode and permission behavior |
 | Pomodoro / countdown | Enable switch (mutually exclusive), focus / break lengths, countdown presets, alert sound |
 | Weather | Data provider, location mode, city search, QWeather JWT credentials and monthly limit, call-count sync, hourly / 7-day display, location access |

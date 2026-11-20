@@ -19,7 +19,7 @@ import type {
 } from './types.js';
 import { isRecord } from './api.js';
 
-export const PAGE_ORDER: string[] = ['home', 'sessions', 'quickqa', 'music', 'performance'];
+export const PAGE_ORDER: string[] = ['home', 'sessions', 'quickqa', 'music', 'performance', 'custom'];
 
 /** Provider order used by the settings list and the quota fallback priority. */
 export const WEATHER_PROVIDERS: WeatherProviderId[] = ['nmc', 'open-meteo', 'qweather'];
@@ -82,6 +82,7 @@ export const EMPTY_DRAFT: DraftState = {
   pomodoroBreak: '5',
   pomodoroSound: '',
   countdownPresets: createCountdownDraft(DEFAULT_COUNTDOWN_PRESETS),
+  customPageUrl: '',
 };
 
 /** Parse one countdown preset input; null means the slot is not configured. */
@@ -190,6 +191,7 @@ export function pageLabels(t: Translator): Record<string, string> {
     quickqa: t('pageQuickQa'),
     music: t('pageMusic'),
     performance: t('pagePerformance'),
+    custom: t('pageCustom'),
   };
 }
 
@@ -216,6 +218,7 @@ export function createDraft(settings: RemoteSettings): DraftState {
     pomodoroBreak: String(settings.pomodoro?.breakMinutes ?? 5),
     pomodoroSound: settings.pomodoro?.soundPath ?? '',
     countdownPresets: createCountdownDraft(settings.countdown?.presets),
+    customPageUrl: settings.customPageUrl ?? '',
   };
 }
 
@@ -441,6 +444,7 @@ export function buildSavePatch(input: SavePatchInput): SavePatch {
       presets: normalizeCountdownPresets(draft.countdownPresets),
     },
     quickqa: normalizeQuickQaForSave(settings.quickqa, input.quickQaImageInput),
+    customPageUrl: draft.customPageUrl.trim(),
     pageOrder: [...order],
     pageEnabled: settings.pageEnabled,
     tls: {

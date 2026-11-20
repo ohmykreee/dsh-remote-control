@@ -32,6 +32,7 @@ export const zh = {
   pageQuickQa: '快速问答',
   pageMusic: '音乐',
   pagePerformance: '性能',
+  pageCustom: '自定网页',
 
   // Toasts and question actions
   connecting: '正在连接，请稍候',
@@ -366,6 +367,7 @@ export const en: Record<MessageKey, string> = {
   pageQuickQa: 'Quick Q&A',
   pageMusic: 'Music',
   pagePerformance: 'Performance',
+  pageCustom: 'Custom page',
 
   // Toasts and question actions
   connecting: 'Connecting, please wait',
@@ -724,5 +726,6 @@ export function pageLabel(key: PageKey): string {
   if (key === 'sessions') return t('pageSessions');
   if (key === 'quickqa') return t('pageQuickQa');
   if (key === 'music') return t('pageMusic');
+  if (key === 'custom') return t('pageCustom');
   return t('pagePerformance');
 }

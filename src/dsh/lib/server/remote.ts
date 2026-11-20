@@ -277,7 +277,7 @@ export function createRemoteServer(
         'x-content-type-options': 'nosniff',
         'referrer-policy': 'no-referrer',
         'content-security-policy':
-          "default-src 'self'; img-src 'self' data: blob: https: http:; media-src 'self' data: blob: https: http:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws: wss: https:; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+          "default-src 'self'; img-src 'self' data: blob: https: http:; media-src 'self' data: blob: https: http:; frame-src https: http:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws: wss: https:; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
         ...extraHeaders,
       });
       res.end(req.method === 'HEAD' ? undefined : body);

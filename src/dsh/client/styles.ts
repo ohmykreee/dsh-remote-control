@@ -1018,6 +1018,34 @@ export const CSS = `
 
 .drc-order-row .drc-order-label { flex: 1; min-width: 0; }
 
+/* The custom page keeps a compact address field on its own row, sized to the
+   page name's line height instead of the regular form control height. */
+.drc-order-row .drc-order-label.is-custom { flex: 0 0 auto; }
+
+.drc-order-input {
+  flex: 1 1 120px;
+  min-width: 0;
+  box-sizing: border-box;
+  height: 22px;
+  padding: 0 8px;
+  border: 0.5px solid var(--drc-hairline);
+  border-radius: 6px;
+  outline: none;
+  background: var(--drc-surface-3);
+  color: var(--drc-text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  cursor: text;
+  touch-action: auto;
+}
+
+.drc-order-input::placeholder { color: var(--dsw-alias-label-dimmed, var(--drc-tertiary)); }
+
+.drc-order-input:focus { border-color: var(--dsw-alias-state-business-primary, var(--drc-accent)); }
+
+.drc-order-input:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .drc-drag-handle {
   color: var(--drc-tertiary);
   font-size: 12px;

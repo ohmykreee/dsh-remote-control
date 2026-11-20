@@ -188,6 +188,7 @@ export function createSnapshots(deps: SnapshotDeps): Snapshots {
           wakeLock: value.tls.advanced.wakeLock,
         },
       },
+      customPageUrl: value.customPageUrl,
       pageOrder: [...value.pageOrder],
       pageEnabled: { ...value.pageEnabled },
       quickqa: quickqa.remoteSettings(),

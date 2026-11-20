@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_ORDER, enabledOrder, normalizeOrder } from '../../src/svelte/lib/pages.ts';
+import {
+  DEFAULT_CUSTOM_PAGE_URL,
+  DEFAULT_ORDER,
+  enabledOrder,
+  normalizeOrder,
+  resolveCustomPageUrl,
+} from '../../src/svelte/lib/pages.ts';
 import type { PageKey } from '../../src/svelte/lib/types.ts';
 
 describe('normalizeOrder', () => {
@@ -16,6 +22,7 @@ describe('normalizeOrder', () => {
       'sessions',
       'quickqa',
       'performance',
+      'custom',
     ]);
     expect(normalizeOrder(['home', 'bogus', 'home', 'music'])).toEqual([
       'home',
@@ -23,6 +30,7 @@ describe('normalizeOrder', () => {
       'sessions',
       'quickqa',
       'performance',
+      'custom',
     ]);
   });
 
@@ -43,6 +51,7 @@ describe('enabledOrder', () => {
       quickqa: true,
       music: true,
       performance: false,
+      custom: false,
     };
 
     expect(enabledOrder(order, enabled)).toEqual(['music', 'home']);
@@ -56,6 +65,7 @@ describe('enabledOrder', () => {
       quickqa: false,
       music: false,
       performance: false,
+      custom: false,
     };
 
     expect(enabledOrder(order, enabled)).toEqual(['home']);
@@ -66,5 +76,33 @@ describe('enabledOrder', () => {
     const enabled = { home: true } as Record<PageKey, boolean>;
 
     expect(enabledOrder(order, enabled)).toEqual(['home', 'sessions']);
+  });
+
+  it('hides the custom page when the Host has not enabled it', () => {
+    const order: PageKey[] = ['home', 'custom'];
+    const enabled = { home: true } as Record<PageKey, boolean>;
+
+    expect(enabledOrder(order, { ...enabled, custom: false })).toEqual(['home']);
+  });
+});
+
+describe('resolveCustomPageUrl', () => {
+  it('falls back to the built-in page when nothing was pushed', () => {
+    expect(DEFAULT_CUSTOM_PAGE_URL).toBe('https://www.kre3.net/');
+    expect(resolveCustomPageUrl(undefined)).toBe(DEFAULT_CUSTOM_PAGE_URL);
+    expect(resolveCustomPageUrl('')).toBe(DEFAULT_CUSTOM_PAGE_URL);
+    expect(resolveCustomPageUrl('   ')).toBe(DEFAULT_CUSTOM_PAGE_URL);
+  });
+
+  it('adds https to a bare host and keeps http(s) addresses', () => {
+    expect(resolveCustomPageUrl('www.example.com')).toBe('https://www.example.com/');
+    expect(resolveCustomPageUrl('http://example.com/a')).toBe('http://example.com/a');
+    expect(resolveCustomPageUrl('https://example.com')).toBe('https://example.com/');
+  });
+
+  it('rejects non-http schemes and unusable input', () => {
+    expect(resolveCustomPageUrl('javascript:alert(1)')).toBe(DEFAULT_CUSTOM_PAGE_URL);
+    expect(resolveCustomPageUrl('ftp://example.com')).toBe(DEFAULT_CUSTOM_PAGE_URL);
+    expect(resolveCustomPageUrl('not a url')).toBe(DEFAULT_CUSTOM_PAGE_URL);
   });
 });
