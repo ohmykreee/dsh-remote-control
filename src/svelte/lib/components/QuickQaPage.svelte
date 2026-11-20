@@ -788,10 +788,6 @@
 </div>
 
 <style>
-  :global(body[data-page='quickqa']) {
-    background: var(--background);
-  }
-
   .quickqa-page {
     position: relative;
     isolation: isolate;

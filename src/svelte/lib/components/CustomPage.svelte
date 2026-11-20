@@ -21,13 +21,9 @@
 </div>
 
 <style>
-  /* Match the Quick Q&A page: a plain solid background with no gradient,
-     border, rounded corners, or shadow. A transparent document therefore
-     shows the console background instead of an unstyled white frame. */
-  :global(body[data-page='custom']) {
-    background: var(--background);
-  }
-
+  /* Match the Quick Q&A page: no card chrome and no extra background layer,
+     so the native console background (with its subtle gradient) shows through
+     a transparent document instead of an opaque solid color. */
   .custom-page {
     position: relative;
     isolation: isolate;
@@ -35,7 +31,7 @@
     height: 100%;
     min-height: 0;
     overflow: hidden;
-    background: var(--background);
+    background: transparent;
   }
 
   .custom-frame {
@@ -43,10 +39,10 @@
     width: 100%;
     height: 100%;
     border: 0;
-    background: var(--background);
+    background: transparent;
     /* The console root sets `color-scheme: dark`. Letting the iframe inherit it
        makes Chromium paint a transparent document over an opaque white canvas;
-       `normal` keeps the frame transparent so the solid background shows. */
+       `normal` keeps the frame transparent so the native background shows. */
     color-scheme: normal;
   }
 </style>
