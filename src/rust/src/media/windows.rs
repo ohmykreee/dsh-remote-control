@@ -10,7 +10,7 @@
 //!   read-only and behind a timeout.
 //!
 //! No network API is used. Cover art still comes from the SMTC thumbnail stream
-//! or the local NetEase cache.
+//! or the player's own page data.
 
 #![deny(clippy::undocumented_unsafe_blocks)]
 

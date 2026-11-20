@@ -6,6 +6,8 @@
  * in Rust (`vendor::netease`) and arrives already attached to the payload.
  */
 
+import { hostMessage } from '../i18n/index.js';
+import type { PluginLocale } from '../settings/index.js';
 import type { ProbeMediaResult, PublicMedia } from '../shared/types.js';
 import { clamp, finiteNumber } from '../shared/util.js';
 
@@ -38,7 +40,10 @@ export interface MediaEnrichment {
   reset(): void;
 }
 
-export function publicMedia(result: ProbeMediaResult | null | undefined): PublicMedia | null {
+export function publicMedia(
+  result: ProbeMediaResult | null | undefined,
+  locale: PluginLocale = 'zh',
+): PublicMedia | null {
   const media = result?.media;
   if (!result || !media) return null;
   const provider: PublicMedia['provider'] =
@@ -46,7 +51,7 @@ export function publicMedia(result: ProbeMediaResult | null | undefined): Public
   return {
     appId: media.appId || '',
     appName: '',
-    title: media.title || '未命名媒体',
+    title: media.title || hostMessage(locale, 'mediaUntitled'),
     artist: media.artist || '',
     album: media.album || '',
     albumArtist: media.albumArtist || '',
@@ -92,14 +97,16 @@ function timelineAnchor(value: number | null, sampledAt: number): number | null 
  * Creates a stateful enricher. One instance per media adapter (the smoothing and
  * "has this player ever reported a position" evidence are per adapter).
  */
-export function createMediaEnrichment(): MediaEnrichment {
+export function createMediaEnrichment(
+  options: { getLocale?: () => PluginLocale } = {},
+): MediaEnrichment {
   let progress: ProgressState | null = null;
   let pendingSeek: PendingSeek | null = null;
   let positionEvidence: PositionEvidence | null = null;
 
   async function enrich(result: ProbeMediaResult | null | undefined): Promise<PublicMedia | null> {
     const sampledAt = finiteNumber(result?.sampledAt, Date.now()) || Date.now();
-    let media = publicMedia(result);
+    let media = publicMedia(result, options.getLocale?.() ?? 'zh');
     if (!media) {
       progress = null;
       pendingSeek = null;

@@ -2,6 +2,7 @@
 
 import { createNotificationService } from '../notifications/index.js';
 import { createProbeMediaAdapter } from '../probe/adapter.js';
+import type { PluginLocale } from '../settings/index.js';
 
 const LABELS: Record<string, string> = {
   win32: 'Windows',
@@ -11,6 +12,7 @@ const LABELS: Record<string, string> = {
 
 export interface PlatformAdaptersOptions {
   limit?: number;
+  getLocale?: () => PluginLocale;
 }
 
 export interface PlatformAdapters {
@@ -30,7 +32,7 @@ export function createPlatformAdapters(options: PlatformAdaptersOptions = {}): P
   const platform = process.platform;
   const label = LABELS[platform] || platform;
   const notifications = createNotificationService({ limit: options.limit });
-  const media = createProbeMediaAdapter({ label });
+  const media = createProbeMediaAdapter({ label, getLocale: options.getLocale });
   return {
     platform,
     label,

@@ -1,7 +1,7 @@
 //! Shared helpers for the per-client vendor adapters.
 //!
 //! The adapters read only local client state (window titles, Cider's title
-//! file, NetEase's SQLite database). They never call a network API.
+//! file, NetEase's CDP page data). They never call a network API.
 
 use crate::media::catalog::{self, App, ParsedTitle};
 use crate::media::Media;
@@ -88,7 +88,7 @@ pub fn is_generic_title(value: &str, product_names: &[&str]) -> bool {
     if product_names.iter().any(|name| lower == *name) {
         return true;
     }
-    matches!(lower.as_str(), "未知" | "unknown" | "未命名媒体")
+    matches!(lower.as_str(), "未知" | "unknown")
 }
 
 /// Apply client-specific artist separators (e.g. `、`/`&` -> ` / `).

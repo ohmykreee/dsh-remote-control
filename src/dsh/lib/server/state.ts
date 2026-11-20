@@ -52,13 +52,16 @@ export function createServiceState(ctx: DshContext, options: RemoteControlOption
   const cache = createCacheStore(settingsStore.dir);
   const appMapping = createAppMapping(settingsStore.dir);
   const performance = createPerformanceService();
-  const adapters = createPlatformAdapters({ limit: 8 });
+  let state!: ServiceState;
+  const adapters = createPlatformAdapters({
+    limit: 8,
+    getLocale: () => state?.effectiveLocale?.() ?? 'zh',
+  });
   const account = createAccountService(ctx, {
     locale: options.locale || 'zh',
     getSettings: settingsStore.get,
   });
   const startedAt = Date.now();
-  let state!: ServiceState;
   const pending = createPendingTracker(ctx, {
     onChange: () => {
       try {

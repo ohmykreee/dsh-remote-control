@@ -297,11 +297,8 @@ fn media_for_player(
 
     let mut media = Media::new(name.to_string());
     media.provider_detail = "mpris".to_string();
-    media.title = if title.trim().is_empty() {
-        "未命名媒体".to_string()
-    } else {
-        title
-    };
+    // Keep an empty title: the Host localizes the display fallback.
+    media.title = title;
     media.artist = artists.join(", ");
     media.album = string_value(&metadata, "xesam:album");
     media.album_artist = string_array(&metadata, "xesam:albumArtist")

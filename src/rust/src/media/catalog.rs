@@ -18,7 +18,7 @@
 //!   when that interface is explicitly real-time.
 //!
 //! No network API is used anywhere in this crate: the private tier reads local
-//! client state (SQLite databases, local title files) only.
+//! client state (window titles, Cider title files, CDP page data) only.
 
 // Some fields/helpers are only used by one platform's adapter (for example the
 // window-title parsers are Windows/macOS-only, while `seek_allowed` is used

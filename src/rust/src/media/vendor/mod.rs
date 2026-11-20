@@ -1,8 +1,8 @@
 //! Vendor-specific local integrations.
 //!
 //! Each child module reads one third-party desktop client's local state (never
-//! its network API): window titles, Cider's title file, NetEase's SQLite
-//! database, etc. Keep this folder for vendor-only code so the generic media /
+//! its network API): window titles, Cider's title file, NetEase's CDP page
+//! data, etc. Keep this folder for vendor-only code so the generic media /
 //! notification / performance probes stay platform-focused.
 
 use serde_json::Value;

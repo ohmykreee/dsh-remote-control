@@ -148,11 +148,8 @@ fn read_cider() -> Option<Media> {
 fn media_from_mediaremote(reading: mediaremote::Reading) -> Media {
     let mut media = Media::new(reading.app_id);
     media.provider_detail = "mediaremote".to_string();
-    media.title = if reading.title.trim().is_empty() {
-        "未命名媒体".to_string()
-    } else {
-        reading.title
-    };
+    // Keep an empty title: the Host localizes the display fallback.
+    media.title = reading.title;
     media.artist = reading.artist;
     media.album = reading.album;
     media.playback_status = match reading.playback_state {

@@ -18,6 +18,15 @@ const { createMediaEnrichment } = await import('../../lib/media/enrich.js');
 const enrichment = createMediaEnrichment();
 const t0 = Date.now();
 
+// The probe leaves an unknown title empty; the Host owns the localized fallback.
+const englishEnrichment = createMediaEnrichment({ getLocale: () => 'en' });
+const untitled = await englishEnrichment.enrich({
+  ok: true,
+  sampledAt: t0,
+  media: { appId: 'test', playbackStatus: 'Paused' },
+});
+assert.equal(untitled.title, 'Untitled media');
+
 function sample(media, sampledAt) {
   return enrichment.enrich({
     ok: true,

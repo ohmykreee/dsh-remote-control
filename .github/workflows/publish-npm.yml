@@ -28,8 +28,8 @@
 #   Environment        npm               (matches the job environment below)
 #
 # npm only accepts a trusted publisher for a package that already exists, so the
-# very first release has to create the package record once; AGENTS.md documents
-# that bootstrap. A fresh configuration must also complete its first successful
+# very first release has to create the package record once; docs/dev/build-test.md
+# documents that bootstrap. A fresh configuration must also complete its first successful
 # publish within 48 hours, so add it when a release is ready.
 #
 # Other npm policy this job follows:

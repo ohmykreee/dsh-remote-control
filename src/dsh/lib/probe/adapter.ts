@@ -8,6 +8,7 @@
  * Media progress smoothing / seek eligibility lives in `media-enrich.js`.
  */
 
+import type { PluginLocale } from '../settings/index.js';
 import type { JsonRecord, ProbeMediaResult, PublicMedia } from '../shared/types.js';
 import { probeInfo, materializeThumbnail, runProbe } from './index.js';
 import { createMediaEnrichment, mediaKey } from '../media/enrich.js';
@@ -105,12 +106,15 @@ function probeUnavailable(): Error {
   return new Error(info.error || 'native probe unavailable');
 }
 
-export function createProbeMediaAdapter({ label = '平台' }: { label?: string } = {}): ProbeMediaAdapter {
+export function createProbeMediaAdapter({
+  label = '平台',
+  getLocale,
+}: { label?: string; getLocale?: () => PluginLocale } = {}): ProbeMediaAdapter {
   let mediaCache: MediaCache | null = null;
   let mediaAt = 0;
   let volumeCache: VolumeCache | null = null;
   let volumeAt = 0;
-  const enrichment = createMediaEnrichment();
+  const enrichment = createMediaEnrichment({ getLocale });
 
   function activeAppId(): string {
     return mediaCache?.media?.appId || '';
