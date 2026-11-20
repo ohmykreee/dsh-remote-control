@@ -24,9 +24,12 @@ const followRequests = [];
 const modelSelections = [];
 const permissionCalls = [];
 const resolverCalls = [];
+const transcribeCalls = [];
 
-const speechToText = {
-  snapshot: () => ({
+// Mirrors the official public `speechController` contract: catalog() reports
+// readiness plus limits, transcribe() accepts canonical base64 WAV.
+const speechController = {
+  catalog: () => ({
     providers: [{
       id: 'sensevoice-local',
       name: 'SenseVoice 本地识别',
@@ -34,9 +37,13 @@ const speechToText = {
       preparation: { phase: voicePhase },
     }],
     selection: { providerId: 'sensevoice-local', language: 'zh' },
+    maxAudioBytes: 4 * 1024 * 1024,
+    maxDurationSeconds: 120,
   }),
-  resolve: (request) => ({ audio: request.audio, provider: { id: 'sensevoice-local' } }),
-  transcribe: async () => ({ text: '这是语音转写的问题', audioSeconds: 1.4 }),
+  transcribe: async (request) => {
+    transcribeCalls.push({ ...request });
+    return { text: '这是语音转写的问题', audioSeconds: 1.4, inferenceSeconds: 0.2 };
+  },
 };
 
 const sessionController = {
@@ -195,7 +202,7 @@ const sessionController = {
 
 const ctx = {
   get(name) {
-    if (name === 'speechToText') return speechToText;
+    if (name === 'speechController') return speechController;
     if (name === 'sessionController') return sessionController;
     if (name === 'workspaces' || name === 'workspaceRegistry') return {
       list: () => workspaces,
@@ -482,6 +489,32 @@ try {
   });
   assert.equal(transcript.status, 200);
   assert.equal((await transcript.json()).text, '这是语音转写的问题');
+  assert.equal(transcribeCalls.length, 1, 'the upload goes through the public speech controller');
+  assert.equal(transcribeCalls[0].providerId, 'sensevoice-local');
+  assert.equal(transcribeCalls[0].language, 'zh');
+  assert.equal(
+    Buffer.from(transcribeCalls[0].audioBase64, 'base64').length,
+    audio.length,
+    'the controller receives the uploaded bytes as base64',
+  );
+
+  // An idle-reclaimed worker reports `waking` while it starts for the request in
+  // flight; treating that as unavailable would flip the phone mid-transcription.
+  voicePhase = 'waking';
+  const wakingRes = readResponse();
+  await service.handleQuickQaOptions({ method: 'GET', url: '/dsh-remote-control/api/quickqa', headers: {} }, wakingRes);
+  assert.equal(wakingRes.json().voice.ready, true, 'waking stays available during idle wake-up');
+  const wakingUpload = await fetch(`http://127.0.0.1:${info.port}/api/quickqa/transcribe?token=${token}`, {
+    method: 'POST',
+    headers: { 'content-type': 'audio/wav' },
+    body: audio,
+  });
+  assert.equal(
+    wakingUpload.status,
+    409,
+    'a second upload during wake-up stays retriable instead of failing inside the provider',
+  );
+  voicePhase = 'standby';
 
   // A not-ready official plugin gates new asks, uploads, and saved settings.
   voicePhase = 'unprepared';

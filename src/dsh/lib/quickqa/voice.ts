@@ -1,10 +1,11 @@
 /**
- * Official voice-input status and transcription bridge.
+ * Official voice-input bridge.
  *
- * The DSH voice-input bundle registers a `speechToText` provider. The remote
- * console treats the feature as available only when that provider reports a
- * ready/standby preparation — i.e. the model is downloaded, loaded, and waiting
- * for a recording. Everything else is a binary "not ready" for the UI.
+ * Quick Q&A consumes the public `speechController` service — the same
+ * `catalog()` / `transcribe()` contract the DSH client uses — instead of
+ * reaching into the provider registry behind it. The official controller owns
+ * WAV validation, the configured recording limits and the idle worker wake-up,
+ * so this bridge only maps its state onto the console's availability flag.
  */
 
 import type { DshContext } from '../shared/types.js';
@@ -20,23 +21,29 @@ export interface SpeechProviderView {
   } | null;
 }
 
-export interface SpeechSnapshot {
+export interface SpeechCatalogView {
   providers?: readonly SpeechProviderView[];
   selection?: {
     providerId?: string;
     language?: string;
   } | null;
+  maxAudioBytes?: number;
+  maxDurationSeconds?: number;
 }
 
-export interface SpeechSpec {
-  audio: Uint8Array;
-  provider: unknown;
+export interface SpeechTranscriptionRequest {
+  audioBase64: string;
+  providerId?: string;
+  language?: string;
 }
 
-export interface SpeechToTextService {
-  snapshot?(): SpeechSnapshot;
-  resolve?(request: { audio: Uint8Array; providerId?: string; language?: string }): SpeechSpec;
-  transcribe?(spec: SpeechSpec, signal: AbortSignal): Promise<{ text?: string; audioSeconds?: number }>;
+/** The public contract the DSH client also calls through its `speech` namespace. */
+export interface SpeechControllerService {
+  catalog?(): SpeechCatalogView;
+  transcribe?(
+    request: SpeechTranscriptionRequest,
+    signal: AbortSignal,
+  ): Promise<{ text?: string; audioSeconds?: number } | undefined>;
 }
 
 export interface VoiceStatus {
@@ -46,36 +53,52 @@ export interface VoiceStatus {
   phase: string;
 }
 
-/** Phases that mean "model prepared and transcription can start". */
-const READY_PHASES = new Set(['ready', 'standby']);
+/**
+ * Phases in which the official plugin accepts a recording.
+ *
+ * `waking` is the transient state of an idle-reclaimed worker starting for the
+ * request already in flight. The provider accepts that request and returns to
+ * `ready`; treating the phase as unavailable would push a false "not ready"
+ * snapshot to the phone mid-transcription and block the answer that follows.
+ */
+const READY_PHASES = new Set(['ready', 'standby', 'waking']);
 
-function speechService(ctx: DshContext): SpeechToTextService | undefined {
+/**
+ * Phases in which the official provider accepts a new recording.
+ *
+ * `waking` is deliberately excluded here: it already has a request in flight
+ * that owns the wake-up, and `speechController.transcribe()` would reject a
+ * second one. Reporting that case as unavailable keeps the upload a retriable
+ * 409 instead of an opaque transcription failure.
+ */
+const TRANSCRIBE_PHASES = new Set(['ready', 'standby']);
+
+function controllerService(ctx: DshContext): SpeechControllerService | undefined {
   try {
-    const service = ctx.get?.('speechToText');
+    const service = ctx.get?.('speechController');
     if (!service || typeof service !== 'object') return undefined;
-    return service as SpeechToTextService;
+    return service as SpeechControllerService;
   } catch {
     return undefined;
   }
 }
 
-/** Read the official plugin's current readiness. Never throws. */
-export function readVoiceStatus(ctx: DshContext): VoiceStatus {
-  const service = speechService(ctx);
-  if (!service?.snapshot) return { ready: false, providerName: '', language: '', phase: 'missing' };
-  let snapshot: SpeechSnapshot;
+function catalogOf(ctx: DshContext): SpeechCatalogView | undefined {
+  const service = controllerService(ctx);
+  if (!service?.catalog) return undefined;
   try {
-    snapshot = service.snapshot();
+    return service.catalog();
   } catch {
-    return { ready: false, providerName: '', language: '', phase: 'failed' };
+    return undefined;
   }
-  const providers = Array.isArray(snapshot.providers) ? snapshot.providers : [];
-  const selectedId = snapshot.selection?.providerId ?? '';
-  const provider =
-    providers.find((entry) => entry.id === selectedId)
-    ?? providers[0]
-    ?? null;
-  const language = snapshot.selection?.language || '';
+}
+
+function voiceStatusOf(catalog: SpeechCatalogView | undefined): VoiceStatus {
+  if (!catalog) return { ready: false, providerName: '', language: '', phase: 'missing' };
+  const providers = Array.isArray(catalog.providers) ? catalog.providers : [];
+  const selectedId = catalog.selection?.providerId ?? '';
+  const language = catalog.selection?.language || '';
+  const provider = providers.find((entry) => entry.id === selectedId) ?? null;
   if (!provider) return { ready: false, providerName: '', language, phase: 'unprepared' };
   const phase = String(provider.preparation?.phase || 'unprepared');
   return {
@@ -86,44 +109,50 @@ export function readVoiceStatus(ctx: DshContext): VoiceStatus {
   };
 }
 
+/** Read the official plugin's current readiness. Never throws. */
+export function readVoiceStatus(ctx: DshContext): VoiceStatus {
+  return voiceStatusOf(catalogOf(ctx));
+}
+
 /** True when a recording may be transcribed right now. */
 export function isVoiceReady(ctx: DshContext): boolean {
   return readVoiceStatus(ctx).ready;
 }
 
-/** Transcribe one canonical WAV recording through the selected provider. */
+/**
+ * Transcribe one canonical WAV recording through the official public API.
+ *
+ * The controller validates the WAV header, enforces its configured byte and
+ * duration limits, and pins the provider recorded in the user's selection.
+ */
 export async function transcribeAudio(
   ctx: DshContext,
   audio: Uint8Array,
   signal: AbortSignal,
 ): Promise<{ text: string; audioSeconds: number }> {
-  const service = speechService(ctx);
-  if (!service?.resolve || !service.transcribe) throw new Error('voice-input-unavailable');
-  const status = readVoiceStatus(ctx);
-  if (!status.ready) throw new Error('voice-input-not-ready');
-  const snapshot = service.snapshot?.() ?? {};
-  const providerId = snapshot.selection?.providerId || undefined;
-  const language = snapshot.selection?.language || undefined;
-  const spec = service.resolve({ audio, ...(providerId ? { providerId } : {}), ...(language ? { language } : {}) });
-  const result = await service.transcribe(spec, signal);
+  const service = controllerService(ctx);
+  if (!service?.transcribe) throw new Error('voice-input-unavailable');
+  const catalog = service.catalog ? catalogOf(ctx) : undefined;
+  const status = voiceStatusOf(catalog);
+  if (!status.ready || !TRANSCRIBE_PHASES.has(status.phase)) throw new Error('voice-input-not-ready');
+  const providerId = catalog?.selection?.providerId || undefined;
+  const language = catalog?.selection?.language || undefined;
+  const result = await service.transcribe({
+    audioBase64: Buffer.from(audio.buffer, audio.byteOffset, audio.byteLength).toString('base64'),
+    ...(providerId ? { providerId } : {}),
+    ...(language ? { language } : {}),
+  }, signal);
   return {
     text: String(result?.text || '').trim(),
     audioSeconds: Number(result?.audioSeconds) || 0,
   };
 }
 
-/** Read the maximum duration advertised by the official Remote, when present. */
+/** Read the recording limits advertised by the official controller, when present. */
 export function readRecordingLimits(ctx: DshContext): { maxAudioBytes: number; maxDurationSeconds: number } {
-  try {
-    const controller = ctx.get?.('speechController') as
-      | { catalog?(): { maxAudioBytes?: number; maxDurationSeconds?: number } }
-      | undefined;
-    const catalog = controller?.catalog?.();
-    return {
-      maxAudioBytes: Number(catalog?.maxAudioBytes) > 0 ? Number(catalog?.maxAudioBytes) : 8 * 1024 * 1024,
-      maxDurationSeconds: Number(catalog?.maxDurationSeconds) > 0 ? Number(catalog?.maxDurationSeconds) : 60,
-    };
-  } catch {
-    return { maxAudioBytes: 8 * 1024 * 1024, maxDurationSeconds: 60 };
-  }
+  const catalog = catalogOf(ctx);
+  return {
+    maxAudioBytes: Number(catalog?.maxAudioBytes) > 0 ? Number(catalog?.maxAudioBytes) : 8 * 1024 * 1024,
+    maxDurationSeconds: Number(catalog?.maxDurationSeconds) > 0 ? Number(catalog?.maxDurationSeconds) : 60,
+  };
 }

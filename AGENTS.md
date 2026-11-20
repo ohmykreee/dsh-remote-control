@@ -272,13 +272,13 @@ window.__ModuleLoader__.load({
 
 `src/dsh/lib/quickqa/` 把手机录音变成一次 DSH 会话：
 
-- `voice.ts`：读取官方 `speechToText` 服务的快照；只有选中 provider 的 `preparation.phase` 为 `ready` 或 `standby` 才算就绪，其余状态一律不可用。`transcribeAudio()` 先 `resolve()` 再 `transcribe()`，不提供其他 provider 回退。
+- `voice.ts`：只经官方公开的 `speechController` 服务（与 DSH 客户端相同的 `catalog()` / `transcribe()`），不读内部 provider 注册表。就绪判定取选中 provider 的 `preparation.phase`，`ready` / `standby` / `waking` 算可用：`waking` 是空闲回收后为正在进行的转写唤醒 worker 的瞬态，若视为不可用，4 s 就绪轮询会在转写途中把手机切成「语音输入未就绪」，随后的 `quickqa-ask` 也会被客户端拦掉。`transcribeAudio()` 把 WAV 编码成 base64 交给 `speechController.transcribe({ audioBase64, providerId, language })`，由官方控制器校验 WAV 头与字节 / 时长上限，不提供其他 provider 回退。
 - `catalog.ts`：读取 `sessionController.modelCatalog()`（缺失时回退 `llm` + `agentDefaultModel`）、`workspaceRegistry`、`agentPresets.list()`、`permissionPresets.catalog()`；目录缓存 15 s，语音就绪状态每次实时读取。每个模型用官方 `llm.resolveModelInfo()` 的 `inputModalities` 标记 `imageInput`；未声明视为未知（按可接受图片处理），只有显式缺少 `image` 才算纯文本模型。
 - `index.ts`：每个 WebSocket 客户端一个运行态。新问题用 `sessionController.create({ workspaceId, agentPreset })` 建会话，`agent.model.select()` 只改该会话的模型（不写 DSH 默认值），`permissionPresets.set(session, name)` 设权限行为，然后 `sessionController.prompt({ mode: 'queue', content: [...] }, signal)`（第二个 `AbortSignal` 参数是必需的），再 `follow({ assistantStream: true })`。`content` 是文本块加可选的官方图片块 `{ type: 'image', mediaType, data }`；Host 通过 `llm.resolveModelInfo()` 校验当前模型接受图片后才提问。`follow()` 的官方 `assistantStream: true` 提供进程内逐块帧：只转发可见的 `text-chunks` / `text-delta`，丢弃 `reasoning-chunks`、`reasoning-delta` 与全部 tool-call 内容；每次新的 assistant attempt（例如工具调用之后）在手机上另起一段（`\n\n`），因此工具调用前的可见说明也会保留下来并在最终回答上方换行。轮次结束时用最终 `assistant/message` 的文本补齐/校准；没有收到任何流帧时回退到原来的 `streamAnswer()` 节奏。`quickqa-state` 的 `question` 字段回显本次识别文本，供手机聊天卡展示用户问题与多轮上下文。
 - 问询：运行期间每 500 ms 读取 `pending.snapshot(sessionId)`，通过 `quickqa-pending` 推送；`pushQuestions` 关闭时只发通用提示，不泄露问题内容。用户问题可直接用既有 `answer-question` 通道回答；权限询问仅展示，仍需在 DSH 处理。
 - 中断：手机发送 `quickqa-stop` 时 Host 递增轮次 token、中止 follow 的 `AbortSignal`，并调用官方 `sessionController.cancel({ sessionId })` 真正停止 Agent 当前 turn，然后回 `quickqa-state` `done` + `stopped: true`；旧轮次的迟到帧会因 token 不匹配被丢弃，会话保留，因此可以继续追问或开新会话。
 - 失败：Host 的 `error` 会清空当前快速问答会话，手机端退回初始页并只显示错误文案（没有重试按钮）；再次按住麦克风会创建新会话，而不是恢复旧卡片。
-- 音频上传：LAN `POST /api/quickqa/transcribe` 接受受限 `audio/wav`（16 kHz 单声道 PCM16），调用官方 `speechToText`，转写后的文字再由手机发回 `quickqa-ask`。
+- 音频上传：LAN `POST /api/quickqa/transcribe` 接受受限 `audio/wav`（16 kHz 单声道 PCM16），经公开的 `speechController.catalog()` 取录音上限、`speechController.transcribe()` 转写；转写后的文字再由手机发回 `quickqa-ask`。
 - 图片附件：LAN `POST /api/quickqa/attachment` 只把客户端选中的一张 PNG / JPEG / WebP / GIF 暂存内存并返回 id（有效期 10 分钟；20 MiB 上限；校验媒体类型与文件头），不创建会话、不写磁盘。手机在转写成功后才上传图片并发送 `quickqa-ask` 的 `imageId`；Host 认领一次后作为官方图片块交给 `sessionController.prompt`，由它持久化为附件引用。`quickqa.allowImages` 关闭、模型 `imageInput === false` 或图片 id 失效时拒绝。聊天卡只在用户气泡前显示该图片的行高预览；手机端用 devDependency `photoswipe` 给附加图片提供点击打开、双指 / 滚轮继续缩放的灯箱。
 - 语音未就绪时：侧边栏 `/api/quickqa` 返回未就绪，设置页禁用后续控件；Host 的 `applySettings()` 丢弃 `quickqa` 补丁，`quickqa-ask` 与转写接口直接拒绝。
 
@@ -561,7 +561,7 @@ Host 集成测试（`test/dsh/`）：
 
 - `smoke.mjs`：临时 `DSH_PROFILE_DIR` 启动服务；令牌页面、`/assets/`、图片 / iframe CSP、WebSocket welcome/overview、证书域名提取；HTTPS 关闭时 `tls.advanced.wakeLock` 仍随 `welcome` 下发；动态 HTTPS 切换（端口复用、在线 socket 收到关闭帧、重启后 `/ws` 仍可连接、切回 HTTP）；旧 HTTP overview 路由不存在。
 - `questions.mjs`：推送问询开关、远程回答往返、关闭后剥离与拒绝。
-- `quickqa.mjs`：快速问答目录接口、语音就绪门槛、模型 `imageInput`、模型 / 模式 / 权限行为落到会话、`quickqa-ask` 与追问、音频上传、图片上传（关闭 / 非法格式 / 字节不匹配）与一次性 `imageId`、纯文本模型拒绝、未就绪时拒绝提问与丢弃设置补丁；断言 `prompt` 收到取消信号（`sessionController.prompt` 的第二个参数是必需的）并携带官方图片块；还断言 `follow({ assistantStream: true })`、只转发中途文本并在新 attempt 前插入空行、工具块被丢弃。
+- `quickqa.mjs`：快速问答目录接口、语音就绪门槛（经公开 `speechController`，`waking` 仍算可用）、模型 `imageInput`、模型 / 模式 / 权限行为落到会话、`quickqa-ask` 与追问、音频上传、图片上传（关闭 / 非法格式 / 字节不匹配）与一次性 `imageId`、纯文本模型拒绝、未就绪时拒绝提问与丢弃设置补丁；断言 `prompt` 收到取消信号（`sessionController.prompt` 的第二个参数是必需的）并携带官方图片块；还断言 `follow({ assistantStream: true })`、只转发中途文本并在新 attempt 前插入空行、工具块被丢弃。
 - `settings.mjs`：语言精确匹配与回退、`dshLocale` 持久化、Host 字典对齐；倒计时预设与秒级范围、番茄钟两位小数、互斥、公开设置深拷贝、`tls.advanced.wakeLock` 默认与嵌套拷贝；自定网页默认关闭、地址归一化与公开快照拷贝。
 - `media.mjs`：进度平滑与 seek 规则；探针缺失显式报错；真实 daemon 的并发、重启、禁用与平台能力。探针路径缓存在同一进程内切换时用 `resetProbeCache()`（测试专用）。
 - `notifications.mjs`：通知字段归一化与数量限制、应用名称推导与旧缓存迁移、新通知应用自动启用、Linux 流式监视。
