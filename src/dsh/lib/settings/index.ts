@@ -155,7 +155,14 @@ export interface NotificationSettings {
 }
 
 export interface TlsAdvancedSettings {
-  /** Keep the phone screen awake while the console page is visible over HTTPS. */
+  /**
+   * Keep the phone screen awake while the console page is visible.
+   *
+   * Stored next to the TLS block for historical reasons only: it is an
+   * independent switch and is read as-is, never derived from `tls.enabled`.
+   * Whether the browser grants the lock depends on the page being a secure
+   * context, which the console cannot decide for it.
+   */
   wakeLock: boolean;
 }
 

@@ -1,10 +1,14 @@
 /**
  * Screen Wake Lock for the phone console.
  *
- * The lock is requested only when the Host setting is on, the page was opened
- * over HTTPS, and the tab is visible. Browsers release it automatically when
- * the page is hidden, so visibility changes release and reacquire it; anything
- * unsupported or denied is ignored and the console keeps working normally.
+ * The lock is requested whenever the Host setting is on and the tab is visible.
+ * The setting is stored under `tls.advanced` but is independent of the HTTPS
+ * switch, and the console never pre-checks the secure context: it always makes
+ * the request and ignores a refusal, so an environment that grants the lock
+ * anyway (a browser flag, a policy, a WebView) still gets it. Browsers release
+ * it automatically when the page is hidden, so visibility changes release and
+ * reacquire it; anything unsupported or denied is ignored and the console keeps
+ * working normally.
  */
 
 interface WakeLockSentinelLike {
@@ -25,8 +29,13 @@ let visibilityBound = false;
 let generation = 0;
 let acquiring = false;
 
+/**
+ * The Wake Lock API itself. The console never inspects `isSecureContext`: a
+ * browser or an embedding host can expose and grant the API where the page
+ * does not look secure, so the only reliable check is to make the request and
+ * ignore a refusal. When the API is missing the request is skipped silently.
+ */
 function wakeLockApi(): WakeLockNavigator['wakeLock'] {
-  if (!window.isSecureContext) return undefined;
   return (navigator as Navigator & WakeLockNavigator).wakeLock;
 }
 

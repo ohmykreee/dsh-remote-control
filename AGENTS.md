@@ -309,7 +309,7 @@ window.__ModuleLoader__.load({
 - 技术栈：Svelte 5 runes + Vite 8 + Tailwind CSS v4 + shadcn-svelte（bits-ui）+ Lucide。图标一律使用 Lucide。AI 回答用 `marked` 解析、`DOMPurify` 清洗后以 `{@html}` 渲染，支持标题、列表、代码块、表格与链接。
 - 页面：`HomePage`、`SessionsPage`、`QuickQaPage`、`MusicPage`、`PerformancePage`、`CustomPage`（占满页面的 iframe，地址来自设置，缺失或为空时用内置地址；透明页面显示应用级背景（含渐变），页面本身无边框 / 圆角 / 阴影，与快速问答一致；iframe 与容器都透明并设 `color-scheme: normal`，避免继承控制台的深色方案后透明文档被绘制成白底）；导航 `Rail`；业务组件包括时钟、天气、通知、余额、消费、CPU/内存、GPU、温度、计时、会话列表、问询对话框（`QuestionSheet`）、Toast 等。
 - 自定网页 iframe：手机端页面为 HTTP 时可以直接嵌入 `http://` 地址；手机端切到 HTTPS 后，浏览器会按混合内容拦截 `http://` iframe（CSP 的 `frame-src http:` 不能覆盖混合内容规则），Host 不会改写用户填写的协议。目标站点返回 `X-Frame-Options` 或 CSP `frame-ancestors` 限制时同样显示空白，跨域下无法检测。
-- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`quickqa.svelte.ts` 持有快速问答阶段、选区、流式回答与问询浮层，`quickqa-audio.ts` 负责默认麦克风采集、电平、WAV 转换与转写上传，`quickqa-image.ts` 负责剪贴板 / 媒体选择器 / 伴侣 VR 截图的图片类型归一化、上传与预览 URL，`image-zoom.ts` 用 devDependency `photoswipe` 给附加图片提供点击灯箱、双指 / 滚轮缩放；`pomodoro.svelte.ts` / `countdown.svelte.ts` 各自持有计时状态机，共用 `timer-engine.ts`（引用计数的区间引擎：首尾页克隆各持一个引用，最后一个释放才停表）与 `timer-alarm.svelte.ts`（页面标题 / favicon 提示、`tabAlert` 响应式状态，以及循环响铃时的持续振动）；`wake-lock.ts` 按 `settings.tls.advanced.wakeLock` 在安全上下文中申请屏幕唤醒锁，页面隐藏时释放、回到前台重新申请；`reduced-motion.svelte.ts` 用 `matchMedia` 镜像系统的 `prefers-reduced-motion`，供导航、进度条、麦克风电平环读取；设置归一化在纯函数 `settings-normalize.ts`（导航位置 / 番茄钟 / 倒计时预设），节假日与峰谷在 `billing.svelte.ts`（日历，含网络与缓存），北京时区与价格窗口等纯规则在 `billing.ts`；`format.ts` / `weather.ts` / `pages.ts`（页面顺序与自定网页地址归一化）为纯工具。
+- 状态：`state.svelte.ts` 持有 WebSocket 快照与设置；`ws.ts` 负责重连；`media.ts` 做媒体投影；`session-tree.ts` 组装父子会话；`quickqa.svelte.ts` 持有快速问答阶段、选区、流式回答与问询浮层，`quickqa-audio.ts` 负责默认麦克风采集、电平、WAV 转换与转写上传，`quickqa-image.ts` 负责剪贴板 / 媒体选择器 / 伴侣 VR 截图的图片类型归一化、上传与预览 URL，`image-zoom.ts` 用 devDependency `photoswipe` 给附加图片提供点击灯箱、双指 / 滚轮缩放；`pomodoro.svelte.ts` / `countdown.svelte.ts` 各自持有计时状态机，共用 `timer-engine.ts`（引用计数的区间引擎：首尾页克隆各持一个引用，最后一个释放才停表）与 `timer-alarm.svelte.ts`（页面标题 / favicon 提示、`tabAlert` 响应式状态，以及循环响铃时的持续振动）；`wake-lock.ts` 按 `settings.tls.advanced.wakeLock` 直接请求屏幕唤醒锁（不预检 `isSecureContext`，申请失败静默忽略），页面隐藏时释放、回到前台重新申请；`reduced-motion.svelte.ts` 用 `matchMedia` 镜像系统的 `prefers-reduced-motion`，供导航、进度条、麦克风电平环读取；设置归一化在纯函数 `settings-normalize.ts`（导航位置 / 番茄钟 / 倒计时预设），节假日与峰谷在 `billing.svelte.ts`（日历，含网络与缓存），北京时区与价格窗口等纯规则在 `billing.ts`；`format.ts` / `weather.ts` / `pages.ts`（页面顺序与自定网页地址归一化）为纯工具。
 - i18n：`applySettings()` 从 `settings.locale` 调 `setLocale()`；所有组件和 `format.ts` / `weather.ts` 通过 `t()` 取文案，日期格式化使用 `localeTag()`，切换语言无需刷新。`zh` 为基准字典。
 - 视觉：`Panel` 包装 shadcn Card 作为统一容器；按钮、Badge、Slider、Dialog、ScrollArea 优先用 `$lib/components/ui`；只在组件原有 class 上覆盖样式，无 hover 过渡 / 缩放。
 - 性能页占用率使用 `RadialGauge` 圆环；右侧温度保留大号最高温度与热区背景列表。
@@ -328,7 +328,7 @@ window.__ModuleLoader__.load({
 - 入口 `src/dsh/client/index.ts` 向 DSH 注册设置页（slot），菜单包含：连接、偏好设置、快速问答、番茄钟 / 倒计时、天气设置、余额显示、通知设置、软件映射、系统信息。
 - 快速问答设置页：第一块只显示官方语音输入就绪 / 未就绪（提供商与状态同一行，不再重复标题）；顶部 hint 说明录音需要 HTTPS（安全上下文）。未就绪时后面的模型与工作区块全部禁用，但保留已保存值。第二块从 `/api/quickqa` 读取模型；回答模型拆成提供商、模型两个下拉，下面保留思考强度。第三块读取工作区、模式与权限行为；默认工作区固定勾选，置顶工作区每行依次为拖拽手柄、勾选框、名称 / 路径、模式、权限行为；已勾选的置顶工作区可拖动排序，未勾选的不能拖动且始终排在置顶工作区下面；`pinnedWorkspaceIds` 的数组顺序就是手机端顺序。最下面是图片附件卡片「允许附加图片」：复用已有 `Row` / `Toggle` / `drc-group` 样式，hint 说明读取剪贴板需要 HTTPS；当前生效模型 `imageInput === false` 时开关显示为关闭并禁用，同时提示先选支持图片的模型，保存时也强制关闭。模式与权限行为的显示名直接使用 Host API 返回值，不额外翻译。
 - 所有设置先进入 `DraftState`，点「保存设置」才 `POST /api/settings` 一次性提交；应用改名、主题同步、令牌轮换、断开设备是即时请求。
-- 连接页始终显示「高级功能」卡片；唤醒锁开关可以独立开启，不再与 HTTPS 开关联动，实际生效仍取决于浏览器安全上下文。当前提供 `tls.advanced.wakeLock` 开关，手机端在安全上下文中申请屏幕唤醒锁。
+- 连接页始终显示「高级功能」卡片；唤醒锁开关可以独立开启，不再与 HTTPS 开关联动。`tls.advanced.wakeLock` 无论 HTTPS 开关如何都原样下发给手机端，手机端也不预检浏览器安全上下文，而是直接尝试申请、失败静默忽略（浏览器侧可能通过策略或标志放行）。
 - 软件映射页在应用列表上方提供本地搜索，按已保存的应用名称或应用 ID 实时过滤；只过滤当前 UI，不触发服务端请求。
 - 天气设置按「定位权限 → 数据提供商 → 和风天气 JWT（仅选中时）→ 位置 → 显示方式」排列。位置只提供城市搜索，匹配到的经纬度 / 站点 ID 只显示在提示里，不再提供名称 / 经纬度输入框；城市搜索用 POST `/api/geocode` 携带当前编辑中的 provider 与和风凭据，切换提供商后无需先保存即可搜索。和风天气分组可生成 Ed25519 密钥对、填入私钥并显示 / 复制公钥，JWT 由 Host 按请求自动生成。系统信息页的天气状态 detail 显示实际使用的提供商。
 - 偏好设置的第一个设置组是 **插件语言**（跟随 DSH / 简体中文 / English）；保存后 `hydrate()` 调 `setPluginLanguage()` 立即重绘，Host 同时把解析后的 `locale` 推给手机端。
@@ -559,7 +559,7 @@ pnpm build:rust
 
 Host 集成测试（`test/dsh/`）：
 
-- `smoke.mjs`：临时 `DSH_PROFILE_DIR` 启动服务；令牌页面、`/assets/`、图片 / iframe CSP、WebSocket welcome/overview、证书域名提取；动态 HTTPS 切换（端口复用、在线 socket 收到关闭帧、重启后 `/ws` 仍可连接、切回 HTTP）；旧 HTTP overview 路由不存在。
+- `smoke.mjs`：临时 `DSH_PROFILE_DIR` 启动服务；令牌页面、`/assets/`、图片 / iframe CSP、WebSocket welcome/overview、证书域名提取；HTTPS 关闭时 `tls.advanced.wakeLock` 仍随 `welcome` 下发；动态 HTTPS 切换（端口复用、在线 socket 收到关闭帧、重启后 `/ws` 仍可连接、切回 HTTP）；旧 HTTP overview 路由不存在。
 - `questions.mjs`：推送问询开关、远程回答往返、关闭后剥离与拒绝。
 - `quickqa.mjs`：快速问答目录接口、语音就绪门槛、模型 `imageInput`、模型 / 模式 / 权限行为落到会话、`quickqa-ask` 与追问、音频上传、图片上传（关闭 / 非法格式 / 字节不匹配）与一次性 `imageId`、纯文本模型拒绝、未就绪时拒绝提问与丢弃设置补丁；断言 `prompt` 收到取消信号（`sessionController.prompt` 的第二个参数是必需的）并携带官方图片块；还断言 `follow({ assistantStream: true })`、只转发中途文本并在新 attempt 前插入空行、工具块被丢弃。
 - `settings.mjs`：语言精确匹配与回退、`dshLocale` 持久化、Host 字典对齐；倒计时预设与秒级范围、番茄钟两位小数、互斥、公开设置深拷贝、`tls.advanced.wakeLock` 默认与嵌套拷贝；自定网页默认关闭、地址归一化与公开快照拷贝。

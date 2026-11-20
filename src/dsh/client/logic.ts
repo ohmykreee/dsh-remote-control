@@ -452,7 +452,10 @@ export function buildSavePatch(input: SavePatchInput): SavePatch {
       certPath: draft.certPath,
       keyPath: draft.keyPath,
       advanced: {
-        wakeLock: settings.tls?.enabled === true && settings.tls?.advanced?.wakeLock === true,
+        // The wake-lock switch is independent of the HTTPS switch: the padlock
+        // needs a secure context to take effect, but turning HTTPS off must not
+        // silently reset the user's choice.
+        wakeLock: settings.tls?.advanced?.wakeLock === true,
       },
     },
     weather: nextWeather,

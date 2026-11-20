@@ -125,7 +125,7 @@ export interface TlsSettings {
   certPath?: string;
   keyPath?: string;
   advanced?: {
-    /** Keep the phone screen awake while the console is visible over HTTPS. */
+    /** Keep the phone screen awake while the console is visible; independent of `enabled`. */
     wakeLock?: boolean;
   };
 }

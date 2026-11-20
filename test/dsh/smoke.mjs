@@ -166,6 +166,45 @@ assert.deepEqual(overview.data.settings.pageEnabled, {
 });
 assert.equal(overview.data.settings.customPageUrl, '');
 
+/* ----------------------------- settings reach the phone without HTTPS */
+
+// The wake-lock switch is stored and delivered independently of the HTTPS
+// switch: over plain HTTP the saved value still rides along in `welcome`, and
+// the phone decides at request time whether the browser grants the lock.
+await withTimeout(
+  service.applySettings({ tls: { advanced: { wakeLock: true } } }),
+  10_000,
+  'enabling the wake lock over HTTP',
+);
+assert.equal(service.settingsStore.get().tls.enabled, false);
+assert.equal(service.settingsStore.get().tls.advanced.wakeLock, true);
+
+const wakeWelcome = await new Promise((resolve, reject) => {
+  const socket = new WebSocket(wsUrl);
+  const timer = setTimeout(() => {
+    socket.close();
+    reject(new Error('wake-lock welcome timeout'));
+  }, 15_000);
+  socket.addEventListener('message', (event) => {
+    const message = JSON.parse(event.data);
+    if (message.type !== 'welcome') return;
+    clearTimeout(timer);
+    socket.close();
+    resolve(message.settings.tls);
+  });
+  socket.addEventListener('error', () => {
+    clearTimeout(timer);
+    reject(new Error('wake-lock welcome failed'));
+  });
+});
+assert.deepEqual(wakeWelcome, { enabled: false, advanced: { wakeLock: true } });
+
+await withTimeout(
+  service.applySettings({ tls: { advanced: { wakeLock: false } } }),
+  10_000,
+  'restoring the wake lock default',
+);
+
 /* ---------------------------------------------- dynamic HTTPS switching */
 
 /** Resolve once a fresh `/ws` connection has received `welcome`. */
