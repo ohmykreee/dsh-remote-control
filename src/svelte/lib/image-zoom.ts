@@ -1,30 +1,68 @@
 /**
- * Click-to-zoom preview for the one image attached to a Quick Q&A question.
+ * Click-to-open lightbox for the one image attached to a Quick Q&A question.
  *
- * `medium-zoom` is a small framework-agnostic library that clones the image
- * into a fixed overlay, so the same action works for the 84px attach preview
- * and the 49px chat thumbnail. One shared instance keeps a single overlay and
- * lets each image detach cleanly when its state disappears.
+ * PhotoSwipe is a small, dependency-free lightbox with native pinch-zoom and
+ * panning on touch, plus wheel zoom on desktop. The 84px attach preview and the
+ * 49px chat thumbnail stay cropped with `object-fit: cover`; the lightbox reads
+ * the image's natural size, so the opened image keeps its original aspect ratio
+ * and can be zoomed further.
  */
 
-import mediumZoom, { type Zoom } from 'medium-zoom';
+import PhotoSwipeLightbox from 'photoswipe/lightbox';
+import 'photoswipe/style.css';
+import { t } from './i18n.svelte';
 
-let zoom: Zoom | null = null;
+let lightbox: PhotoSwipeLightbox | null = null;
 
-function getZoom(): Zoom {
-  zoom ??= mediumZoom({
-    margin: 18,
-    background: 'rgba(8, 11, 18, 0.9)',
-  });
-  return zoom;
+function getLightbox(): PhotoSwipeLightbox {
+  if (!lightbox) {
+    lightbox = new PhotoSwipeLightbox({
+      dataSource: [],
+      pswpModule: () => import('photoswipe'),
+      wheelToZoom: true,
+      bgOpacity: 0.92,
+      showHideAnimationType: 'fade',
+      padding: { top: 12, bottom: 12, left: 12, right: 12 },
+      counter: false,
+      arrowKeys: false,
+      closeTitle: t('quickQaImageZoomClose'),
+      zoomTitle: t('quickQaImageZoomZoom'),
+      errorMsg: t('quickQaImageZoomError'),
+    });
+    lightbox.init();
+  }
+  return lightbox;
 }
 
-/** Svelte action: click the image to open the floating zoom preview. */
+async function openImage(node: HTMLImageElement): Promise<void> {
+  if (!node.complete) {
+    await node.decode().catch(() => undefined);
+  }
+  const width = node.naturalWidth || node.clientWidth;
+  const height = node.naturalHeight || node.clientHeight;
+  const source = node.currentSrc || node.src;
+  if (!width || !height || !source) return;
+  const viewer = getLightbox();
+  viewer.options.closeTitle = t('quickQaImageZoomClose');
+  viewer.options.zoomTitle = t('quickQaImageZoomZoom');
+  viewer.options.errorMsg = t('quickQaImageZoomError');
+  viewer.loadAndOpen(0, [{
+    src: source,
+    width,
+    height,
+    alt: node.alt || undefined,
+  }]);
+}
+
+/** Svelte action: click the image to open the zoomable lightbox. */
 export function imageZoom(node: HTMLImageElement): { destroy(): void } {
-  getZoom().attach(node);
+  const onClick = (): void => {
+    void openImage(node);
+  };
+  node.addEventListener('click', onClick);
   return {
     destroy() {
-      zoom?.detach(node);
+      node.removeEventListener('click', onClick);
     },
   };
 }

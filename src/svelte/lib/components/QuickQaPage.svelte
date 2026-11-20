@@ -939,6 +939,7 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    cursor: zoom-in;
   }
 
   :global(.quickqa-attach-remove) {
@@ -1026,6 +1027,7 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    cursor: zoom-in;
   }
 
   .quickqa-chat-row.is-user.has-image .quickqa-chat-bubble {

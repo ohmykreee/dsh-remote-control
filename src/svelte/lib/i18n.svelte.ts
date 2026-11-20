@@ -321,6 +321,9 @@ export const zh = {
   quickQaImageClipboardFailed: '无法读取剪贴板图片',
   quickQaImageCompanionFailed: '无法获取 VR 截图，请确认 SteamVR 正在运行且头显已唤醒',
   quickQaImageUploadFailed: '图片上传失败，请重试',
+  quickQaImageZoomClose: '关闭图片',
+  quickQaImageZoomZoom: '缩放图片',
+  quickQaImageZoomError: '图片加载失败',
 
   // Question sheet
   sessionQuestion: '会话提问',
@@ -656,6 +659,9 @@ export const en: Record<MessageKey, string> = {
   quickQaImageClipboardFailed: 'Could not read an image from the clipboard',
   quickQaImageCompanionFailed: 'Could not get a VR screenshot. Make sure SteamVR is running and the headset is awake',
   quickQaImageUploadFailed: 'Image upload failed; try again',
+  quickQaImageZoomClose: 'Close image',
+  quickQaImageZoomZoom: 'Zoom image',
+  quickQaImageZoomError: 'Could not load the image',
 
   // Question sheet
   sessionQuestion: 'Session question',

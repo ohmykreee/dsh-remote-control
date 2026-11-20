@@ -51,9 +51,9 @@ importers:
       marked:
         specifier: ^18.2.1
         version: 18.2.1
-      medium-zoom:
-        specifier: ^1.1.2
-        version: 1.1.2
+      photoswipe:
+        specifier: ^5.4.4
+        version: 5.4.4
       playwright-core:
         specifier: ^1.65.0
         version: 1.65.0
@@ -602,9 +602,6 @@ packages:
     engines: {node: '>= 20'}
     hasBin: true
 
-  medium-zoom@1.1.2:
-    resolution: {integrity: sha512-0wTqeCQ4NGzjPghi7i2lMI6RyGj9N60fGvzY9HiNcxDTcvOw7S+ri7K3xVkrIZ+2uzUg4w/KSVMDdZXYMtHkdw==}
-
   mri@1.2.0:
     resolution: {integrity: sha512-tzzskb3bG8LvYGFF/mDTpq3jpI6Q9wc3LEmBaghu+DdCssd1FakN7Bc0hVNmEyGq1bq3RgfkCb3cmQLpNPOroA==}
     engines: {node: '>=4'}
@@ -624,6 +621,10 @@ packages:
   obug@3.0.0:
     resolution: {integrity: sha512-5vvB5+W7ePv+p3uqxi+RcW1XAzLW0/hxt3/4X4Lc4qHudzOhmBiBwOY6DRob4WnanAEGvNcLjF+KNOufrUoEQw==}
     engines: {node: '>=12.20.0'}
+
+  photoswipe@5.4.4:
+    resolution: {integrity: sha512-WNFHoKrkZNnvFFhbHL93WDkW3ifwVOXSW3w1UuZZelSmgXpIGiZSNlZJq37rR8YejqME2rHs9EhH9ZvlvFH2NA==}
+    engines: {node: '>= 0.12.0'}
 
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
@@ -1225,8 +1226,6 @@ snapshots:
 
   marked@18.2.1: {}
 
-  medium-zoom@1.1.2: {}
-
   mri@1.2.0: {}
 
   nanoid@3.3.20: {}
@@ -1236,6 +1235,8 @@ snapshots:
   obug@2.2.1: {}
 
   obug@3.0.0: {}
+
+  photoswipe@5.4.4: {}
 
   picocolors@1.1.1: {}
 
