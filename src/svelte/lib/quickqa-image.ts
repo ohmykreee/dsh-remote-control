@@ -60,7 +60,7 @@ export async function readClipboardImage(): Promise<QuickQaPickedImage | null> {
  */
 export interface DshCompanionApi {
   version: 1;
-  platform: 'windows';
+  platform: 'windows' | 'linux' | 'macos';
   capabilities: { vrScreenshot: true };
   /** PNG preview of the current VR view, ready to upload as a Blob. */
   captureVrScreenshot(): Promise<Blob>;
