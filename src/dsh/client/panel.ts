@@ -82,6 +82,9 @@ const MENU: Array<{ key: SectionKey; labelKey: string; icon: string }> = [
 
 const NARROW_QUERY = '(max-width: 767px)';
 
+/** Keep the "saved" banner visible long enough to read after a save. */
+const SAVED_NOTICE_MS = 3200;
+
 /** Follow the same breakpoint as the stylesheet: the rail becomes a selector. */
 function useNarrowLayout(): boolean {
   const [narrow, setNarrow] = useState(() => (
@@ -218,7 +221,7 @@ export function RemotePanel(): React.ReactElement {
       setSettingsVersion((current) => current + 1);
       void refreshQuickQaOptions(true);
       setNotice(t('saved'));
-      window.setTimeout(() => setNotice(''), 1600);
+      window.setTimeout(() => setNotice(''), SAVED_NOTICE_MS);
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -262,7 +265,7 @@ export function RemotePanel(): React.ReactElement {
     try {
       hydrate(await postJson(TOKEN_URL));
       setNotice(t('saved'));
-      window.setTimeout(() => setNotice(''), 1600);
+      window.setTimeout(() => setNotice(''), SAVED_NOTICE_MS);
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -276,7 +279,7 @@ export function RemotePanel(): React.ReactElement {
     try {
       hydrate(await postJson(APP_NAMES_URL, { key, name }));
       setNotice(t('saved'));
-      window.setTimeout(() => setNotice(''), 1600);
+      window.setTimeout(() => setNotice(''), SAVED_NOTICE_MS);
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -645,9 +648,15 @@ export function RemotePanel(): React.ReactElement {
           ))),
         ),
       h('main', { className: 'drc-main' },
-        error ? h('div', { className: 'drc-banner is-error' }, `${t('error')}: ${error}`) : null,
-        notice ? h('div', { className: 'drc-banner is-ok' }, notice) : null,
-        formInvalid ? h('div', { className: 'drc-banner is-error' }, t('invalidFieldsHint')) : null,
+        // The banner is a zero-height sticky overlay: it floats over the top
+        // of the content instead of pushing the page down when it appears.
+        (error || notice || formInvalid)
+          ? h('div', { className: 'drc-banner-slot' },
+            error ? h('div', { className: 'drc-banner is-error' }, `${t('error')}: ${error}`) : null,
+            notice ? h('div', { className: 'drc-banner is-ok' }, notice) : null,
+            formInvalid ? h('div', { className: 'drc-banner is-error' }, t('invalidFieldsHint')) : null,
+          )
+          : null,
         content,
       ),
     ),

@@ -50,6 +50,37 @@ export const CSS = `
     'nav main';
 }
 
+/* Page-level feedback floats over the top of the scrolling content. The
+ * zero-height sticky box keeps the banner at the top while scrolling but does
+ * not take part in layout, so showing or hiding it never reflows the page. */
+.drc-banner-slot {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  height: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.drc-banner-slot .drc-banner {
+  margin: 0;
+}
+
+/* These float over the content, so the tint must be mixed with an opaque
+ * surface instead of the transparent keyword; otherwise the settings text
+ * shows through. */
+.drc-banner-slot .drc-banner.is-ok {
+  background: color-mix(in srgb, var(--drc-success) 10%, var(--dsw-alias-bg-layer-1, var(--drc-surface)));
+}
+
+.drc-banner-slot .drc-banner.is-error {
+  background: color-mix(in srgb, var(--drc-error) 10%, var(--dsw-alias-bg-layer-1, var(--drc-surface)));
+}
+
+.drc-banner-slot .drc-banner + .drc-banner {
+  margin-top: 8px;
+}
+
 .drc-nav-title {
   grid-area: title;
   padding: 22px 12px 8px 24px;
