@@ -11,11 +11,26 @@
 - 技术栈：Svelte 5 runes + Vite 8 + Tailwind CSS v4 + shadcn-svelte（bits-ui）+ Lucide。
 - 字体由 `@fontsource-variable/*` 打进 `web/assets/`，不依赖手机系统字体；许可见 `web/fonts/LICENSE.txt`。
 
+### 分包
+
+- 这是仪表盘 SPA：所有 chunk 都是入口的静态 import，`pnpm build:web` 出的 `index.html` 用 `<link rel="modulepreload">` 与 `<link rel="stylesheet">` 一次性列出它们，手机首次打开就把整套代码取到本地，之后切页、开关页面、克隆页重挂都不再请求代码。不要为了“按需加载”把页面改成 `import()`。
+- `vite.config.js` 的 `build.rolldownOptions.output.codeSplitting.groups` 按用途分块，`priority` 从第三方运行时 → 公用代码 → 页面依次认领：
+  - 页面：`page-home` / `page-sessions` / `page-quickqa` / `page-music` / `page-performance` / `page-custom`。只被该页面渲染的子组件（`HomePage` 带 `ClockCard`、`WeatherPanel`，`SessionsPage` 带 `SessionList` …）靠递归收集跟着页面走。
+  - 公用组件：`card`（`Panel` / `SectionHeader` / `EmptyState`）与 `ui-<name>`（`components/ui/` 每个原子组件一块）。不要把它们并成一个大 chunk：改一个组件时其他块还能命中缓存。
+  - 应用单例：`lib` 放 `lib/*.ts`。
+  - 大依赖：`markdown` 放 `marked` + `dompurify`。只有快速问答页用得到，但单独成块，页面改动不会让它重新下载。
+  - 第三方：`vendor-svelte` / `vendor-ui` / `vendor-style` / `vendor-icons` / `vendor`（兜底）。
+- `lib` 必须是单块：`state.svelte.ts` 与 `quickqa.svelte.ts` 互相 import，拆开会产生 chunk 之间的循环引用。新增共享模块若与这两个文件成环，也只能留在 `lib`。
+- 页面 chunk 只引用公用 chunk，不互相引用；`image-zoom.ts` 故意排除在 `lib` 外，跟着快速问答页走，PhotoSwipe 的灯箱因此只出现在那一块里。
+- 唯一按需加载的是 PhotoSwipe 核心包（`image-zoom.ts` 里的 `import('photoswipe')`），第一次点开图片时才取。
+- 判断标准：`pnpm build:web` 不应出现 “Some chunks are larger than 500 kB”；当前最大的单块在 100 kB 量级。
+
 ## 页面与导航
 
 - 页面：`HomePage`、`SessionsPage`、`QuickQaPage`、`MusicPage`、`PerformancePage`、`CustomPage`；导航在 `Rail.svelte`。
 - 页面顺序与开关来自 `settings.pageOrder` / `pageEnabled`；关闭的页面不渲染、不轮询。
 - 分页容器在 `App.svelte`：每页 `scroll-snap-stop: always`，一次手势最多前进 / 后退一页；首尾克隆页用于无限循环。
+- 入口 chunk 只有外壳（`App` / `Rail` / `Toast` / 问询浮层与表单）与样式；状态、i18n 与页面组件各自成块。
 - 深链 `?page=<key>` 只在初始加载时生效；`restoreUrl()` 会把 `token=` / `page=` 从地址栏清掉，避免 token 留在历史记录里。
 - 横屏固定一屏高，通知 / 会话 / 温度列表在卡片内滚动；竖屏整页滚动。
 - 左下角刷新 / 全屏按钮；导航位置支持 `left` / `right` / `top` / `bottom`。

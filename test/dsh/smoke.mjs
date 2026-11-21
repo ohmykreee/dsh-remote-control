@@ -102,7 +102,12 @@ assert.equal(missingAsset.status, 404);
 const traversal = await fetch(`${base}/assets/..%2F..%2Fsettings.json?token=${token}`);
 assert.notEqual(traversal.status, 200);
 
-const styleText = await styleAsset.text();
+// The console ships one stylesheet per chunk, so the font faces live in
+// whichever sheet the entry owns rather than necessarily the first one listed.
+const stylePaths = [...new Set([...pageText.matchAll(/\/assets\/[^"']+\.css/g)].map((match) => match[0]))];
+const styleText = (await Promise.all(
+  stylePaths.map(async (item) => (await fetch(`${base}${item}?token=${token}`)).text()),
+)).join('\n');
 assert.match(styleText, /@font-face/);
 assert.match(styleText, /font-family:\s*['"]?Inter Variable/);
 const rawFontUrl = styleText.match(/url\((['"]?)([^)'"]+\.woff2)\1\)/)?.[2];
