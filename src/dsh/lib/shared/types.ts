@@ -83,6 +83,8 @@ export interface WebSocketHubOptions {
    * applies to devices that are already connected.
    */
   clientIp?: (remoteAddress: string, headers: ForwardedClientHeaders) => string;
+  /** Localized label for a UA that matches no platform. */
+  unknownLabel?: () => string;
   onConnection?: (client: WebSocketClient) => void;
   onMessage?: (client: WebSocketClient, message: unknown) => void;
   onClose?: (client: WebSocketClient) => void;

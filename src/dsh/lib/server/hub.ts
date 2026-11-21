@@ -298,6 +298,7 @@ export function createHubController(
       server,
       path: '/ws',
       clientIp: (remoteAddress, headers) => remote.clientIp(remoteAddress, headers),
+      unknownLabel: () => hostMessage(state.effectiveLocale(), 'unknownDevice'),
       authorize: (req: IncomingMessage, url: URL) => remote.authorizeSocket(req, url),
       onConnection(client: WebSocketClient): void {
         startLoops();

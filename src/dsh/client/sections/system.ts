@@ -111,7 +111,7 @@ function clientsGroup(api: PanelApi): React.ReactElement {
       : h('div', { className: 'drc-list' }, clients.map((client) => h('div', { className: 'drc-client', key: client.id },
         h('div', { className: 'drc-client-main' },
           h('span', { className: 'drc-client-name' },
-            h('strong', null, client.label || t('device')),
+            h('strong', null, client.label || t('unknownDevice')),
             client.userAgent
               ? h('span', {
                 className: 'drc-client-tip',

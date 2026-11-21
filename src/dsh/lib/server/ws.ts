@@ -37,15 +37,16 @@ function normalizeIp(value: unknown): string {
   return ip.startsWith('::ffff:') ? ip.slice(7) : ip;
 }
 
-function deviceLabel(userAgent: unknown): string {
+function deviceLabel(userAgent: unknown, unknownLabel: string): string {
   const ua = String(userAgent || '');
+  if (/RC-Companion/i.test(ua)) return 'RC-Companion';
   if (/iPhone/i.test(ua)) return 'iPhone';
   if (/iPad/i.test(ua)) return 'iPad';
   if (/Android/i.test(ua)) return 'Android';
   if (/Macintosh|Mac OS X/i.test(ua)) return 'Mac';
   if (/Windows/i.test(ua)) return 'Windows';
   if (/Linux/i.test(ua)) return 'Linux';
-  return '浏览器';
+  return unknownLabel;
 }
 
 function frame(opcode: number, payload: Buffer = Buffer.alloc(0)): Buffer {
@@ -82,6 +83,7 @@ export function createWebSocketHub(options: WebSocketHubOptions): WebSocketHub {
     options.authorize || (() => ({ ok: true }));
   const clientIp: (remoteAddress: string, headers: ForwardedClientHeaders) => string =
     options.clientIp || ((remoteAddress) => remoteAddress);
+  const unknownLabel: () => string = options.unknownLabel || (() => 'Unknown');
   const onConnection: (client: WebSocketClient) => void = options.onConnection || (() => {});
   const onMessage: (client: WebSocketClient, message: unknown) => void = options.onMessage || (() => {});
   const onClose: (client: WebSocketClient) => void = options.onClose || (() => {});
@@ -264,7 +266,7 @@ export function createWebSocketHub(options: WebSocketHubOptions): WebSocketHub {
       socket,
       ip: clientIp(remoteIp, forwardedHeaders),
       userAgent: String(req.headers['user-agent'] || ''),
-      label: deviceLabel(req.headers['user-agent']),
+      label: deviceLabel(req.headers['user-agent'], unknownLabel()),
       connectedAt: Date.now(),
       lastSeen: Date.now(),
       lastPong: Date.now(),
@@ -307,7 +309,7 @@ export function createWebSocketHub(options: WebSocketHubOptions): WebSocketHub {
     return [...clients.values()]
       .map((client) => ({
         id: client.id,
-        label: client.label,
+        label: deviceLabel(client.userAgent, unknownLabel()),
         ip: clientIp(client.remoteIp, client.forwardedHeaders),
         userAgent: client.userAgent,
         connectedAt: client.connectedAt,
