@@ -57,7 +57,7 @@
 新问题：
 
 1. `sessionController.create({ workspaceId, agentPreset })` 建会话；
-2. `agent.model.select()` 只改该会话的模型，不写 DSH 默认值；选择失败只记日志，回退会话默认；
+2. `sessionController.selectModel({ sessionId, provider, model, reasoningEffort })` 记录该会话的模型；官方实现会同时把选择作为 **DSH 默认模型**保存到 profile（后台写 `agent-default-model` 条目）；选择失败只记日志，回退会话默认；
 3. `permissionPresets.set(session, name)` 设权限行为；
 4. `sessionController.prompt({ requestId, sessionId, mode: 'queue', content }, signal)`。**第二个 `AbortSignal` 参数是必需的**；
 5. `content` 是文本块，加可选的官方图片块 `{ type: 'image', mediaType, data }`；Host 先用 `llm.resolveModelInfo()` 确认模型接受图片；
@@ -151,11 +151,12 @@
 
 - `speechController` / `sessionController` / `llm` / `permissionPresets` 都是公开服务；不要绕过它们读内部注册表。
 - `sessionController.prompt()` 的第二个参数是 `AbortSignal`，缺了会在停止 / 超时时无法真正中止。
+- 模型选择只经 `sessionController.selectModel`；不要再用 Agent 运行时字段改模型，也不要自己调 `llm.resolveCallConfig` 代替它的准入校验。
 - `follow({ assistantStream: true })` 是进程内逐块流；不要改成轮询整段回答，除非同时处理超时、停止和 attempt 分隔。
 - 图片 id 是一次性的；认领失败不能重试同一个 id。
 - `quickqa` 设置未就绪时不要保存；Host 会丢弃补丁，但 UI 仍应禁用。
 
 ## 测试
 
-- `test/dsh/quickqa.mjs`：目录、就绪门槛（`waking` 可读不可传）、`imageInput`、模型 / 模式 / 权限落到会话、提问与追问、音频 / 图片上传、一次性 `imageId`、纯文本模型拒绝、流式帧与 attempt 分隔、停止 / 取消。
+- `test/dsh/quickqa.mjs`：目录、就绪门槛（`waking` 可读不可传）、`imageInput`、模型选择经 `sessionController.selectModel`、模式 / 权限落到会话、提问与追问、音频 / 图片上传、一次性 `imageId`、纯文本模型拒绝、流式帧与 attempt 分隔、停止 / 取消。
 - `test/svelte/quickqa-image.test.ts`：图片 MIME / 扩展名归一化、伴侣桥接检测、缺省 PNG、失败传播。

@@ -69,8 +69,8 @@ const continuedEvents = [
   },
 ];
 
-const agent = { id: sessionId, status: 'running' };
-const continuedAgent = { id: continuedId, status: 'running' };
+const agent = { id: sessionId };
+const continuedAgent = { id: continuedId };
 const handlers = new Map();
 const handlerOptions = new Map();
 const serviceCalls = [];
@@ -111,6 +111,14 @@ const ctx = {
         get: (id) => (id === sessionId ? agent : id === continuedId ? continuedAgent : undefined),
         currentInitiator: () => agent,
         turnBoundaryOf: () => ({ lastTurn: 1, openTurnStartSeq: 1 }),
+      };
+    }
+    if (name === 'sessionController') {
+      return {
+        state: async (request) => ({
+          active: true,
+          running: request.sessionId === sessionId || request.sessionId === continuedId,
+        }),
       };
     }
     if (name === 'sessionTitle') {
@@ -192,6 +200,8 @@ try {
   assert.equal(row.pending.requestId, 'call-1');
   assert.equal(row.pending.answerable, false);
   assert.equal(row.pending.questions.length, 0);
+  assert.equal(row.agentStatus, 'running', 'session running state comes from the public controller');
+  assert.equal('model' in row, false, 'the unused session model label is gone');
 
   await service.applySettings({ notifications: { pushQuestions: true } });
   const settingsMessage = await waitFor((message) => message.type === 'settings');

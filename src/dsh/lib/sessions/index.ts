@@ -83,7 +83,6 @@ export interface SessionSummary {
   createdAt: number;
   lastActiveAt: number;
   turn: number;
-  model: string;
   status: SessionStatus;
   agentStatus: string;
   /** Start time of the currently open turn, read from the DSH session log. */
@@ -127,16 +126,9 @@ interface SessionService {
   list?(): SessionLike[];
 }
 
-interface AgentModel {
-  provider?: string;
-  model?: string;
-}
-
-/** Minimal agent shape: id, status, and the model label. */
+/** Minimal agent shape used to attach a replayed question to its live Agent. */
 interface AgentLike {
   id?: string;
-  status?: string;
-  model?: { current?(): AgentModel | null } | null;
 }
 
 /** Minimal `agents` service. */
@@ -148,6 +140,17 @@ interface AgentService {
     lastTurn?: number | string;
     openTurnStartSeq?: number | string | null;
   } | null | undefined;
+}
+
+/** One passive Session state sample returned by the public Session controller. */
+interface SessionStateLike {
+  active?: boolean;
+  running?: boolean;
+}
+
+/** Minimal `sessionController` service: only the passive state read is used. */
+interface SessionControllerService {
+  state?(request: { sessionId: string }, signal: AbortSignal): Promise<SessionStateLike | null | undefined>;
 }
 
 /** Minimal `sessionTitle` service. */
@@ -741,13 +744,39 @@ export function createPendingTracker(ctx: DshContext, options: PendingTrackerOpt
   };
 }
 
-export function collectSessions(
+/**
+ * Read one passive state sample per live Session through the public
+ * `sessionController` service. Missing samples keep that row's state unknown
+ * instead of failing the whole list.
+ */
+async function readSessionStates(
+  ctx: DshContext,
+  sessions: readonly SessionLike[],
+): Promise<Map<string, SessionStateLike>> {
+  const states = new Map<string, SessionStateLike>();
+  const controller = ctx.get?.('sessionController') as SessionControllerService | undefined;
+  if (!controller?.state) return states;
+  const signal = AbortSignal.timeout(5_000);
+  await Promise.all(sessions.map(async (session) => {
+    const id = String(session.id);
+    try {
+      const state = await controller.state!({ sessionId: id }, signal);
+      if (state && typeof state === 'object') states.set(id, state);
+    } catch {
+      /* a Session that detached mid-read has no authoritative state */
+    }
+  }));
+  return states;
+}
+
+export async function collectSessions(
   ctx: DshContext,
   pendingTracker?: PendingTracker | null,
   getLocale?: () => PluginLocale,
-): SessionSummary[] {
+): Promise<SessionSummary[]> {
   const sessionService = ctx.get?.('sessions') as SessionService | undefined;
   const sessions = sessionService?.list?.() ?? [];
+  const sessionStates = await readSessionStates(ctx, sessions);
   const agents = ctx.get?.('agents') as AgentService | undefined;
   const locale: PluginLocale = getLocale?.() ?? 'zh';
   const agentList = agents?.list?.() ?? [];
@@ -760,6 +789,8 @@ export function collectSessions(
 
   for (const session of sessions) {
     const id = String(session.id);
+    const sessionState = sessionStates.get(id);
+    const isRunning = sessionState?.running === true;
     const agent = agentById.get(id) || agents?.get?.(id);
     const events = recentEvents(session);
     const lastEvent = events.length > 0 ? events[events.length - 1] : null;
@@ -768,7 +799,7 @@ export function collectSessions(
     pendingTracker?.pruneContinued(id, wait.settledCallIds);
     const tracked = pendingTracker?.snapshot(id) ?? [];
     let fallbackPending: PendingInfo | null = null;
-    if (tracked.length === 0 && agent?.status === 'running' && wait.pending) {
+    if (tracked.length === 0 && isRunning && wait.pending) {
       const requestId = wait.pending.requestId || '';
       if (!pendingTracker?.isSettled(id, requestId)) {
         fallbackPending = wait.pending;
@@ -828,7 +859,7 @@ export function collectSessions(
     } catch {
       /* boundary projection may not be available */
     }
-    if (runningSince === null && agent?.status === 'running' && lastTurnStart) {
+    if (runningSince === null && isRunning && lastTurnStart) {
       runningSince = finiteNumber(lastTurnStart.time, null);
     }
 
@@ -847,16 +878,7 @@ export function collectSessions(
       /* turn projection may not exist in a minimal composition */
     }
 
-    let model = '';
-    try {
-      const current = agent?.model?.current?.();
-      if (current?.provider && current?.model) model = `${current.provider} / ${current.model}`;
-    } catch {
-      /* optional */
-    }
-
     const isQuestion = pending.length > 0;
-    const isRunning = agent?.status === 'running';
     const status: SessionStatus = isQuestion ? 'question' : isRunning ? 'running' : errorReason ? 'error' : 'done';
     const primaryPending = pending[0] || null;
     const errorMessage = errorReason?.kind === 'error'
@@ -874,9 +896,8 @@ export function collectSessions(
       createdAt: finiteNumber(session.header?.createdAt, now) ?? now,
       lastActiveAt,
       turn,
-      model,
       status,
-      agentStatus: agent?.status || 'inactive',
+      agentStatus: isRunning ? 'running' : sessionState?.active === true ? 'idle' : 'inactive',
       runningSince,
       error: errorMessage,
       pending: primaryPending

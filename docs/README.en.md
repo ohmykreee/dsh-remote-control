@@ -155,7 +155,7 @@ Turn on **Push inquiries** and sessions waiting for an answer gain an **Answer**
 ## Quick Q&A
 
 - Enable the official **Voice Input** plugin in DSH and download / load its speech model first. The first block under **Remote control → Quick Q&A** shows whether it is ready. While it is not ready, the model and workspace settings below stay disabled and the phone refuses new questions; saved settings are kept.
-- Reply model and reasoning effort come from the models currently available on this machine. Without an explicit choice, the DSH default model is used.
+- Reply model and reasoning effort come from the models currently available on this machine. Without an explicit choice, the DSH default model is used. Changing the model or reasoning effort for Quick Q&A also makes it the DSH default, so new DSH sessions use it.
 - The default workspace is selected automatically when the quick page opens. Workspaces marked as pinned appear beside it for switching. The workspace list also comes from this machine.
 - Pinned workspaces can be dragged into a custom order; unchecked workspaces cannot be dragged and always stay below the pinned ones. The phone uses the same saved order.
 - Each pinned workspace row holds its checkbox, mode, and permission behavior; the two selects are disabled until the workspace is checked. The default workspace is always checked and can set the same two values. Only the default and pinned workspaces keep these two settings when saved.

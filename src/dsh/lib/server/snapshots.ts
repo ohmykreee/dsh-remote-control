@@ -136,7 +136,7 @@ export interface Snapshots {
   getWeatherView(): Promise<WeatherSnapshot>;
   getAccountView(): Promise<AccountView | AccountFallback>;
   getPerformanceView(force?: boolean): Promise<PerformanceSnapshot | PerformanceFallback>;
-  consoleSessions(): SessionList;
+  consoleSessions(): Promise<SessionList>;
   buildOverview(): Promise<OverviewPayload>;
   buildMedia(): Promise<MediaSnapshot | MediaFallback>;
   getSettingsPayload(): Promise<SettingsPayload>;
@@ -311,8 +311,8 @@ export function createSnapshots(deps: SnapshotDeps): Snapshots {
   }
 
   /** Session list sent to the phone, with question details only when enabled. */
-  function consoleSessions(): SessionList {
-    const sessions = collectSessions(state.ctx, state.pending, state.effectiveLocale);
+  async function consoleSessions(): Promise<SessionList> {
+    const sessions = await collectSessions(state.ctx, state.pending, state.effectiveLocale);
     if (settings().notifications.pushQuestions) return sessions;
     return sessions.map((session) => session.pending
       ? { ...session, pending: { ...session.pending, questions: [], answerable: false } }
@@ -331,7 +331,7 @@ export function createSnapshots(deps: SnapshotDeps): Snapshots {
     let sessionsError: string | null = null;
     if (enabled.sessions) {
       try {
-        sessions = consoleSessions();
+        sessions = await consoleSessions();
       } catch (errorValue) {
         sessionsError = serializeError(errorValue);
       }

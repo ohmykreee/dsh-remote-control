@@ -198,6 +198,16 @@ const sessionController = {
     };
     if (signal.aborted) return;
   },
+  async selectModel(request) {
+    modelSelections.push({ ...request });
+    return {
+      selected: {
+        provider: request.provider,
+        model: request.model,
+        ...(request.reasoningEffort ? { reasoningEffort: request.reasoningEffort } : {}),
+      },
+    };
+  },
 };
 
 const ctx = {
@@ -210,9 +220,6 @@ const ctx = {
     };
     if (name === 'agents') {
       return {
-        get: (id) => (id === activeSession
-          ? { id, model: { select: (selection) => modelSelections.push({ id, ...selection }) } }
-          : undefined),
         turnBoundaryOf: () => ({ lastTurn }),
       };
     }
@@ -401,7 +408,7 @@ try {
   assert.equal(createCalls[0].agentPreset, 'standard');
   assert.equal(modelSelections.length, 1);
   assert.deepEqual(modelSelections[0], {
-    id: 's-quickqa-1',
+    sessionId: 's-quickqa-1',
     provider: 'deepseek',
     model: 'deepseek-flash',
     reasoningEffort: 'high',

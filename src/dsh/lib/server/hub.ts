@@ -61,9 +61,9 @@ export function createHubController(
 
   async function pushSessions(force: boolean = false): Promise<void> {
     if (!hub || hub.size() === 0 || !settings().pageEnabled.sessions) return;
-    let sessions: ReturnType<Snapshots['consoleSessions']> = [];
+    let sessions: Awaited<ReturnType<Snapshots['consoleSessions']>> = [];
     try {
-      sessions = snapshots.consoleSessions();
+      sessions = await snapshots.consoleSessions();
     } catch {
       return;
     }

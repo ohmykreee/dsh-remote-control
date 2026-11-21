@@ -123,9 +123,9 @@ Host 代码在 `src/dsh/lib`，由 `src/dsh/lib/service.ts` 组合，运行在 D
 
 ## 会话与远程问询
 
-`src/dsh/lib/sessions/index.ts` 依赖 DSH 的 `sessions`、`agents`、`sessionTitle`、`userQuestions` 服务，并监听 `user-questions/request`、`approval/request` 瀑布事件。
+`src/dsh/lib/sessions/index.ts` 依赖 DSH 的 `sessions`、`agents`、`sessionTitle`、`userQuestions` 服务，并通过公开的 `sessionController.state()` 读取每个活会话的运行状态；同时监听 `user-questions/request`、`approval/request` 瀑布事件。
 
-- `collectSessions()` 把 DSH 会话投影成 `SessionSummary`：标题、cwd、状态、运行起始时间、子代理父子关系、待回答 / 待审批、错误。状态排序为 `question > running > error > done`。
+- `collectSessions()` 把 DSH 会话投影成 `SessionSummary`：标题、cwd、状态、运行起始时间、子代理父子关系、待回答 / 待审批、错误。运行状态取 `sessionController.state()` 的 `running` / `active`；状态排序为 `question > running > error > done`。
 - `createPendingTracker()` 在 `user-questions/request` 上以 **`prepend`** 注册：DSH Web 客户端会转发同一瀑布，如果它先运行会 hold 住请求，tracker 就看不到实时问题。先注册自己的处理器，再通过 `next()` 交给正常回答者。
 - 远程回答与 DSH 本地回答通过 `Promise.race` 竞争，谁先结束用谁；远程赢了之后 DSH 的提问卡片可能仍显示，需要在 DSH 里手动关闭，这是 DSH Web 客户端的已知行为。
 - 已超时但仍可回答的 continued 提问通过 `userQuestions.answer(agent, callId, answer)` 提交；从会话日志重建的待处理项通过 `adopt()` 补登记。

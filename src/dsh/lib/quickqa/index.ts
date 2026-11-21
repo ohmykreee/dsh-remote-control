@@ -52,30 +52,16 @@ export interface QuickQaService {
   dispose(): void;
 }
 
-interface AgentModelLike {
-  select?(selection: { provider: string; model: string; reasoningEffort?: string }): void;
-}
-
-interface AgentLike {
-  id?: string;
-  model?: AgentModelLike | null;
-}
-
 interface SessionLike {
   id?: string;
 }
 
 interface AgentsService {
-  get?(id: string): AgentLike | undefined;
   turnBoundaryOf?(session: SessionLike): { lastTurn?: number | string } | null | undefined;
 }
 
 interface SessionsService {
   get?(id: string): SessionLike | undefined;
-}
-
-interface LlmService {
-  resolveCallConfig?(config: { provider: string; model: string; reasoningEffort?: string }): Promise<unknown>;
 }
 
 interface PermissionPresetsService {
@@ -98,6 +84,12 @@ interface SessionControllerService {
   prompt?(request: Record<string, unknown>, signal?: AbortSignal): Promise<{ accepted?: boolean }>;
   follow?(request: Record<string, unknown>, signal: AbortSignal): AsyncIterable<unknown>;
   cancel?(request: { sessionId: string }): { accepted?: boolean } | void;
+  selectModel?(request: {
+    sessionId: string;
+    provider: string;
+    model: string;
+    reasoningEffort?: string;
+  }): Promise<unknown>;
 }
 
 interface QuickQaRun {
@@ -172,37 +164,25 @@ function reasonOf(event: JsonRecord): JsonRecord {
   return isRecord(data.reason) ? data.reason : {};
 }
 
-/** Resolve the quickqa model selection against the live catalog. */
+/** Record the quickqa model selection through the public Session controller. */
 async function selectModel(
   deps: QuickQaServiceOptions,
-  catalog: QuickQaOptions,
+  controller: SessionControllerService | undefined,
   sessionId: string,
   selection: QuickQaModelSelection,
 ): Promise<void> {
   if (!selection.provider || !selection.model) return;
-  const ctx = deps.ctx;
-  const llm = service<LlmService>(ctx, 'llm');
-  const config = {
-    provider: selection.provider,
-    model: selection.model,
-    ...(selection.reasoningEffort ? { reasoningEffort: selection.reasoningEffort } : {}),
-  };
-  try {
-    await llm?.resolveCallConfig?.(config);
-  } catch (errorValue) {
-    deps.log(`quickqa: model selection rejected: ${serializeError(errorValue)}`);
+  if (!controller?.selectModel) {
+    deps.log('quickqa: sessionController.selectModel is unavailable');
     return;
   }
-  const agents = service<AgentsService>(ctx, 'agents');
-  let agent = agents?.get?.(sessionId);
-  if (!agent) {
-    // The agent is published as part of creation; give the store one turn to
-    // expose it before falling back to the saved default model.
-    await sleep(0);
-    agent = agents?.get?.(sessionId);
-  }
   try {
-    agent?.model?.select?.(config);
+    await controller.selectModel({
+      sessionId,
+      provider: selection.provider,
+      model: selection.model,
+      ...(selection.reasoningEffort ? { reasoningEffort: selection.reasoningEffort } : {}),
+    });
   } catch (errorValue) {
     deps.log(`quickqa: model selection failed: ${serializeError(errorValue)}`);
   }
@@ -709,7 +689,7 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
       const sessionId = safeString(created?.sessionId, 300);
       if (!sessionId) throw new Error('session was not created');
       placeholder.sessionId = sessionId;
-      await selectModel(deps, options, sessionId, selection);
+      await selectModel(deps, controller, sessionId, selection);
       selectPermission(deps, sessionId, profile.permissionPreset);
       const agents = service<AgentsService>(deps.ctx, 'agents');
       const sessions = service<SessionsService>(deps.ctx, 'sessions');

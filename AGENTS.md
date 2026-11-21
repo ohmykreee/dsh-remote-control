@@ -12,7 +12,8 @@
 4. Rust 探针是唯一的 OS 探测层。Node 侧不要引入 PowerShell / C# / playerctl / osascript 回退；探针缺失必须是显式的「不可用」状态。唯一例外：`performance` 在探针缺失时用 `os.cpus()` / `os.totalmem()` 兜底 CPU / 内存。
 5. 用户可见文案必须进 i18n 字典；不写死中文。改文案时同步侧边栏、Host、手机端三份运行时字典，并重新构建对应产物。
 6. 媒体客户端专属逻辑（CDP、红心、私有控制、页面身份、封面）只能放在 `src/rust/src/media/vendor/<client>.rs` 和 `vendor/mod.rs` 的分派里；平台层、`media/mod.rs` 与 Node 侧不得出现 `App::Xxx` 特例。
-7. 所有实现 DSH 客户端行为的功能（快速问答、侧边栏、会话与问询等）都只经 DSH 公开服务与事件，不读内部实现：快速问答用 `speechController` / `sessionController` / `llm` / `permissionPresets` 等，会话与问询用 `sessions` / `agents` / `userQuestions`，侧边栏用 `locale` / `theme` / `slots`。通过 `ctx.get` / `ctx.on` 或 `ctx` 上注入的服务解析并做结构校验；不要 import DSH 内部模块、读 provider 注册表、绕过服务直连模型 / DSH HTTP API，也不要复制 DSH 客户端的私有实现。
+7. 所有实现 DSH 客户端行为的功能（快速问答、侧边栏、会话与问询等）都只经 DSH 公开服务与事件，不读内部实现：快速问答用 `speechController` / `sessionController` / `llm` / `permissionPresets` 等，会话与问询用 `sessions` / `agents` / `userQuestions`，侧边栏用 `locale` / `theme` / `slots`。通过 `ctx.get` / `ctx.on` 或 `ctx` 上注入的服务解析并做结构校验；不要 import DSH 内部模块、读 provider 注册表、绕过服务直连模型 / DSH HTTP API，也不要复制 DSH 客户端的私有实现。**在创造模式下查公开调用点**：先用 `cordis_inspect_list` 看当前有哪些 Inspect Provider，再用 `cordis_inspect_query` 按 `platform` + `provider` + `method` 查询——Host 的 `Service` / `Event` 给出服务方法、可选 / 硬依赖的访问方式与事件签名，Client 的 `Service` / `Event` / `Slots` 给出侧边栏可用的服务、事件与插槽契约，`Config` / `Theme` 分别给出插件配置 schema 与主题令牌；以返回的声明为准。Inspect 没有投影的成员（例如通过 module augmentation 加到 `Agent` 上的运行时面）要回到已安装版本的公开类型声明确认，不要从私有实现猜测；需要查已安装文档 / 源码时加载 `dsh-doc` 技能。
+8. 在创造模式（Creator）下，构建完成后可以用 `plugin_manager` 禁用再重新启用本插件，让 DSH 重新加载产物：`list_plugins` 找到本插件条目，`set_plugin` 先 `enabled: false` 再 `enabled: true`。这会重启 Host 半（LAN 服务、WebSocket）并断开手机连接；先 `pnpm build`，改过 `client.js` 时重载后刷新 DSH 页面。只在本仓库的 Creator 会话里这样做，不要在日常使用中反复开关。
 
 ## 文档地图
 
