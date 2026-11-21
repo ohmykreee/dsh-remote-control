@@ -3,7 +3,7 @@
 import type { JsonRecord } from './types.js';
 import { isRecord } from './types.js';
 
-export const VERSION = '1.1.2';
+export const VERSION = '1.1.3';
 export const PANEL_ID = 'remote-control';
 export const ROUTE_PREFIX = '/dsh-remote-control';
 export const INFO_PATH = `${ROUTE_PREFIX}/api/info`;

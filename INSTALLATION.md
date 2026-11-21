@@ -28,7 +28,7 @@
 **方式 A-1：DSH 插件管理器**
 
 1. 打开 DSH 设置 → 插件管理 → 安装插件。
-2. 填包名 `@ohmykreee/dsh-remote-control`（可加版本，如 `@ohmykreee/dsh-remote-control@1.1.2`）。
+2. 填包名 `@ohmykreee/dsh-remote-control`（可加版本，如 `@ohmykreee/dsh-remote-control@1.1.3`）。
 3. 安装并启用，重启 DSH（或重新加载插件）。侧边栏会出现 **远程控制台**。
 
 **方式 A-2：DSH CLI（DSH 未运行时）**
@@ -45,7 +45,7 @@ dsh plugin --profile web add @ohmykreee/dsh-remote-control
 
 ```json
 {
-  "dependencies": { "@ohmykreee/dsh-remote-control": "^1.1.2" },
+  "dependencies": { "@ohmykreee/dsh-remote-control": "^1.1.3" },
   "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@ohmykreee/dsh-remote-control"] } }
 }
 ```
@@ -282,7 +282,7 @@ node scripts/build-rust.mjs
 **方式 A：** 在 DSH 插件管理器里升级 **远程控制台**；没有升级入口时，用 CLI 装一次目标版本：
 
 ```powershell
-dsh plugin --profile desktop add @ohmykreee/dsh-remote-control@1.1.2   # 换成目标版本
+dsh plugin --profile desktop add @ohmykreee/dsh-remote-control@1.1.3   # 换成目标版本
 ```
 
 更新后重启 DSH。插件目录里的 `native/bin` 不随包更新，用 `DSH_RC_PROBE` 指向外部探针时无需重建。
