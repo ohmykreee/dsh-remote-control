@@ -81,6 +81,7 @@ The agent installs the plugin, reads both documents, builds the component and te
 
 - Open **Remote control → Connection** in the sidebar, then scan the pairing QR code with your phone or copy the console address. Phone and computer must share a LAN.
 - Access verification is on by default: the first visit needs the scanned link, and a missing verification shows an error page. You can turn it off or refresh it; refreshing disconnects every connected device.
+- Disconnecting one device under **System information** shows **Disconnect & rotate** while verification is on: only that device has to scan again, and the other devices keep working.
 - You can allow only selected network interfaces / subnets.
 - Optional HTTPS: provide certificate and private-key file paths. If the certificate is invalid the console stays on HTTP and shows the error on the connection page.
 - When HTTPS is active and the certificate carries a concrete DNS name (SAN or CN), the pairing link and QR code use that domain instead of the interface IP; wildcard-only or IP-only certificates keep the LAN address.
@@ -103,7 +104,7 @@ The **Remote control** sidebar has these groups:
 | Balance | Spend window, low-balance threshold, peak / off-peak marker |
 | Notifications | Per-app toggles, display limit, remote answers |
 | App names | Rename apps or reset their default names |
-| System information | Service status, diagnostics, and connected devices |
+| System information | Service status, diagnostics, and connected devices (disconnecting one refreshes verification while it is on) |
 
 Click **Save settings** to apply changes. Renaming an app, theme changes, refreshing access verification and disconnecting a device take effect immediately. When a manually entered field is invalid, the field is marked and **Save settings** stays disabled until it is fixed; inputs that can repair themselves, such as the low-balance threshold, the notification count, the custom page address, and the QWeather monthly limit and refresh interval, fall back to a safe value when they lose focus.
 
@@ -190,7 +191,7 @@ Turn on **Push inquiries** and sessions waiting for an answer gain an **Answer**
 
 ## Security and privacy
 
-- Access verification is random and enabled by default. You can turn it off or refresh it; refreshing disconnects every connected device. You can allow only selected network interfaces / subnets.
+- Access verification is random and enabled by default. You can turn it off or refresh it; refreshing disconnects every connected device. Disconnecting a single device refreshes it too: that device has to scan again, the other connected devices keep working, and an already-paired device that is offline at that moment needs the new link. You can allow only selected network interfaces / subnets.
 - Optional HTTPS; an invalid certificate falls back to HTTP with an error shown. Behind a reverse proxy, trusted proxy IPs or ranges can be configured to show the real client IP.
 - Settings stay on this computer. The repository contains no local paths, verification secrets, certificates, QWeather private keys or notification content, and there is no telemetry.
 - Weather and public-holiday lookups contact external services; with QWeather the requests go to your own QWeather API Host. All other data stays between your computer and your phone.

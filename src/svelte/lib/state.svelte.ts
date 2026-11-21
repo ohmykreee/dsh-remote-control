@@ -1,6 +1,7 @@
 import { setLocale, t } from './i18n.svelte';
 import { DEFAULT_CUSTOM_PAGE_URL, DEFAULT_ORDER, normalizeOrder, resolveCustomPageUrl } from './pages';
 import { clearQuickQaImage, handleQuickQaMessage, quickQa, quickQaPendingSession, quickQaSyncSettings } from './quickqa.svelte';
+import { applySessionToken, retrySessionCookie } from './session-token';
 import {
   DEFAULT_COUNTDOWN_PRESETS,
   normalizeCountdown,
@@ -307,6 +308,9 @@ function handleMessage(message: ServerMessage): void {
     case 'settings':
       applySettings(message.data);
       break;
+    case 'token':
+      applySessionToken(message.token);
+      break;
     case 'action-result':
       if (!message.ok) toast(message.error || t('actionFailed'));
       break;
@@ -337,6 +341,9 @@ export function startLive(): void {
   configureLive({
     onOpen() {
       setOnline(true);
+      // A rotation that landed while the socket was down still owns a fresh
+      // token; make sure the cookie caught up before the next blip.
+      retrySessionCookie();
       sendLive({ type: 'settings' });
     },
     onMessage: handleMessage,

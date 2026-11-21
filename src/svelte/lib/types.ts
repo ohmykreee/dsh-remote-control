@@ -358,6 +358,8 @@ export type ServerMessage =
   | { type: 'performance'; data: PerformanceData | null }
   | { type: 'clients'; data: unknown[] }
   | { type: 'settings'; data: ConsoleSettings }
+  /** Rotated access token; only sent to consoles that stay connected. */
+  | { type: 'token'; token: string }
   | { type: 'action-result'; ok: boolean; action?: string; error?: string }
   | { type: 'answer-result'; ok: boolean; sessionId?: string; requestId?: string; error?: string }
   | {

@@ -59,14 +59,14 @@ Host 代码在 `src/dsh/lib`，由 `src/dsh/lib/service.ts` 组合，运行在 D
 - **番茄钟 / 倒计时**：互斥；手改文件同时开启时保留番茄钟。番茄钟分钟允许两位小数；倒计时预设 1–5 个，按分 / 秒填写。
 - **页面**：`custom` 固定在末尾且默认关闭；全部页面关闭时回退 `home`。`customPageUrl` 裸主机补 `https://`，只接受 http(s)，留空时手机端用内置地址。
 - **快速问答**：`profiles` 只为默认 / 置顶工作区保存 `agentPreset` / `permissionPreset`；未置顶的工作区不保存。
-- **令牌**：24 字节随机 `base64url`。设置对象不含 token；`/api/info` 与 `/api/settings` 的 `info` 会带配对 URL / 二维码路径，token 只出现在 URL query，客户端存为 cookie。
+- **令牌**：24 字节随机 `base64url`。设置对象不含 token；`/api/info` 与 `/api/settings` 的 `info` 会带配对 URL / 二维码路径，token 只出现在 URL query，客户端存为 cookie。轮换有两条路径：`/api/token/rotate` 换新并断开全部设备；`/api/disconnect` 在访问验证开启时先断目标再换新，把新令牌通过 `/ws` 推给剩下的设备（见 [`protocol.md`](protocol.md)）。
 - **更新**：`update(patch)` 浅合并 + 嵌套对象合并；`applySettings()` 还会做下面这些副作用。
 
 ### `applySettings()` 的副作用
 
 `src/dsh/lib/service.ts`：
 
-- 删除补丁里的 `token` / `tokenRotatedAt`，令牌只能通过 `/api/token/rotate` 轮换。
+- 删除补丁里的 `token` / `tokenRotatedAt`，令牌只能通过 `/api/token/rotate` 或 `/api/disconnect` 轮换。
 - 官方语音输入未就绪时丢弃 `quickqa` 补丁，防止旧页面覆盖已保存配置。
 - QWeather 的 `apiHost` / `credentialId` / `projectId` / `developerId` 变化时清零本地月计数；打开控制台同步或身份变化时立即 `syncConsole()`。
 - `tokenEnabled` 或网卡列表变化时断开所有 WebSocket。
@@ -109,6 +109,7 @@ Host 代码在 `src/dsh/lib`，由 `src/dsh/lib/service.ts` 组合，运行在 D
 
 - 静态文件来自 `web/`：页面、`/assets/`、字体、`/manifest.webmanifest`、`/icon.svg`。路径有白名单。
 - `tokenEnabled` 时，页面、静态资源、`/ws`、提示音与快速问答上传需要 `?token=` 或 `dsh_rc` cookie；失败返回 401 页面或 JSON。
+- `/api/disconnect` 在 `tokenEnabled` 下把「关闭一台设备 + 轮换令牌 + 通知其余设备」当作一步：在关闭前先记下目标之外的客户端 id（断开后剩余的列表），关闭与发送都是同步的，目标设备不会在轮换前挤回 hub；随后轮换令牌并按 id 逐个发送 `token` 帧（每个连接恰好一次，不使用广播），设备用新令牌重签 cookie，全程不断线。
 - `/api/health` 与 `/favicon.ico` 不需要 token，但仍受 IP / 网卡白名单限制。
 - 回环地址始终放行；实现只解析 IPv4，IPv6 客户端会被拒绝。
 - 网卡白名单按 CIDR 判断，先于 token 检查。
@@ -178,7 +179,7 @@ Host 代码在 `src/dsh/lib`，由 `src/dsh/lib/service.ts` 组合，运行在 D
 - LAN：token（query / cookie）、可选网卡 CIDR 白名单、可选 HTTPS、`Origin` / `Host` 同源检查、静态路径白名单、两个上传的硬上限。`sameOrigin` 在没有 `Origin` 时放行，不要把它当完整 CSRF 防护。
 - 侧边栏：依赖 DSH `webServer` 的环回访问控制，并额外做 `sameOrigin`。
 - 设置与映射只存本机；仓库不包含路径、令牌、证书、和风私钥或通知内容。和风私钥会通过环回 `/api/settings` 返回侧边栏用于回填，但不会随手机端 `welcome` / `settings` 下发。
-- 轮换 token 会断开全部 WebSocket；关闭 token 后页面与 `/ws` 不再要求 token，但网卡白名单仍生效。
+- `/api/token/rotate` 会断开全部 WebSocket；`/api/disconnect` 只断目标设备并轮换令牌，其余连接保留，新令牌经 `/ws` 下发。关闭 token 后页面与 `/ws` 不再要求 token，但网卡白名单仍生效。
 - 实现是 IPv4-only；新增 IPv6 支持时要同时改 CIDR 判断、`ipAllowed()` 与测试。
 
 ## 测试

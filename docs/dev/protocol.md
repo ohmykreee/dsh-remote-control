@@ -27,13 +27,14 @@
 | POST | `/api/theme` | 同步 DSH 明暗主题 |
 | POST | `/api/locale` | 同步 DSH 当前语言 |
 | POST | `/api/token/rotate` | 轮换令牌并断开所有设备 |
-| POST | `/api/disconnect` | 按客户端 id 断开设备 |
+| POST | `/api/disconnect` | 按客户端 id 断开设备；开启访问验证时同时轮换令牌并把新令牌推给其余设备 |
 
 规则：
 
 - 写接口校验 `sameOrigin(req)`，不通过返回 403。**`sameOrigin` 在请求没有 `Origin` 头时返回 true**，这是给非浏览器调用方的兼容口；浏览器请求始终带 `Origin`，不要把它当成完整的 CSRF 边界。
 - 请求体是 JSON，上限 64 KiB（`src/dsh/lib/server/http.ts` 的 `BODY_LIMIT`）。这个限制只属于侧边栏环回路由，不是 LAN 上传的限制。
 - 路由处理失败返回 JSON `{ ok: false, error }`；不要新增返回 HTML 的 API。
+- `/api/disconnect` 在 `tokenEnabled` 下是一次「断开 + 轮换」：目标不在列表里时不轮换，只回 `{ ok, clients }`；关闭访问验证时也只关连接。轮换成功时响应是完整的 settings 载荷（新配对 URL / 二维码），侧边栏据此刷新。
 
 ## LAN HTTP
 
@@ -62,7 +63,7 @@
 
 - 校验网卡 / IP 白名单；
 - 如果请求带 `Origin`，必须与 `Host` 同源；没有 `Origin` 时放行（非浏览器客户端）；
-- `tokenEnabled` 时要求 query token 或 cookie（浏览器重连只靠 cookie，不会自动把 `?token` 加到 `/ws`）。
+- `tokenEnabled` 时要求 query token 或 cookie。浏览器正常重连只靠 cookie；收到过轮换令牌的页面会把它带在 query 上，直到 cookie 重新下发。
 
 传输层是手写的 RFC 6455 子集（`src/dsh/lib/server/ws.ts`），新增消息时必须满足：
 
@@ -87,6 +88,7 @@
 | `clients` | 已连接设备列表；`ip` 是经可信反向代理解析后的显示地址，`userAgent` 原样来自握手 |
 | `sessions` / `notifications` / `account` / `weather` / `media` / `performance` | 完整快照 |
 | `settings` | 设置变化；含 `quickqa` 语音就绪状态，官方语音插件就绪状态变化时也会重推 |
+| `token` | 轮换后的访问令牌；按断开操作后的客户端列表逐个发送，`{ type: 'token', token }` |
 | `action-result` | 媒体 / 音量动作结果 |
 | `answer-result` | 远程回答结果 |
 | `quickqa-state` | 阶段 `thinking` / `streaming` / `done` / `error`；可带 `sessionId`、`workspaceId`、`question`、`error`、`empty`、`stopped` |
@@ -134,6 +136,8 @@
 - `quickqa-state.question`：回显本次识别文本，手机聊天卡用它显示用户问题与多轮上下文。
 - `error`：不保证连接关闭；客户端应显示错误并等待下一次快照，不要假设服务端会重连。
 - `settings` 与 `welcome`：前者是后续变更，后者只在连接时发一次；两者都不含 token、证书 / 私钥路径。
+- `token`：只在「断开某台设备且访问验证开启」时发一次，是唯一携带令牌的帧。Host 在决定断开时就记下目标之外的客户端 id（即断开后剩余的列表），轮换后逐条发送（不是广播，每个连接恰好一次），已消失的 id 直接跳过；id 每次握手重新生成，所以被断开的设备即使立刻重连也拿不到这个帧。客户端收到后保存在内存，下一次握手带 `?token=`，并用一次 `HEAD /?token=` 让 Host 重新下发 `dsh_rc` cookie，避免刷新后令牌过期；不弹任何提示。
+- 断开的设备拿不到新令牌，它的旧 cookie 在轮换后立即失效，重连握手返回 401。同一时刻不在线的设备也收不到 `token`，需要重新扫码——这是单一共享令牌的固有限制。
 
 ## 改动清单
 
@@ -142,8 +146,8 @@
 1. `src/dsh/lib/server/hub.ts`（发送 / 分发）
 2. `src/dsh/lib/server/ws.ts`（只在需要改传输 / 鉴权 / 心跳时）
 3. `src/svelte/lib/types.ts`（消息联合类型）
-4. `src/svelte/lib/ws.ts`、`state.svelte.ts`（连接与状态）
+4. `src/svelte/lib/ws.ts`、`state.svelte.ts`（连接与状态）；令牌相关还有 `session-token.ts`
 5. 需要时 `src/svelte/lib/quickqa.svelte.ts`
-6. 本文件与相关测试（`test/dsh/smoke.mjs`、`questions.mjs`、`quickqa.mjs`）
+6. 本文件与相关测试（`test/dsh/smoke.mjs`、`disconnect-rotate.mjs`、`questions.mjs`、`quickqa.mjs`）
 
 `server/remote.ts` 只在改 LAN 鉴权或上传接口时需要动；侧边栏路由在 `server/routes.ts`。

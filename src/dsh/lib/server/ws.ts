@@ -338,6 +338,10 @@ export function createWebSocketHub(options: WebSocketHubOptions): WebSocketHub {
     info,
     size: () => clients.size,
     send,
+    sendTo(id, value) {
+      const client = clients.get(id);
+      if (client) send(client, value);
+    },
     dispose,
   };
 }

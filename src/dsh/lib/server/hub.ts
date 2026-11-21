@@ -26,6 +26,8 @@ export interface HubController {
   pushPerformance(force?: boolean): Promise<void>;
   closeAll(reason?: string): void;
   close(id: string, reason?: string): void;
+  /** Send one frame to a client id captured earlier; unknown ids are ignored. */
+  sendTo(id: string, value: unknown): void;
   dispose(): void;
 }
 
@@ -337,6 +339,9 @@ export function createHubController(
     },
     close(id: string, reason?: string) {
       hub?.close(id, reason);
+    },
+    sendTo(id: string, value: unknown) {
+      hub?.sendTo(id, value);
     },
     dispose() {
       stopLoops();

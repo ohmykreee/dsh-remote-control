@@ -330,6 +330,13 @@ export function createSidebarRoutes(deps: SidebarRouteDeps): SidebarRoutes {
     jsonResponse(res, 200, await snapshots.getSettingsPayload());
   }
 
+  /**
+   * Disconnect one console. With access verification on, the pairing token is
+   * rotated in the same step: a bare close would only drop the socket, and the
+   * device would reconnect with the token it already holds. The replacement goes
+   * to each console that was connected when the disconnect was decided, so they
+   * never have to pair again.
+   */
   async function handleDisconnect(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!sameOrigin(req)) {
       jsonResponse(res, 403, { ok: false, error: 'origin rejected' });
@@ -338,8 +345,32 @@ export function createSidebarRoutes(deps: SidebarRouteDeps): SidebarRoutes {
     try {
       const body = await readBody(req);
       const id = safeString(body?.id, 80);
-      if (id) hub.close(id, 'disconnected by host');
-      jsonResponse(res, 200, { ok: true, clients: hub.info() });
+      const before = hub.info();
+      const present = id !== '' && before.some((client) => client.id === id);
+      if (!present) {
+        jsonResponse(res, 200, { ok: true, clients: before });
+        return;
+      }
+      // Freeze the recipients before closing: this is the list that remains
+      // after the disconnect, identified by hub ids. Ids are minted per
+      // handshake, so a device that reconnects — even between the close and the
+      // writes — owns a new id and can never match an entry here. A broadcast
+      // would instead reach whoever happens to be connected when it runs.
+      const recipients = before
+        .filter((client) => client.id !== id)
+        .map((client) => client.id);
+      hub.close(id, 'disconnected by host');
+      // Verification off means the token is not what lets a device in, so
+      // rotating it would only invalidate the pairing link for no reason.
+      if (!settings().tokenEnabled) {
+        jsonResponse(res, 200, { ok: true, clients: hub.info() });
+        return;
+      }
+      const rotated = state.settingsStore.rotateToken();
+      for (const recipient of recipients) {
+        hub.sendTo(recipient, { type: 'token', token: rotated.token });
+      }
+      jsonResponse(res, 200, await snapshots.getSettingsPayload());
     } catch (errorValue) {
       jsonResponse(res, 400, { ok: false, error: serializeError(errorValue) });
     }

@@ -40,7 +40,8 @@
 | 模块 | 规则 |
 |---|---|
 | `state.svelte.ts` | 持有 WebSocket 快照、设置、页面状态；`applySettings()` 应用语言 / 主题 / 计时器 / 唤醒锁 / 自定义地址 |
-| `ws.ts` | 连接与重连；`sendLive()` 在断开时返回 false |
+| `ws.ts` | 连接与重连；`sendLive()` 在断开时返回 false；握手的 `?token=` 来自 `session-token.ts` |
+| `session-token.ts` | Host 轮换令牌后经 `token` 帧下发；只存内存，重签 `dsh_rc` cookie 并供下一次握手使用 |
 | `media.ts` | 播放状态、可 seek 判定、进度钳制 |
 | `session-tree.ts` | 父子会话分组、孤儿 / 环路兜底 |
 | `quickqa.svelte.ts` | 快速问答阶段、选区、流式回答、问询浮层 |

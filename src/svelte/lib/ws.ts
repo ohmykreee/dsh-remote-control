@@ -1,3 +1,4 @@
+import { sessionToken } from './session-token';
 import type { ClientMessage, ServerMessage } from './types';
 
 /**
@@ -40,9 +41,13 @@ export function connectLive(): void {
   }
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
   const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  // After a host-side token rotation the cookie is already stale; the token
+  // pushed over the previous socket covers the gap until the refresh lands.
+  const token = sessionToken();
+  const query = token ? `?token=${encodeURIComponent(token)}` : '';
   let next: WebSocket;
   try {
-    next = new WebSocket(`${scheme}//${location.host}/ws`);
+    next = new WebSocket(`${scheme}//${location.host}/ws${query}`);
   } catch {
     scheduleReconnect();
     return;

@@ -310,6 +310,14 @@ export function RemotePanel(): React.ReactElement {
   const disconnect = async (id: string): Promise<void> => {
     try {
       const payload = await postJson(DISCONNECT_URL, { id });
+      // With access verification on, disconnecting rotates the token, so the
+      // panel gets a full payload and refreshes the pairing URL / QR code.
+      if (isSettingsPayload(payload)) {
+        setData(payload);
+        setNotice(t('disconnectRotated'));
+        window.setTimeout(() => setNotice(''), 1600);
+        return;
+      }
       const clients = readClients(payload);
       setData((current) => (current ? { ...current, clients } : current));
     } catch (err) {

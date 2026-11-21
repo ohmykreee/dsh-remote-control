@@ -97,6 +97,14 @@ export interface WebSocketHub {
   info(): WebSocketClientInfo[];
   size(): number;
   send(client: WebSocketClient, value: unknown): void;
+  /**
+   * Send one frame to the console with this id, ignoring unknown ids.
+   *
+   * Ids are minted per handshake, so a device that reconnects gets a new one:
+   * sending to an id captured before the reconnect can never reach the new
+   * socket, unlike a broadcast over whoever is connected at send time.
+   */
+  sendTo(id: string, value: unknown): void;
   dispose(): void;
 }
 

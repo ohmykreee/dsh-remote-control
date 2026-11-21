@@ -103,7 +103,11 @@ function diagnosticsGroup(api: PanelApi): React.ReactElement {
 }
 
 function clientsGroup(api: PanelApi): React.ReactElement {
-  const { t, clients, disconnect } = api;
+  const { t, clients, disconnect, data } = api;
+  // The Host pairs a per-device disconnect with a token rotation while access
+  // verification is on, so the button says so. Read the saved switch, not the
+  // staged edit: the Host decides from the stored value.
+  const rotates = data.settings.tokenEnabled === true;
   return h('div', { className: 'drc-group' },
     groupHead(t('clients'), t('clientsHint')),
     clients.length === 0
@@ -124,7 +128,8 @@ function clientsGroup(api: PanelApi): React.ReactElement {
           ),
           h('small', null, `${client.ip} · ${formatDuration(Date.now() - client.connectedAt, t)}`),
         ),
-        h(Btn, { small: true, danger: true, onClick: () => void disconnect(client.id) }, t('disconnect')),
+        h(Btn, { small: true, danger: true, onClick: () => void disconnect(client.id) },
+          rotates ? t('disconnectRotate') : t('disconnect')),
       ))),
   );
 }
