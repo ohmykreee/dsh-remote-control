@@ -36,6 +36,8 @@ export interface RemoteClient {
   id: string;
   label?: string;
   ip: string;
+  /** Raw browser User-Agent, shown on hover in the system information page. */
+  userAgent?: string;
   connectedAt: number;
 }
 
@@ -124,6 +126,8 @@ export interface TlsSettings {
   enabled?: boolean;
   certPath?: string;
   keyPath?: string;
+  /** Reverse proxies whose real-IP headers replace a device's displayed IP. */
+  trustedProxies?: string[];
   advanced?: {
     /** Keep the phone screen awake while the console is visible; independent of `enabled`. */
     wakeLock?: boolean;
@@ -394,6 +398,8 @@ export interface CountdownPresetDraft {
 export interface DraftState {
   certPath: string;
   keyPath: string;
+  /** Comma-separated trusted reverse-proxy addresses, edited as plain text. */
+  trustedProxies: string;
   qweatherApiHost: string;
   qweatherCredentialId: string;
   qweatherProjectId: string;
@@ -411,6 +417,17 @@ export interface DraftState {
   countdownPresets: CountdownPresetDraft[];
   /** Editable address for the phone's custom page. */
   customPageUrl: string;
+}
+
+/** Which manually edited setting fields currently fail validation. */
+export interface DraftIssues {
+  certPath: boolean;
+  keyPath: boolean;
+  trustedProxies: boolean;
+  qweatherApiHost: boolean;
+  qweatherIds: boolean;
+  qweatherPrivateKey: boolean;
+  pomodoroSound: boolean;
 }
 
 /** Nested patch accumulated until the user presses "save settings". */
@@ -449,6 +466,7 @@ export interface SavePatch {
     enabled: boolean;
     certPath: string;
     keyPath: string;
+    trustedProxies: string[];
     advanced: { wakeLock: boolean };
   };
   weather: WeatherSettings;
@@ -520,6 +538,8 @@ export interface PanelApi {
   data: SettingsPayload;
   settings: RemoteSettings;
   draft: DraftState;
+  /** Fields that currently fail validation; the save button stays disabled. */
+  issues: DraftIssues;
   info: RemoteInfo;
   apps: RemoteApp[];
   clients: RemoteClient[];

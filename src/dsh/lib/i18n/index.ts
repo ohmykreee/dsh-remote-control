@@ -58,6 +58,7 @@ export const zh = {
   quickqaImageTooLarge: '图片太大了',
   quickqaImageUnsupported: '不支持这种图片格式',
   quickqaImageInvalid: '图片内容无效',
+  trustedProxyInvalid: '可信反向代理 IP 格式无效',
 } as const;
 
 export type HostMessageKey = keyof typeof zh;
@@ -105,6 +106,7 @@ export const en: Record<HostMessageKey, string> = {
   quickqaImageTooLarge: 'The image is too large',
   quickqaImageUnsupported: 'This image format is not supported',
   quickqaImageInvalid: 'The image content is invalid',
+  trustedProxyInvalid: 'The trusted reverse proxy IP list is invalid',
 };
 
 /** Every shipped dictionary, keyed by locale code. */

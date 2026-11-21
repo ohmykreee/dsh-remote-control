@@ -86,6 +86,7 @@ The agent installs the plugin, reads both documents, builds the component and te
 - When HTTPS is active and the certificate carries a concrete DNS name (SAN or CN), the pairing link and QR code use that domain instead of the interface IP; wildcard-only or IP-only certificates keep the LAN address.
 - Switching HTTPS in the settings moves the console to the matching address right away and keeps the same port. Reopen that new address on the phone; the old page does not follow automatically.
 - The phone microphone and screen wake lock need a browser secure context: use HTTPS, a reverse proxy, or a localhost address. For desktop-browser testing you can also allow the LAN origin as a secure context. See [INSTALLATION.md](../INSTALLATION.md#https-与浏览器安全上下文).
+- Behind a reverse proxy, fill in the trusted proxy IPs or ranges (comma-separated) in the HTTPS certificate card. Requests from those addresses use the real client IP forwarded by the proxy in the connected-device list.
 - If the port is taken, another available port is chosen automatically. The connection page always shows the actual address.
 
 ## Settings
@@ -94,7 +95,7 @@ The **Remote control** sidebar has these groups:
 
 | Group | Contents |
 |---|---|
-| Connection | QR code, console address, allowed interfaces, access verification, HTTPS, and advanced features (wake lock needs a secure context) |
+| Connection | QR code, console address, allowed interfaces, access verification, HTTPS (with trusted reverse proxy IPs), and advanced features (wake lock needs a secure context) |
 | Preferences | Plugin language, temperature unit, theme, page order and toggles (the custom page takes a web address), navigation position |
 | Quick Q&A | Official voice-input status, reply model and reasoning effort, default / pinned workspaces with their mode and permission behavior |
 | Pomodoro / countdown | Enable switch (mutually exclusive), focus / break lengths, countdown presets, alert sound |
@@ -104,7 +105,7 @@ The **Remote control** sidebar has these groups:
 | App names | Rename apps or reset their default names |
 | System information | Service status, diagnostics, and connected devices |
 
-Click **Save settings** to apply changes. Renaming an app, theme changes, refreshing access verification and disconnecting a device take effect immediately.
+Click **Save settings** to apply changes. Renaming an app, theme changes, refreshing access verification and disconnecting a device take effect immediately. When a manually entered field is invalid, the field is marked and **Save settings** stays disabled until it is fixed; inputs that can repair themselves, such as the low-balance threshold, the notification count, the custom page address, and the QWeather monthly limit and refresh interval, fall back to a safe value when they lose focus.
 
 ## Pomodoro and countdown
 
@@ -127,7 +128,7 @@ Both sit between the clock and the weather on the phone, are **mutually exclusiv
 - NMC and Open-Meteo need no account or key. NMC uses city stations and covers Chinese cities only.
 - QWeather uses JWT authentication only. Create a project and JWT credential in the QWeather console, then fill in API Host, project ID, credential ID, developer ID and the Ed25519 private key under **Weather → QWeather JWT authentication**. The private key stays in the local settings file, and the plugin generates short-lived JWTs automatically. The settings page can generate a key pair for first-time setup.
 - Enable these QWeather console permissions: **GeoAPI** (city search), **Weather forecast** (current / hourly / 7-day) and **Air quality** (today's AQI; hidden automatically when the plan does not support it) under API permissions; and **Allow access to finance summary** plus **Allow access to request statistics summary** under the credential's console permissions (used for the monthly count and the last-24-hour stats).
-- QWeather calls are counted per calendar month, including weather, city searches and console queries, with a default limit of 47,500 (5% headroom under the 50,000 free quota). The refresh interval is given a safe minimum for the configured limit. When the limit is reached the console switches to NMC for Chinese cities or Open-Meteo elsewhere, and returns to QWeather next month.
+- QWeather calls are counted per calendar month, including weather, city searches and console queries, with a default limit of 47,500 (5% headroom under the 50,000 free quota). The refresh interval is saved as entered; when it is below the quota-safe minimum the settings page shows a red warning that the limit may be exceeded. When the limit is reached the console switches to NMC for Chinese cities or Open-Meteo elsewhere, and returns to QWeather next month.
 - QWeather settings can enable **Sync console call count** (off by default). Before a weather query it reads the console's last-24-hour request stats and monthly usage when available, at most once every three hours. Console queries also use the free quota. If the console does not return a monthly count (common on free accounts), the settings page says so and free users are advised to turn the sync off. The monthly count is the local counter, including weather, GeoAPI and console queries.
 - Automatic mode uses the system location; when it is unavailable, the time zone is used.
 - Windows may block location through a privacy switch. **Weather → Request location access** asks for permission; when denied, the system Location settings page opens. Refresh after granting access.
@@ -190,7 +191,7 @@ Turn on **Push inquiries** and sessions waiting for an answer gain an **Answer**
 ## Security and privacy
 
 - Access verification is random and enabled by default. You can turn it off or refresh it; refreshing disconnects every connected device. You can allow only selected network interfaces / subnets.
-- Optional HTTPS; an invalid certificate falls back to HTTP with an error shown.
+- Optional HTTPS; an invalid certificate falls back to HTTP with an error shown. Behind a reverse proxy, trusted proxy IPs or ranges can be configured to show the real client IP.
 - Settings stay on this computer. The repository contains no local paths, verification secrets, certificates, QWeather private keys or notification content, and there is no telemetry.
 - Weather and public-holiday lookups contact external services; with QWeather the requests go to your own QWeather API Host. All other data stays between your computer and your phone.
 

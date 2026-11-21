@@ -84,7 +84,7 @@
 |---|---|
 | `welcome` | 公开设置快照（含 HTTPS 状态与 `tls.advanced.wakeLock`，不含证书 / 私钥路径） |
 | `overview` | 会话、天气、通知、余额、性能、设置聚合 |
-| `clients` | 已连接设备列表 |
+| `clients` | 已连接设备列表；`ip` 是经可信反向代理解析后的显示地址，`userAgent` 原样来自握手 |
 | `sessions` / `notifications` / `account` / `weather` / `media` / `performance` | 完整快照 |
 | `settings` | 设置变化；含 `quickqa` 语音就绪状态，官方语音插件就绪状态变化时也会重推 |
 | `action-result` | 媒体 / 音量动作结果 |

@@ -10,11 +10,10 @@
  */
 
 import type { PluginLocale } from '../settings/index.js';
-import {
-  minimumQWeatherRefreshMinutes,
-  type RemoteControlSettings,
-  type WeatherProvider,
-  type WeatherSettings,
+import type {
+  RemoteControlSettings,
+  WeatherProvider,
+  WeatherSettings,
 } from '../settings/index.js';
 import type { PluginCacheStore } from '../cache/index.js';
 import { probeInfo, runProbe } from '../probe/index.js';
@@ -517,10 +516,9 @@ export function createWeatherService(options: WeatherServiceOptions): WeatherSer
 
   function cacheTtl(provider: WeatherProvider, weather: WeatherSettings): number {
     if (provider === 'qweather') {
-      return Math.max(
-        weather.qweather.refreshMinutes,
-        minimumQWeatherRefreshMinutes(weather.qweather.monthlyLimit),
-      ) * 60_000;
+      // Honor the interval the user chose; the sidebar warns when it is below
+      // the quota-safe minimum, and quota errors still switch providers.
+      return Math.max(1, weather.qweather.refreshMinutes) * 60_000;
     }
     return WEATHER_TTL_MS;
   }

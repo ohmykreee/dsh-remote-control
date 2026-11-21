@@ -40,7 +40,9 @@ function accessGroup(api: PanelApi): React.ReactElement {
 }
 
 function tlsGroup(api: PanelApi): React.ReactElement {
-  const { t, settings, draft, info, stage, setDraft, setError } = api;
+  const { t, settings, draft, info, stage, setDraft, setError, issues } = api;
+  const tlsPathsInvalid = issues.certPath || issues.keyPath;
+  const trustedProxiesInvalid = issues.trustedProxies;
   return h('div', { className: 'drc-group' },
     groupHead(t('tls'), t('tlsHint')),
     h(Row, { title: t('tlsEnable') }, h(Toggle, {
@@ -56,11 +58,40 @@ function tlsGroup(api: PanelApi): React.ReactElement {
     })),
     h('div', { className: 'drc-divider' }),
     h('div', { className: 'drc-fields' },
-      h(Field, { label: t('certPath'), value: draft.certPath, placeholder: 'C:\\certs\\fullchain.pem', onChange: (value) => setDraft((current) => ({ ...current, certPath: value })) }),
-      h(Field, { label: t('keyPath'), value: draft.keyPath, placeholder: 'C:\\certs\\privkey.pem', onChange: (value) => setDraft((current) => ({ ...current, keyPath: value })) }),
+      h(Field, {
+        label: t('certPath'),
+        value: draft.certPath,
+        placeholder: 'C:\\certs\\fullchain.pem',
+        invalid: issues.certPath,
+        onChange: (value) => setDraft((current) => ({ ...current, certPath: value })),
+      }),
+      h(Field, {
+        label: t('keyPath'),
+        value: draft.keyPath,
+        placeholder: 'C:\\certs\\privkey.pem',
+        invalid: issues.keyPath,
+        onChange: (value) => setDraft((current) => ({ ...current, keyPath: value })),
+      }),
     ),
     h('div', { className: 'drc-actions' },
-      h('span', { className: 'drc-row-desc' }, settings.tls?.enabled ? (info.tls?.active ? t('tlsOn') : t('tlsError')) : t('tlsOff')),
+      h('span', { className: `drc-row-desc${tlsPathsInvalid ? ' is-warning' : ''}` },
+        tlsPathsInvalid
+          ? t('tlsPathsRequired')
+          : settings.tls?.enabled ? (info.tls?.active ? t('tlsOn') : t('tlsError')) : t('tlsOff')),
+    ),
+    h('div', { className: 'drc-divider' }),
+    h('div', { className: 'drc-fields' },
+      h(Field, {
+        label: t('trustedProxies'),
+        value: draft.trustedProxies,
+        placeholder: '127.0.0.1, 10.0.0.0/8',
+        invalid: trustedProxiesInvalid,
+        onChange: (value) => setDraft((current) => ({ ...current, trustedProxies: value })),
+      }),
+    ),
+    h('div', { className: 'drc-actions' },
+      h('span', { className: `drc-row-desc${trustedProxiesInvalid ? ' is-warning' : ''}` },
+        trustedProxiesInvalid ? t('trustedProxiesInvalid') : t('trustedProxiesHint')),
     ),
   );
 }

@@ -297,6 +297,7 @@ export function createHubController(
     hub = createWebSocketHub({
       server,
       path: '/ws',
+      clientIp: (remoteAddress, headers) => remote.clientIp(remoteAddress, headers),
       authorize: (req: IncomingMessage, url: URL) => remote.authorizeSocket(req, url),
       onConnection(client: WebSocketClient): void {
         startLoops();

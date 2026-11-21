@@ -165,12 +165,23 @@ function countdownGroup(api: PanelApi): React.ReactElement {
 }
 
 function soundGroup(api: PanelApi): React.ReactElement {
-  const { t, draft, setDraft } = api;
+  const { t, draft, setDraft, issues } = api;
   return h('div', { className: 'drc-group' },
     groupHead(t('pomodoroSoundSection'), t('pomodoroSoundHint')),
     h('div', { className: 'drc-fields' },
-      h(Field, { label: t('pomodoroSound'), value: draft.pomodoroSound, placeholder: t('pomodoroSoundPlaceholder'), onChange: (value) => setDraft((current) => ({ ...current, pomodoroSound: value })) }),
+      h(Field, {
+        label: t('pomodoroSound'),
+        value: draft.pomodoroSound,
+        placeholder: t('pomodoroSoundPlaceholder'),
+        invalid: issues.pomodoroSound,
+        onChange: (value) => setDraft((current) => ({ ...current, pomodoroSound: value })),
+      }),
     ),
+    issues.pomodoroSound
+      ? h('div', { className: 'drc-actions' },
+        h('span', { className: 'drc-row-desc is-warning' }, t('pomodoroSoundInvalid')),
+      )
+      : null,
   );
 }
 

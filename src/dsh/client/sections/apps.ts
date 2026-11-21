@@ -41,6 +41,7 @@ function AppMappingSection({ api }: { api: PanelApi }): React.ReactElement {
                 className: 'drc-map-input',
                 value: appNames[app.key] ?? app.name,
                 placeholder: app.defaultName || app.key,
+                maxLength: 60,
                 onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
                   const value = event.target.value;
                   setAppNames((current) => ({ ...current, [app.key]: value }));

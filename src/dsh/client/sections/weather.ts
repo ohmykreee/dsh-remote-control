@@ -16,6 +16,8 @@ import {
   QWEATHER_DEFAULT_REFRESH_MINUTES,
   WEATHER_PROVIDERS,
   accessLabel,
+  clampQWeatherMonthlyLimitInput,
+  clampQWeatherRefreshInput,
   estimatedMonthlyCalls,
   minimumQWeatherRefreshMinutes,
   normalizeWeatherProvider,
@@ -482,7 +484,7 @@ function QWeatherConsole({ api }: { api: PanelApi }): React.ReactElement {
 }
 
 function QWeatherGroup({ api }: { api: PanelApi }): React.ReactElement {
-  const { t, draft, setDraft, data } = api;
+  const { t, draft, setDraft, data, issues } = api;
   const [editingKey, setEditingKey] = useState(false);
   const savedPrivateKey = data.settings.weather?.qweather?.privateKey ?? '';
   const showKeyEditor = !savedPrivateKey || editingKey;
@@ -495,10 +497,18 @@ function QWeatherGroup({ api }: { api: PanelApi }): React.ReactElement {
   };
   const capability = data.capabilities?.weather;
   const quota = capability?.quota;
-  const limit = Number(draft.qweatherMonthlyLimit) || QWEATHER_DEFAULT_MONTHLY_LIMIT;
-  const refresh = Number(draft.qweatherRefreshMinutes) || QWEATHER_DEFAULT_REFRESH_MINUTES;
+  const limitText = draft.qweatherMonthlyLimit.trim();
+  const limitValue = Number(limitText);
+  const limit = limitText !== '' && Number.isFinite(limitValue) && limitValue >= 1
+    ? limitValue
+    : QWEATHER_DEFAULT_MONTHLY_LIMIT;
+  const refreshText = draft.qweatherRefreshMinutes.trim();
+  const refreshValue = Number(refreshText);
+  const refresh = refreshText === '' || !Number.isFinite(refreshValue) || refreshValue < 0
+    ? QWEATHER_DEFAULT_REFRESH_MINUTES
+    : refreshValue;
   const minimum = minimumQWeatherRefreshMinutes(limit);
-  const estimate = estimatedMonthlyCalls(Math.max(refresh, minimum));
+  const estimate = estimatedMonthlyCalls(refresh);
   const estimateText = fill(t, 'qweatherEstimate', { calls: estimate });
   const usageText = quota
     ? `${fill(t, 'qweatherUsage', {
@@ -517,12 +527,14 @@ function QWeatherGroup({ api }: { api: PanelApi }): React.ReactElement {
       h(Field, {
         label: t('qweatherDeveloperId'),
         value: draft.qweatherDeveloperId,
+        invalid: issues.qweatherIds,
         onChange: (value) => setDraft((current) => ({ ...current, qweatherDeveloperId: value })),
       }),
       h(Field, {
         label: t('qweatherApiHost'),
         value: draft.qweatherApiHost,
         placeholder: 'xxxxxx.qweatherapi.com',
+        invalid: issues.qweatherApiHost,
         onChange: (value) => setDraft((current) => ({ ...current, qweatherApiHost: value })),
       }),
     ),
@@ -530,12 +542,14 @@ function QWeatherGroup({ api }: { api: PanelApi }): React.ReactElement {
       h(Field, {
         label: t('qweatherProjectId'),
         value: draft.qweatherProjectId,
+        invalid: issues.qweatherIds,
         onChange: (value) => setDraft((current) => ({ ...current, qweatherProjectId: value })),
       }),
       h(Field, {
         label: t('qweatherCredentialId'),
         value: draft.qweatherCredentialId,
         placeholder: t('qweatherCredentialIdPlaceholder'),
+        invalid: issues.qweatherIds,
         onChange: (value) => setDraft((current) => ({ ...current, qweatherCredentialId: value })),
       }),
     ),
@@ -546,6 +560,7 @@ function QWeatherGroup({ api }: { api: PanelApi }): React.ReactElement {
           value: draft.qweatherPrivateKey,
           rows: 5,
           mono: true,
+          invalid: issues.qweatherPrivateKey,
           placeholder: '-----BEGIN PRIVATE KEY-----',
           onChange: (value) => setDraft((current) => ({ ...current, qweatherPrivateKey: value })),
         }),
@@ -564,22 +579,39 @@ function QWeatherGroup({ api }: { api: PanelApi }): React.ReactElement {
           h(Btn, { small: true, onClick: () => setEditingKey(true) }, t('qweatherReplaceKey')),
         ),
       ),
+    issues.qweatherPrivateKey
+      ? h('div', { className: 'drc-actions' },
+        h('span', { className: 'drc-row-desc is-warning' }, t('qweatherPrivateKeyInvalid')),
+      )
+      : null,
     h('div', { className: 'drc-fields' },
       h(Field, {
         label: t('qweatherMonthlyLimit'),
         value: draft.qweatherMonthlyLimit,
         inputMode: 'numeric',
-        onChange: (value) => setDraft((current) => ({ ...current, qweatherMonthlyLimit: value.replace(/[^\d]/g, '') })),
+        onChange: (value) => setDraft((current) => ({ ...current, qweatherMonthlyLimit: value })),
+        // Invalid text clamps only on blur: decimal/negative/unparsable values
+        // return to the default, values above the safe integer cap at the cap.
+        onBlur: () => setDraft((current) => ({
+          ...current,
+          qweatherMonthlyLimit: clampQWeatherMonthlyLimitInput(current.qweatherMonthlyLimit),
+        })),
       }),
       h(Field, {
         label: t('qweatherRefreshMinutes'),
         value: draft.qweatherRefreshMinutes,
         inputMode: 'numeric',
-        onChange: (value) => setDraft((current) => ({ ...current, qweatherRefreshMinutes: value.replace(/[^\d]/g, '') })),
+        onChange: (value) => setDraft((current) => ({ ...current, qweatherRefreshMinutes: value })),
+        // Too-low values stay as typed and only show the red hint; invalid
+        // shapes return to the default on blur.
+        onBlur: () => setDraft((current) => ({
+          ...current,
+          qweatherRefreshMinutes: clampQWeatherRefreshInput(current.qweatherRefreshMinutes),
+        })),
       }),
     ),
     refresh < minimum
-      ? h('div', { className: 'drc-actions' }, h('span', { className: 'drc-warning' }, fill(t, 'qweatherRefreshMinimum', { minutes: minimum })))
+      ? h('div', { className: 'drc-actions' }, h('span', { className: 'drc-row-desc is-warning' }, fill(t, 'qweatherRefreshMinimum', { minutes: minimum })))
       : null,
     h('div', { className: 'drc-actions' },
       h('span', { className: 'drc-row-desc' }, usageText),

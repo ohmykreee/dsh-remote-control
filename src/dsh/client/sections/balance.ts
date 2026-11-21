@@ -2,6 +2,7 @@
 
 import type * as React from 'react';
 import { Field, Row, Seg, Toggle, groupHead, h, sectionHead } from '../ui.js';
+import { clampThresholdInput } from '../logic.js';
 import type { PanelApi } from '../types.js';
 
 export function renderBalance(api: PanelApi): React.ReactElement {
@@ -21,7 +22,18 @@ export function renderBalance(api: PanelApi): React.ReactElement {
     h('div', { className: 'drc-group' },
       groupHead(t('lowThreshold'), t('lowThresholdHint')),
       h('div', { className: 'drc-fields' },
-        h(Field, { label: t('lowThreshold'), value: draft.threshold, placeholder: t('thresholdPlaceholder'), inputMode: 'decimal', onChange: (value) => setDraft((current) => ({ ...current, threshold: value })) }),
+        h(Field, {
+          label: t('lowThreshold'),
+          value: draft.threshold,
+          placeholder: t('thresholdPlaceholder'),
+          inputMode: 'decimal',
+          onChange: (value) => setDraft((current) => ({ ...current, threshold: value })),
+          // Unusable input clears only on blur; an empty value turns the alert off.
+          onBlur: () => setDraft((current) => ({
+            ...current,
+            threshold: clampThresholdInput(current.threshold),
+          })),
+        }),
       ),
     ),
     h('div', { className: 'drc-group' },

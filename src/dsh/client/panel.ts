@@ -29,7 +29,9 @@ import {
   PAGE_ORDER,
   buildSavePatch,
   buildSettingsView,
+  checkDraftIssues,
   createDraft,
+  draftHasIssues,
   locationHint,
   mergeStaged,
   normalizePageOrder,
@@ -510,8 +512,16 @@ export function RemotePanel(): React.ReactElement {
   const labels = pageLabels(t);
   const notificationApps: RemoteApp[] = data.apps ?? [];
   const remote = info.routes?.remote || '';
+  // Every manually edited field without an unfocus clamp is validated here.
+  // One unusable value disables "save settings" and shows a banner.
+  const issues = checkDraftIssues(settings, draft);
+  const formInvalid = draftHasIssues(issues);
 
   const saveAll = (): void => {
+    if (formInvalid) {
+      setError(t('invalidFieldsHint'));
+      return;
+    }
     void save(buildSavePatch({
       data,
       settings,
@@ -529,6 +539,7 @@ export function RemotePanel(): React.ReactElement {
     data,
     settings,
     draft,
+    issues,
     info,
     apps: notificationApps,
     clients,
@@ -592,7 +603,12 @@ export function RemotePanel(): React.ReactElement {
             h('i', { className: `drc-dot ${info.running ? 'ok' : 'bad'}` }),
             info.running ? t('serviceRunning') : t('serviceStopped'),
           ),
-          h(Btn, { primary: true, onClick: saveAll, disabled: busy }, t('saveSettings')),
+          h(Btn, {
+            primary: true,
+            onClick: saveAll,
+            disabled: busy || formInvalid,
+            title: formInvalid ? t('invalidFieldsHint') : undefined,
+          }, t('saveSettings')),
           h(Btn, { disabled: !remote, onClick: () => window.open(remote, '_blank', 'noopener,noreferrer') }, t('open')),
           h(Btn, { onClick: () => void refreshSettings(), disabled: busy }, t('refresh')),
         ),
@@ -623,6 +639,7 @@ export function RemotePanel(): React.ReactElement {
       h('main', { className: 'drc-main' },
         error ? h('div', { className: 'drc-banner is-error' }, `${t('error')}: ${error}`) : null,
         notice ? h('div', { className: 'drc-banner is-ok' }, notice) : null,
+        formInvalid ? h('div', { className: 'drc-banner is-error' }, t('invalidFieldsHint')) : null,
         content,
       ),
     ),

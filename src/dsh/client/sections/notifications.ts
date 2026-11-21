@@ -2,6 +2,7 @@
 
 import type * as React from 'react';
 import { Btn, Field, Row, Toggle, groupHead, h, sectionHead } from '../ui.js';
+import { clampNotificationLimitInput } from '../logic.js';
 import type { PanelApi } from '../types.js';
 
 export function renderNotifications(api: PanelApi): React.ReactElement {
@@ -36,7 +37,18 @@ export function renderNotifications(api: PanelApi): React.ReactElement {
     h('div', { className: 'drc-group' },
       groupHead(t('limitDisplay'), t('notificationLimitHint')),
       h('div', { className: 'drc-fields' },
-        h(Field, { label: t('limitField'), value: draft.notificationLimit, placeholder: '5', inputMode: 'numeric', onChange: (value) => setDraft((current) => ({ ...current, notificationLimit: value })) }),
+        h(Field, {
+          label: t('limitField'),
+          value: draft.notificationLimit,
+          placeholder: '5',
+          inputMode: 'numeric',
+          onChange: (value) => setDraft((current) => ({ ...current, notificationLimit: value })),
+          // Invalid counts return to the default only on blur.
+          onBlur: () => setDraft((current) => ({
+            ...current,
+            notificationLimit: clampNotificationLimitInput(current.notificationLimit),
+          })),
+        }),
       ),
     ),
   );

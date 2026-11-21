@@ -70,6 +70,21 @@ const publicTls = store.public();
 publicTls.tls.advanced.wakeLock = false;
 assert.equal(store.get().tls.advanced.wakeLock, true);
 
+// Trusted reverse proxies are stored as canonical addresses/ranges. Invalid
+// entries are dropped when loading a profile; the settings API rejects them
+// instead of silently saving a shorter list.
+assert.deepEqual(store.get().tls.trustedProxies, []);
+store.update({ tls: { trustedProxies: '127.0.0.1, 10.0.0.0/8' } });
+assert.deepEqual(store.get().tls.trustedProxies, ['127.0.0.1', '10.0.0.0/8']);
+store.update({ tls: { trustedProxies: ['192.168.1.7/24', 'not-an-ip'] } });
+assert.deepEqual(store.get().tls.trustedProxies, ['192.168.1.0/24']);
+store.update({ tls: { trustedProxies: '1.1.1.1，2.2.2.2' } });
+assert.deepEqual(store.get().tls.trustedProxies, [], 'a full-width comma is not a separator');
+const publicProxies = store.public();
+publicProxies.tls.trustedProxies.push('1.1.1.1');
+assert.deepEqual(store.get().tls.trustedProxies, [], 'the public snapshot owns its copy');
+store.update({ tls: { trustedProxies: [] } });
+
 /* ----------------------------------------------------------- custom page */
 
 // The custom page is part of the page order but starts hidden, and an empty

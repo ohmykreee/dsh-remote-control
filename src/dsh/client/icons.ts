@@ -55,3 +55,18 @@ export function MenuIcon({ name }: MenuIconProps): React.ReactElement {
     dangerouslySetInnerHTML: { __html: MENU_ICONS[name] || MENU_ICONS.info },
   });
 }
+
+/** Circle-exclamation hint glyph used beside connected-device names. */
+export function AlertIcon({ size = 14 }: { size?: number }): React.ReactElement {
+  return h('svg', {
+    width: size,
+    height: size,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    'aria-hidden': true,
+  },
+  h('circle', { cx: 12, cy: 12, r: 9, stroke: 'currentColor', strokeWidth: 1.7 }),
+  h('path', { d: 'M12 7.3v5.8', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round' }),
+  h('path', { d: 'M12 16.7v.1', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' }),
+  );
+}

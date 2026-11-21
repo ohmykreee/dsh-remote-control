@@ -2,6 +2,7 @@
 
 import type * as React from 'react';
 import { Seg, Toggle, groupHead, h, sectionHead } from '../ui.js';
+import { clampCustomPageUrlInput } from '../logic.js';
 import type { PanelApi } from '../types.js';
 
 function languageGroup(api: PanelApi): React.ReactElement {
@@ -81,6 +82,12 @@ function orderRowExtras(api: PanelApi, key: string): React.ReactElement[] {
     onChange: (event: React.ChangeEvent<HTMLInputElement>) => setDraft((current) => ({
       ...current,
       customPageUrl: event.target.value,
+    })),
+    // Invalid input clears only on blur; the console then uses its built-in
+    // page (kre3.net) without the sidebar hard-coding that address.
+    onBlur: () => setDraft((current) => ({
+      ...current,
+      customPageUrl: clampCustomPageUrlInput(current.customPageUrl),
     })),
   })];
 }

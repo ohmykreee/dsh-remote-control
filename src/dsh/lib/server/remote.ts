@@ -19,6 +19,8 @@ import { readRecordingLimits } from '../quickqa/voice.js';
 import type { PluginLocale } from '../settings/index.js';
 import { isRecord } from '../shared/types.js';
 import type { WebSocketClientInfo } from '../shared/types.js';
+import { resolveClientIp } from '../shared/proxy.js';
+import type { ForwardedClientHeaders } from '../shared/proxy.js';
 import {
   INFO_PATH,
   QR_PATH,
@@ -86,6 +88,8 @@ export interface RemoteServer {
   recomputeUrls(): void;
   interfaceEntries(withUrls?: boolean): InterfaceEntry[];
   ipAllowed(remoteAddress: string | undefined): boolean;
+  /** Display address after trusted-proxy headers, re-read on every call. */
+  clientIp(remoteAddress: string | undefined, headers: ForwardedClientHeaders): string;
   isAuthorized(req: IncomingMessage, url: URL): boolean;
   authorizeSocket(req: IncomingMessage, url: URL): { ok: boolean; status?: number };
   remoteUrl(): string;
@@ -161,6 +165,15 @@ export function createRemoteServer(
     const value = ipv4ToIntSafe(ip);
     if (value === null) return false;
     return selectedNetworks().some((network) => (value & network.mask) === (network.network & network.mask));
+  }
+
+  /**
+   * The address shown for a connected device. Only trusted proxies may supply
+   * the real-IP headers; everything else keeps the TCP peer address. This is a
+   * display value and deliberately does not affect `ipAllowed` or the token.
+   */
+  function clientIp(remoteAddress: string | undefined, headers: ForwardedClientHeaders): string {
+    return resolveClientIp(remoteAddress, headers, settings().tls.trustedProxies);
   }
 
   function recomputeUrls(): void {
@@ -691,6 +704,7 @@ export function createRemoteServer(
     recomputeUrls,
     interfaceEntries,
     ipAllowed,
+    clientIp,
     isAuthorized,
     authorizeSocket,
     remoteUrl,

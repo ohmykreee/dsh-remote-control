@@ -41,6 +41,8 @@ export interface FieldProps {
   placeholder?: string;
   inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
   disabled?: boolean;
+  /** Mark the field as failing validation without adding a new visual language. */
+  invalid?: boolean;
 }
 
 export interface TextAreaProps {
@@ -51,6 +53,7 @@ export interface TextAreaProps {
   rows?: number;
   disabled?: boolean;
   mono?: boolean;
+  invalid?: boolean;
 }
 
 export interface SelectOption {
@@ -114,7 +117,7 @@ export function Btn({ children, onClick, primary = false, danger = false, disabl
   return h('button', { type: 'button', className: classes.join(' '), onClick, disabled, title }, children);
 }
 
-export function Field({ label, value, onChange, onBlur, placeholder, inputMode, disabled = false }: FieldProps): React.ReactElement {
+export function Field({ label, value, onChange, onBlur, placeholder, inputMode, disabled = false, invalid = false }: FieldProps): React.ReactElement {
   return h('label', { className: 'drc-field' },
     h('span', null, label),
     h('input', {
@@ -122,13 +125,14 @@ export function Field({ label, value, onChange, onBlur, placeholder, inputMode, 
       placeholder,
       inputMode,
       disabled,
+      'aria-invalid': invalid || undefined,
       onBlur,
       onChange: (event: React.ChangeEvent<HTMLInputElement>) => onChange(event.target.value),
     }),
   );
 }
 
-export function TextArea({ label, value, onChange, placeholder, rows = 4, disabled = false, mono = false }: TextAreaProps): React.ReactElement {
+export function TextArea({ label, value, onChange, placeholder, rows = 4, disabled = false, mono = false, invalid = false }: TextAreaProps): React.ReactElement {
   return h('label', { className: `drc-field drc-field-area${mono ? ' is-mono' : ''}` },
     h('span', null, label),
     h('textarea', {
@@ -138,6 +142,7 @@ export function TextArea({ label, value, onChange, placeholder, rows = 4, disabl
       disabled,
       spellCheck: false,
       autoComplete: 'off',
+      'aria-invalid': invalid || undefined,
       onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => onChange(event.target.value),
     }),
   );

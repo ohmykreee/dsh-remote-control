@@ -2,6 +2,7 @@
 
 import type * as React from 'react';
 import { Btn, StatusRow, groupHead, h, sectionHead } from '../ui.js';
+import { AlertIcon } from '../icons.js';
 import type { PanelApi, ProbeBackends } from '../types.js';
 import { formatBytes, formatDuration, weatherProviderLabel } from '../logic.js';
 
@@ -109,7 +110,18 @@ function clientsGroup(api: PanelApi): React.ReactElement {
       ? h('p', { className: 'drc-empty' }, t('noClients'))
       : h('div', { className: 'drc-list' }, clients.map((client) => h('div', { className: 'drc-client', key: client.id },
         h('div', { className: 'drc-client-main' },
-          h('strong', null, client.label || t('device')),
+          h('span', { className: 'drc-client-name' },
+            h('strong', null, client.label || t('device')),
+            client.userAgent
+              ? h('span', {
+                className: 'drc-client-tip',
+                title: client.userAgent,
+                role: 'img',
+                'aria-label': client.userAgent,
+                tabIndex: 0,
+              }, h(AlertIcon))
+              : null,
+          ),
           h('small', null, `${client.ip} · ${formatDuration(Date.now() - client.connectedAt, t)}`),
         ),
         h(Btn, { small: true, danger: true, onClick: () => void disconnect(client.id) }, t('disconnect')),

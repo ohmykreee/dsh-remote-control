@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { normalizeTrustedProxies } from '../shared/proxy.js';
 import type { JsonRecord } from '../shared/types.js';
 import { isRecord } from '../shared/types.js';
 
@@ -58,6 +59,8 @@ export const WEATHER_PROVIDERS: readonly WeatherProvider[] = ['nmc', 'open-meteo
 
 /** QWeather's free plan allows 50,000 calls/month; keep 5% headroom. */
 export const QWEATHER_DEFAULT_MONTHLY_LIMIT = 47_500;
+/** Largest monthly limit Node.js can represent without unsafe integer math. */
+export const QWEATHER_MAX_MONTHLY_LIMIT = Number.MAX_SAFE_INTEGER;
 /** QWeather calls used by one weather refresh (current + daily + air + hourly). */
 export const QWEATHER_CALLS_PER_REFRESH = 4;
 export const QWEATHER_MIN_REFRESH_MINUTES = 5;
@@ -170,6 +173,11 @@ export interface TlsSettings {
   enabled: boolean;
   certPath: string;
   keyPath: string;
+  /**
+   * Reverse proxies allowed to report the original client in real-IP headers.
+   * The connected-device list reads those headers only for these addresses.
+   */
+  trustedProxies: string[];
   advanced: TlsAdvancedSettings;
 }
 
@@ -339,6 +347,7 @@ export function defaultSettings(): RemoteControlSettings {
       enabled: false,
       certPath: '',
       keyPath: '',
+      trustedProxies: [],
       advanced: {
         wakeLock: false,
       },
@@ -502,12 +511,14 @@ function normalizeCustomPageUrl(value: unknown): string {
 function normalizeQWeatherSettings(value: unknown): QWeatherSettings {
   const input: JsonRecord = isRecord(value) ? value : {};
   const limitInput = Number(input.monthlyLimit);
-  const monthlyLimit = Number.isFinite(limitInput)
-    ? Math.max(1, Math.min(1_000_000, Math.round(limitInput)))
+  const monthlyLimit = Number.isFinite(limitInput) && Number.isInteger(limitInput) && limitInput >= 1
+    ? Math.min(QWEATHER_MAX_MONTHLY_LIMIT, limitInput)
     : QWEATHER_DEFAULT_MONTHLY_LIMIT;
   const refreshInput = Number(input.refreshMinutes);
-  const requestedRefresh = Number.isFinite(refreshInput)
-    ? Math.max(QWEATHER_MIN_REFRESH_MINUTES, Math.min(QWEATHER_MAX_REFRESH_MINUTES, Math.round(refreshInput)))
+  const requestedRefresh = Number.isInteger(refreshInput)
+    && refreshInput >= 1
+    && refreshInput <= QWEATHER_MAX_REFRESH_MINUTES
+    ? refreshInput
     : QWEATHER_DEFAULT_REFRESH_MINUTES;
   return {
     apiHost: normalizeQWeatherHost(input.apiHost),
@@ -516,7 +527,9 @@ function normalizeQWeatherSettings(value: unknown): QWeatherSettings {
     developerId: typeof input.developerId === 'string' ? input.developerId.trim().slice(0, 120) : '',
     privateKey: typeof input.privateKey === 'string' ? input.privateKey.trim().slice(0, 16_384) : '',
     monthlyLimit,
-    refreshMinutes: Math.max(requestedRefresh, minimumQWeatherRefreshMinutes(monthlyLimit)),
+    // The user's interval is kept as entered; a low value only produces a
+    // warning in the sidebar and is never raised to the quota-safe minimum.
+    refreshMinutes: requestedRefresh,
     syncConsole: input.syncConsole === true,
   };
 }
@@ -628,6 +641,7 @@ function normalize(raw: unknown): RemoteControlSettings {
       enabled: tls.enabled === true,
       certPath: typeof tls.certPath === 'string' ? tls.certPath.slice(0, 4096) : '',
       keyPath: typeof tls.keyPath === 'string' ? tls.keyPath.slice(0, 4096) : '',
+      trustedProxies: normalizeTrustedProxies(tls.trustedProxies),
       advanced: {
         wakeLock: tlsAdvanced.wakeLock === true,
       },
@@ -764,7 +778,11 @@ export function createSettingsStore(): SettingsStore {
       },
       balance: { ...current.balance },
       notifications: { ...current.notifications, enabledApps: [...current.notifications.enabledApps] },
-      tls: { ...current.tls, advanced: { ...current.tls.advanced } },
+      tls: {
+        ...current.tls,
+        trustedProxies: [...current.tls.trustedProxies],
+        advanced: { ...current.tls.advanced },
+      },
       navPosition: current.navPosition,
       pomodoro: { ...current.pomodoro },
       countdown: { ...current.countdown, presets: [...current.countdown.presets] },

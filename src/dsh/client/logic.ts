@@ -2,6 +2,7 @@
 
 import type {
   CountdownPresetDraft,
+  DraftIssues,
   DraftState,
   LocationResult,
   ProviderLocationSettings,
@@ -27,6 +28,8 @@ export const WEATHER_PROVIDERS: WeatherProviderId[] = ['nmc', 'open-meteo', 'qwe
 /** QWeather calls used by one refresh; mirrors the Host's quota estimate. */
 export const QWEATHER_CALLS_PER_REFRESH = 4;
 export const QWEATHER_DEFAULT_MONTHLY_LIMIT = 47_500;
+/** Largest monthly limit Node.js can represent without unsafe integer math. */
+export const QWEATHER_MAX_MONTHLY_LIMIT = Number.MAX_SAFE_INTEGER;
 export const QWEATHER_DEFAULT_REFRESH_MINUTES = 30;
 export const QWEATHER_MIN_REFRESH_MINUTES = 5;
 export const QWEATHER_MAX_REFRESH_MINUTES = 24 * 60;
@@ -48,7 +51,7 @@ export function minimumQWeatherRefreshMinutes(monthlyLimit: number): number {
 }
 
 export function estimatedMonthlyCalls(refreshMinutes: number): number {
-  const minutes = Math.max(QWEATHER_MIN_REFRESH_MINUTES, Number(refreshMinutes) || QWEATHER_DEFAULT_REFRESH_MINUTES);
+  const minutes = Math.max(1, Number(refreshMinutes) || QWEATHER_DEFAULT_REFRESH_MINUTES);
   return Math.round((30 * 24 * 60 * QWEATHER_CALLS_PER_REFRESH) / minutes);
 }
 
@@ -60,6 +63,9 @@ export const COUNTDOWN_MAX_SECONDS = 86_400;
 /** Presets a fresh profile starts with; the user may keep one to five. */
 export const DEFAULT_COUNTDOWN_PRESETS: number[] = [60, 300, 600];
 
+/** Display limit used when the notification count field has no valid value. */
+export const DEFAULT_NOTIFICATION_LIMIT = 5;
+
 /** Pomodoro duration bounds, mirrored from the Host normalizer for the UI. */
 export const POMODORO_MIN_MINUTES = 0.1;
 export const POMODORO_MAX_FOCUS_MINUTES = 180;
@@ -68,6 +74,7 @@ export const POMODORO_MAX_BREAK_MINUTES = 120;
 export const EMPTY_DRAFT: DraftState = {
   certPath: '',
   keyPath: '',
+  trustedProxies: '',
   qweatherApiHost: '',
   qweatherCredentialId: '',
   qweatherProjectId: '',
@@ -77,7 +84,7 @@ export const EMPTY_DRAFT: DraftState = {
   qweatherRefreshMinutes: '30',
   qweatherSyncConsole: false,
   threshold: '',
-  notificationLimit: '5',
+  notificationLimit: String(DEFAULT_NOTIFICATION_LIMIT),
   pomodoroFocus: '25',
   pomodoroBreak: '5',
   pomodoroSound: '',
@@ -204,6 +211,7 @@ export function createDraft(settings: RemoteSettings): DraftState {
   return {
     certPath: settings.tls?.certPath ?? '',
     keyPath: settings.tls?.keyPath ?? '',
+    trustedProxies: (settings.tls?.trustedProxies ?? []).join(', '),
     qweatherApiHost: settings.weather?.qweather?.apiHost ?? '',
     qweatherCredentialId: settings.weather?.qweather?.credentialId ?? '',
     qweatherProjectId: settings.weather?.qweather?.projectId ?? '',
@@ -213,7 +221,7 @@ export function createDraft(settings: RemoteSettings): DraftState {
     qweatherRefreshMinutes: String(settings.weather?.qweather?.refreshMinutes ?? QWEATHER_DEFAULT_REFRESH_MINUTES),
     qweatherSyncConsole: settings.weather?.qweather?.syncConsole === true,
     threshold: text(settings.balance?.lowThreshold),
-    notificationLimit: String(settings.notifications?.limit ?? 5),
+    notificationLimit: String(settings.notifications?.limit ?? DEFAULT_NOTIFICATION_LIMIT),
     pomodoroFocus: String(settings.pomodoro?.focusMinutes ?? 25),
     pomodoroBreak: String(settings.pomodoro?.breakMinutes ?? 5),
     pomodoroSound: settings.pomodoro?.soundPath ?? '',
@@ -306,6 +314,244 @@ function numberOrNull(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+/**
+ * Split the comma-separated trusted-proxy field. The Host validates and
+ * canonicalizes each entry, so the client only trims and drops blanks.
+ */
+export function parseTrustedProxiesInput(value: string): string[] {
+  return checkTrustedProxiesInput(value).entries;
+}
+
+/** Result of checking the trusted-proxy field, including rejected entries. */
+export interface TrustedProxyInputCheck {
+  entries: string[];
+  invalid: string[];
+}
+
+function isIpv4Address(value: string): boolean {
+  const parts = value.split('.');
+  if (parts.length !== 4) return false;
+  return parts.every((part) => /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/u.test(part));
+}
+
+function isIpv6Address(value: string): boolean {
+  const text = value.toLowerCase();
+  if (!text.includes(':') || text.includes(':::')) return false;
+  const halves = text.split('::');
+  if (halves.length > 2) return false;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const groups = [...head, ...tail];
+  let count = 0;
+  for (let index = 0; index < groups.length; index += 1) {
+    const group = groups[index];
+    if (index === groups.length - 1 && group.includes('.')) {
+      if (!isIpv4Address(group)) return false;
+      count += 2;
+      continue;
+    }
+    if (!/^[0-9a-f]{1,4}$/u.test(group)) return false;
+    count += 1;
+  }
+  return halves.length === 2 ? count < 8 : count === 8;
+}
+
+/** One entry must be an IPv4/IPv6 address with an optional CIDR prefix. */
+function isValidProxyEntry(entry: string): boolean {
+  let text = entry.trim();
+  if (!text) return false;
+  let prefix: number | null = null;
+  const slash = text.indexOf('/');
+  if (slash >= 0) {
+    if (text.indexOf('/', slash + 1) >= 0) return false;
+    const prefixText = text.slice(slash + 1);
+    if (!/^\d{1,3}$/u.test(prefixText)) return false;
+    prefix = Number(prefixText);
+    text = text.slice(0, slash);
+  }
+  if (text.startsWith('[') && text.endsWith(']')) text = text.slice(1, -1);
+  if (text.includes('[') || text.includes(']')) return false;
+  // An IPv4-mapped IPv6 entry is stored as plain IPv4 by the Host, so its
+  // prefix must be in the IPv4 range too.
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/iu.exec(text);
+  if (mapped && isIpv4Address(mapped[1])) return prefix === null || prefix <= 32;
+  if (isIpv4Address(text)) return prefix === null || prefix <= 32;
+  if (isIpv6Address(text)) return prefix === null || prefix <= 128;
+  return false;
+}
+
+/**
+ * Validate the trusted-proxy text field before it is sent to the Host.
+ *
+ * Only ASCII commas separate entries. A malformed entry, a full-width comma, a
+ * semicolon, or a blank slot between commas is rejected so the panel can block
+ * "save settings" instead of persisting a silently shortened list.
+ */
+export function checkTrustedProxiesInput(value: string): TrustedProxyInputCheck {
+  const entries: string[] = [];
+  const invalid: string[] = [];
+  const raw = typeof value === 'string' ? value : '';
+  if (!raw.trim()) return { entries, invalid };
+  for (const piece of raw.split(',')) {
+    const token = piece.trim();
+    if (!isValidProxyEntry(token)) {
+      invalid.push(token || piece);
+      continue;
+    }
+    if (!entries.includes(token)) entries.push(token);
+  }
+  return { entries, invalid };
+}
+
+/** Host truncates these values; reject anything that would be silently cut. */
+function isValidPathInput(value: string): boolean {
+  const path = value.trim();
+  return path.length > 0
+    && path.length <= 4096
+    && !path.includes('\0')
+    && !path.includes('://')
+    && !/[\r\n]/u.test(path);
+}
+
+/** QWeather accepts a bare host with an optional port; a pasted URL is stripped. */
+function isValidQWeatherHostInput(value: string): boolean {
+  const text = value.trim();
+  if (!text) return true;
+  const host = text.replace(/^https?:\/\//iu, '').replace(/\/.*$/u, '').trim();
+  if (!host || host.length > 120) return false;
+  const match = /^[a-z0-9.-]+(?::(\d{1,5}))?$/iu.exec(host);
+  if (!match) return false;
+  if (match[1] === undefined) return true;
+  const port = Number(match[1]);
+  return Number.isInteger(port) && port >= 1 && port <= 65535;
+}
+
+/** A PEM private key is only checked when the user typed one. */
+function isValidPrivateKeyInput(value: string): boolean {
+  const key = value.trim();
+  if (!key) return true;
+  if (key.length > 16_384) return false;
+  return /^-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/mu.test(key)
+    && /-----END [A-Z0-9 ]*PRIVATE KEY-----/mu.test(key);
+}
+
+/** Optional address: empty uses the built-in page; otherwise it must be http(s). */
+function isValidCustomPageUrlInput(value: string): boolean {
+  const raw = value.trim();
+  if (!raw) return true;
+  const scheme = /^([a-z][a-z0-9+.-]*):\/\//iu.exec(raw);
+  if (scheme && !/^https?$/iu.test(scheme[1])) return false;
+  const candidate = scheme ? raw : `https://${raw.replace(/^\/\//u, '')}`;
+  if (candidate.length > 2048) return false;
+  try {
+    const url = new URL(candidate);
+    return (url.protocol === 'http:' || url.protocol === 'https:') && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** Invalid custom-page addresses clear on blur; the phone then uses its default. */
+export function clampCustomPageUrlInput(value: string): string {
+  const raw = value.trim();
+  return raw && isValidCustomPageUrlInput(raw) ? raw : '';
+}
+
+/** Invalid low-balance thresholds clear to empty, which disables the alert. */
+export function clampThresholdInput(value: string | number): string {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  const number = Number(text);
+  return Number.isFinite(number) && number >= 0 && number < Number.MAX_SAFE_INTEGER ? text : '';
+}
+
+function thresholdValue(value: string | number): number | null {
+  const text = clampThresholdInput(value);
+  return text === '' ? null : Number(text);
+}
+
+/** Invalid notification counts fall back to the default on blur. */
+export function clampNotificationLimitInput(value: string): string {
+  const text = value.trim();
+  if (!/^\d+$/u.test(text)) return String(DEFAULT_NOTIFICATION_LIMIT);
+  const count = Number(text);
+  return count >= 1 && count <= 20 ? String(count) : String(DEFAULT_NOTIFICATION_LIMIT);
+}
+
+/**
+ * QWeather monthly limit: any positive integer up to the largest safe JS
+ * integer is kept; higher numbers cap at that ceiling, while decimals,
+ * negatives, and unparsable text return to the default.
+ */
+export function clampQWeatherMonthlyLimitInput(value: string): string {
+  const text = value.trim();
+  if (!text) return '';
+  if (!/^\d+$/u.test(text)) return String(QWEATHER_DEFAULT_MONTHLY_LIMIT);
+  const number = Number(text);
+  if (!Number.isFinite(number) || number < 1) return String(QWEATHER_DEFAULT_MONTHLY_LIMIT);
+  if (number > QWEATHER_MAX_MONTHLY_LIMIT) return String(QWEATHER_MAX_MONTHLY_LIMIT);
+  return String(number);
+}
+
+/**
+ * QWeather refresh interval: too low is still saved (the sidebar warns), but
+ * zero, decimals, negatives, and values outside 1..1440 return to the default
+ * on blur.
+ */
+export function clampQWeatherRefreshInput(value: string): string {
+  const text = value.trim();
+  if (!text) return '';
+  if (!/^\d+$/u.test(text)) return String(QWEATHER_DEFAULT_REFRESH_MINUTES);
+  const number = Number(text);
+  if (!Number.isSafeInteger(number) || number < 1 || number > QWEATHER_MAX_REFRESH_MINUTES) {
+    return String(QWEATHER_DEFAULT_REFRESH_MINUTES);
+  }
+  return String(number);
+}
+
+/** Alert sound: empty uses the built-in tone, otherwise a local path or http(s) URL. */
+function isValidSoundInput(value: string): boolean {
+  const text = value.trim();
+  if (!text) return true;
+  if (text.length > 2048 || text.includes('\0') || /[\r\n]/u.test(text)) return false;
+  const scheme = /^([a-z][a-z0-9+.-]*):\/\//iu.exec(text);
+  return !scheme || /^https?$/iu.test(scheme[1]);
+}
+
+/**
+ * Validate manually edited fields that cannot repair themselves.
+ *
+ * Minute inputs, countdown presets, the low-balance threshold, the notification
+ * count, the custom page address, and the QWeather limit/refresh fields clamp
+ * only when the field loses focus, so they are absent here. The fields checked
+ * below have no clamp: an unusable value disables "save settings" instead of
+ * being silently replaced by the Host.
+ */
+export function checkDraftIssues(settings: RemoteSettings, draft: DraftState): DraftIssues {
+  const tlsEnabled = settings.tls?.enabled === true;
+  const qweatherActive = normalizeWeatherProvider(settings.weather?.provider) === 'qweather';
+  const certPath = draft.certPath.trim();
+  const keyPath = draft.keyPath.trim();
+
+  return {
+    certPath: tlsEnabled && !isValidPathInput(certPath),
+    keyPath: tlsEnabled && !isValidPathInput(keyPath),
+    trustedProxies: checkTrustedProxiesInput(draft.trustedProxies).invalid.length > 0,
+    // QWeather fields are only rendered while that provider is selected; a
+    // hidden leftover must not block saving another provider's settings.
+    qweatherApiHost: qweatherActive && !isValidQWeatherHostInput(draft.qweatherApiHost),
+    qweatherIds: qweatherActive && [draft.qweatherCredentialId, draft.qweatherProjectId, draft.qweatherDeveloperId]
+      .some((value) => value.trim().length > 120),
+    qweatherPrivateKey: qweatherActive && !isValidPrivateKeyInput(draft.qweatherPrivateKey),
+    pomodoroSound: !isValidSoundInput(draft.pomodoroSound),
+  };
+}
+
+/** True when at least one manually edited field must be fixed before saving. */
+export function draftHasIssues(issues: DraftIssues): boolean {
+  return Object.values(issues).some(Boolean);
 }
 
 function normalizeLocationSettings(
@@ -404,6 +650,10 @@ export function normalizeQuickQaForSave(
 export function buildSavePatch(input: SavePatchInput): SavePatch {
   const { settings, draft, selectedInterfaces, selectedApps, notificationApps, order } = input;
   const weatherProvider = normalizeWeatherProvider(settings.weather?.provider);
+  const monthlyLimitText = clampQWeatherMonthlyLimitInput(draft.qweatherMonthlyLimit);
+  const refreshMinutesText = clampQWeatherRefreshInput(draft.qweatherRefreshMinutes);
+  const monthlyLimit = monthlyLimitText === '' ? QWEATHER_DEFAULT_MONTHLY_LIMIT : Number(monthlyLimitText);
+  const refreshMinutes = refreshMinutesText === '' ? QWEATHER_DEFAULT_REFRESH_MINUTES : Number(refreshMinutesText);
   const nextWeather: WeatherSettings = {
     mode: settings.weather?.mode === 'manual' ? 'manual' : 'auto',
     name: settings.weather?.name ?? '',
@@ -420,8 +670,8 @@ export function buildSavePatch(input: SavePatchInput): SavePatch {
       projectId: draft.qweatherProjectId.trim(),
       developerId: draft.qweatherDeveloperId.trim(),
       privateKey: draft.qweatherPrivateKey.trim(),
-      monthlyLimit: numberOrNull(draft.qweatherMonthlyLimit) ?? QWEATHER_DEFAULT_MONTHLY_LIMIT,
-      refreshMinutes: numberOrNull(draft.qweatherRefreshMinutes) ?? QWEATHER_DEFAULT_REFRESH_MINUTES,
+      monthlyLimit,
+      refreshMinutes,
       syncConsole: draft.qweatherSyncConsole === true,
     },
   };
@@ -444,13 +694,14 @@ export function buildSavePatch(input: SavePatchInput): SavePatch {
       presets: normalizeCountdownPresets(draft.countdownPresets),
     },
     quickqa: normalizeQuickQaForSave(settings.quickqa, input.quickQaImageInput),
-    customPageUrl: draft.customPageUrl.trim(),
+    customPageUrl: clampCustomPageUrlInput(draft.customPageUrl),
     pageOrder: [...order],
     pageEnabled: settings.pageEnabled,
     tls: {
       enabled: Boolean(settings.tls?.enabled),
       certPath: draft.certPath,
       keyPath: draft.keyPath,
+      trustedProxies: parseTrustedProxiesInput(draft.trustedProxies),
       advanced: {
         // The wake-lock switch is independent of the HTTPS switch: the padlock
         // needs a secure context to take effect, but turning HTTPS off must not
@@ -461,12 +712,12 @@ export function buildSavePatch(input: SavePatchInput): SavePatch {
     weather: nextWeather,
     balance: {
       spendWindow: settings.balance?.spendWindow ?? 'calendar',
-      lowThreshold: draft.threshold === '' ? null : Number(draft.threshold),
+      lowThreshold: thresholdValue(draft.threshold),
       showPeakValley: settings.balance?.showPeakValley !== false,
     },
     notifications: {
       enabledApps: notificationApps.length > 0 && selectedApps.length === notificationApps.length ? [] : selectedApps,
-      limit: Number(draft.notificationLimit),
+      limit: Number(clampNotificationLimitInput(draft.notificationLimit)),
       pushQuestions: Boolean(settings.notifications?.pushQuestions),
     },
   };

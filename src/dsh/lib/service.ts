@@ -10,6 +10,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { shutdownProbeDaemon } from './probe/index.js';
 import { createQuickQaService } from './quickqa/index.js';
 import type { QuickQaService } from './quickqa/index.js';
+import { hostMessage } from './i18n/index.js';
 import { certificateDomain } from './server/http.js';
 import { createHubController } from './server/hub.js';
 import type { HubController } from './server/hub.js';
@@ -22,6 +23,7 @@ import type { Snapshots } from './server/snapshots.js';
 import { createServiceState, type RemoteControlOptions, type ServiceState } from './server/state.js';
 import type { DshContext, JsonRecord } from './shared/types.js';
 import { isRecord } from './shared/types.js';
+import { parseTrustedProxies } from './shared/proxy.js';
 import { serializeError } from './shared/util.js';
 
 type SettingsValue = ReturnType<ServiceState['settingsStore']['get']>;
@@ -95,6 +97,16 @@ export function createRemoteControlService(
     const sanitized: JsonRecord = patch && typeof patch === 'object' ? { ...patch } : {};
     delete sanitized.token;
     delete sanitized.tokenRotatedAt;
+    // A malformed trusted-proxy list is rejected instead of saved short: the
+    // user expects exactly the addresses they typed to be trusted. The sidebar
+    // validates first; this also protects hand-built requests.
+    if (isRecord(sanitized.tls) && 'trustedProxies' in sanitized.tls) {
+      const parsed = parseTrustedProxies(sanitized.tls.trustedProxies);
+      if (parsed.invalid.length > 0) {
+        throw new Error(hostMessage(state.effectiveLocale(), 'trustedProxyInvalid'));
+      }
+      sanitized.tls = { ...sanitized.tls, trustedProxies: parsed.proxies };
+    }
     // Quick Q&A is gated by the official voice input plugin. Preserve the saved
     // quickqa settings while the plugin is not ready instead of letting a stale
     // page overwrite them.

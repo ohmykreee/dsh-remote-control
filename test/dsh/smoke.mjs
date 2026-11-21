@@ -210,6 +210,40 @@ await withTimeout(
   'restoring the wake lock default',
 );
 
+/* ------------------------------------------ trusted reverse proxies */
+
+// Malformed input is rejected before the store changes; valid input is stored
+// canonically so the system information page can match the socket address.
+await assert.rejects(
+  withTimeout(
+    service.applySettings({ tls: { trustedProxies: '127.0.0.1，10.0.0.0/8' } }),
+    10_000,
+    'rejecting a full-width comma',
+  ),
+  /可信反向代理|trusted reverse proxy/i,
+);
+assert.deepEqual(service.settingsStore.get().tls.trustedProxies, []);
+await assert.rejects(
+  withTimeout(
+    service.applySettings({ tls: { trustedProxies: ['127.0.0.1', 'not-an-ip'] } }),
+    10_000,
+    'rejecting a malformed entry',
+  ),
+  /可信反向代理|trusted reverse proxy/i,
+);
+assert.deepEqual(service.settingsStore.get().tls.trustedProxies, []);
+await withTimeout(
+  service.applySettings({ tls: { trustedProxies: '127.0.0.1, 10.0.0.0/8' } }),
+  10_000,
+  'saving trusted reverse proxies',
+);
+assert.deepEqual(service.settingsStore.get().tls.trustedProxies, ['127.0.0.1', '10.0.0.0/8']);
+await withTimeout(
+  service.applySettings({ tls: { trustedProxies: [] } }),
+  10_000,
+  'clearing trusted reverse proxies',
+);
+
 /* ---------------------------------------------- dynamic HTTPS switching */
 
 /** Resolve once a fresh `/ws` connection has received `welcome`. */

@@ -12,6 +12,8 @@ import type {
   WebSocketHubOptions,
 } from '../shared/types.js';
 import { isRecord } from '../shared/types.js';
+import { pickForwardedClientHeaders } from '../shared/proxy.js';
+import type { ForwardedClientHeaders } from '../shared/proxy.js';
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const MAX_MESSAGE_BYTES = 256 * 1024;
@@ -24,6 +26,10 @@ interface HubClient extends WebSocketClient {
   buffer: Buffer;
   lastPong: number;
   closed: boolean;
+  /** TCP peer address before any trusted-proxy header is applied. */
+  remoteIp: string;
+  /** Real-IP headers kept so `info()` can use the current trusted list. */
+  forwardedHeaders: ForwardedClientHeaders;
 }
 
 function normalizeIp(value: unknown): string {
@@ -74,6 +80,8 @@ export function createWebSocketHub(options: WebSocketHubOptions): WebSocketHub {
   const pathname = options.path || '/ws';
   const authorize: (req: IncomingMessage, url: URL) => WebSocketAuthorizeDecision | undefined =
     options.authorize || (() => ({ ok: true }));
+  const clientIp: (remoteAddress: string, headers: ForwardedClientHeaders) => string =
+    options.clientIp || ((remoteAddress) => remoteAddress);
   const onConnection: (client: WebSocketClient) => void = options.onConnection || (() => {});
   const onMessage: (client: WebSocketClient, message: unknown) => void = options.onMessage || (() => {});
   const onClose: (client: WebSocketClient) => void = options.onClose || (() => {});
@@ -249,10 +257,12 @@ export function createWebSocketHub(options: WebSocketHubOptions): WebSocketHub {
         `Sec-WebSocket-Accept: ${accept}\r\n\r\n`,
     );
     socket.setNoDelay?.(true);
+    const remoteIp = normalizeIp(req.socket.remoteAddress);
+    const forwardedHeaders = pickForwardedClientHeaders(req.headers);
     const client: HubClient = {
       id: crypto.randomUUID(),
       socket,
-      ip: normalizeIp(req.socket.remoteAddress),
+      ip: clientIp(remoteIp, forwardedHeaders),
       userAgent: String(req.headers['user-agent'] || ''),
       label: deviceLabel(req.headers['user-agent']),
       connectedAt: Date.now(),
@@ -260,6 +270,8 @@ export function createWebSocketHub(options: WebSocketHubOptions): WebSocketHub {
       lastPong: Date.now(),
       buffer: Buffer.alloc(0),
       closed: false,
+      remoteIp,
+      forwardedHeaders,
       send: (value) => send(client, value),
       close: (code, reason) => closeClient(client, code, reason),
     };
@@ -296,7 +308,8 @@ export function createWebSocketHub(options: WebSocketHubOptions): WebSocketHub {
       .map((client) => ({
         id: client.id,
         label: client.label,
-        ip: client.ip,
+        ip: clientIp(client.remoteIp, client.forwardedHeaders),
+        userAgent: client.userAgent,
         connectedAt: client.connectedAt,
         lastSeen: client.lastSeen,
       }))

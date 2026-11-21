@@ -608,6 +608,11 @@ export const CSS = `
 .drc-field textarea:focus,
 .drc-map-input:focus { border-color: var(--dsw-alias-state-business-primary, var(--drc-accent)); }
 
+/* Validation feedback reuses the error token; no new field component. */
+.drc-field input[aria-invalid='true'],
+.drc-field textarea[aria-invalid='true'],
+.drc-order-input[aria-invalid='true'] { border-color: var(--drc-error); }
+
 .drc-field input:disabled,
 .drc-field select:disabled,
 .drc-field textarea:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -1148,6 +1153,23 @@ body.drc-sorting * {
   flex-direction: column;
   gap: 2px;
 }
+
+.drc-client-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.drc-client-tip {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--drc-tertiary);
+  cursor: help;
+}
+
+.drc-client-tip svg { display: block; }
 
 .drc-client strong {
   display: block;

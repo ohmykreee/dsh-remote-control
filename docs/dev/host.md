@@ -52,9 +52,10 @@ Host 代码在 `src/dsh/lib`，由 `src/dsh/lib/service.ts` 组合，运行在 D
 
 ### 迁移与不变量
 
-- **天气**：旧的 `weather.latitude` / `weather.longitude` 会迁移到三个提供商的 `locations`；共享的 `name` 只保存一次。`auto` 模式下的 `(0, 0)` 视为无效坐标并落为 `null`；`manual` 模式保留 0。`qweather.apiHost` 会去掉协议与路径。
+- **天气**：旧的 `weather.latitude` / `weather.longitude` 会迁移到三个提供商的 `locations`；共享的 `name` 只保存一次。`auto` 模式下的 `(0, 0)` 视为无效坐标并落为 `null`；`manual` 模式保留 0。`qweather.apiHost` 会去掉协议与路径。`qweather.monthlyLimit` 为 1–`Number.MAX_SAFE_INTEGER` 的整数，避免配额减法越过安全整数范围；`refreshMinutes` 按用户输入的正整数 1–1440 保存，不再按月上限上调，过低只在侧边栏用红字提示可能超额。
 - **网卡**：首次启动检测到至少一个可用网卡时，把当前网卡名写成显式列表并设 `interfacesInitialized`；之后新增网卡默认不勾选。`normalize()` 仍接受 `null`（表示全部）以兼容旧文件；侧边栏保存时总是提交显式列表。
 - **唤醒锁**：`tls.advanced.wakeLock` 是独立开关，挂在 TLS 组下只是历史原因，不根据 `tls.enabled` 推导；手机端无论 HTTPS 开关如何都原样收到它。
+- **可信反向代理**：`tls.trustedProxies` 是 IP / CIDR 列表，由 `shared/proxy.ts` 归一化（只接受英文逗号分隔，IPv4 CIDR 归约到网络地址）。加载旧文件时丢弃无效项；设置请求里出现无效项则整单拒绝，不能静默保存成更短的列表。
 - **番茄钟 / 倒计时**：互斥；手改文件同时开启时保留番茄钟。番茄钟分钟允许两位小数；倒计时预设 1–5 个，按分 / 秒填写。
 - **页面**：`custom` 固定在末尾且默认关闭；全部页面关闭时回退 `home`。`customPageUrl` 裸主机补 `https://`，只接受 http(s)，留空时手机端用内置地址。
 - **快速问答**：`profiles` 只为默认 / 置顶工作区保存 `agentPreset` / `permissionPreset`；未置顶的工作区不保存。
@@ -69,6 +70,7 @@ Host 代码在 `src/dsh/lib`，由 `src/dsh/lib/service.ts` 组合，运行在 D
 - 官方语音输入未就绪时丢弃 `quickqa` 补丁，防止旧页面覆盖已保存配置。
 - QWeather 的 `apiHost` / `credentialId` / `projectId` / `developerId` 变化时清零本地月计数；打开控制台同步或身份变化时立即 `syncConsole()`。
 - `tokenEnabled` 或网卡列表变化时断开所有 WebSocket。
+- `tls.trustedProxies` 变化不重启监听；已连接设备在下次 `hub.info()` 时用新列表重新解析显示 IP。
 - TLS 的 `enabled` / `certPath` / `keyPath` 变化时走 `restart()`；否则只 `recomputeUrls()`。
 - 推 `settings`，并按页面开关补推通知 / 天气 / 余额 / 会话 / 媒体 / 性能。
 
@@ -95,6 +97,13 @@ Host 代码在 `src/dsh/lib`，由 `src/dsh/lib/service.ts` 组合，运行在 D
 
   原因：`server.close()` 不会等待已经升级成 `/ws` 的 socket，`remote.stop()` 自己记录每条 `connection` socket 并在关闭前逐个 `destroy()`；`createWebSocketHub` 又绑定具体 server 实例，不重新 attach 会让重启后的 `/ws` 完全不可用。
 - 切换后手机页面仍在旧地址，需要用新协议地址重新打开；不做自动跳转。
+
+### 可信反向代理与真实客户端 IP
+
+- 配置在 `tls.trustedProxies`（IP 或 CIDR，英文逗号分隔）。只有 TCP 对端地址命中该列表时，WebSocket 握手里的真实 IP 头才会被读取；其他来源一律使用 socket 地址。
+- 读取优先级在 `src/dsh/lib/shared/proxy.ts`：`CF-Connecting-IP` → `True-Client-IP` → `X-Real-IP` → `Fastly-Client-IP` → `X-Client-IP` → `X-Forwarded-For` → `Forwarded` → `X-Original-Forwarded-For` → `X-Cluster-Client-IP` → `X-Forwarded`。链式头从右向左跳过可信代理，取第一个不可信地址；全部可信时取最左项。
+- 该地址只用于「系统信息 → 已连接设备」的显示，以及 `clients` 快照；**不参与** `ipAllowed`、token / cookie 校验或同源检查，避免伪造头改变访问控制。
+- `hub.info()` 每次都会用当前配置重新解析，因此修改可信列表后无需断开设备。`WebSocketClientInfo.userAgent` 原样来自握手，用于侧边栏悬停提示。
 
 ### 静态资源与鉴权
 

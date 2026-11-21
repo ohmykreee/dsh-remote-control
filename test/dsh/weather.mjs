@@ -75,7 +75,8 @@ assert.equal(store.get().weather.locations.nmc.locationId, 'Wqsps');
 assert.equal(store.get().weather.locations.qweather.locationId, '101010100');
 assert.equal(store.get().weather.locations['open-meteo'].latitude, 28.684, 'untouched slot keeps its old value');
 
-// QWeather credentials and the quota-driven refresh floor.
+// QWeather credentials and the user's refresh interval. A low interval is
+// stored exactly as entered; the quota warning is a sidebar concern.
 store.update({
   weather: {
     qweather: {
@@ -91,7 +92,19 @@ store.update({
 });
 assert.equal(store.get().weather.qweather.apiHost, 'abcxyz.qweatherapi.com');
 assert.equal(minimumQWeatherRefreshMinutes(1000), 173);
-assert.equal(store.get().weather.qweather.refreshMinutes, 173, 'refresh is clamped to the safe minimum');
+assert.equal(store.get().weather.qweather.refreshMinutes, 5, 'the user interval is kept');
+store.update({ weather: { qweather: { refreshMinutes: 1 } } });
+assert.equal(store.get().weather.qweather.refreshMinutes, 1, 'a one-minute interval is kept');
+store.update({ weather: { qweather: { refreshMinutes: 0 } } });
+assert.equal(store.get().weather.qweather.refreshMinutes, 30, 'zero falls back to the default');
+
+// The monthly limit ceiling is the largest safe JS integer, so quota math
+// never leaves the safe-integer range.
+store.update({ weather: { qweather: { monthlyLimit: 1e20, refreshMinutes: 30 } } });
+assert.equal(store.get().weather.qweather.monthlyLimit, Number.MAX_SAFE_INTEGER);
+assert.equal(minimumQWeatherRefreshMinutes(Number.MAX_SAFE_INTEGER), 5);
+assert.equal(store.get().weather.qweather.refreshMinutes, 30);
+store.update({ weather: { qweather: { monthlyLimit: 1000, refreshMinutes: 30 } } });
 
 // Public settings expose copies, not the live nested objects.
 const snapshot = store.public();

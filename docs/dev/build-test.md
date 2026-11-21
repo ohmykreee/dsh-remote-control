@@ -72,7 +72,7 @@ pnpm build:rust  # 可选：原生探针
 - `vitest.config.ts`：`environment: node`，只扫 `test/svelte/**/*.test.ts`，`$lib` 指向 `src/svelte/lib`。
 - 一个测试文件对应一类功能；新增断言优先并入已有文件，不要按单个特性拆新脚本。
 
-Host 集成测试（`test/dsh/`）：`smoke`（启动 / TLS / WS / 静态）、`questions`（问询）、`quickqa`（快速问答）、`settings`（设置 / 语言）、`media`（seek / daemon）、`notifications`、`weather`。各文件的具体断言以测试代码为准。
+Host 集成测试（`test/dsh/`）：`smoke`（启动 / TLS / WS / 静态 / 可信反向代理校验）、`questions`（问询）、`quickqa`（快速问答）、`settings`（设置 / 语言）、`proxy`（可信代理范围与真实 IP 头解析）、`media`（seek / daemon）、`notifications`、`weather`。各文件的具体断言以测试代码为准。
 
 约定：
 

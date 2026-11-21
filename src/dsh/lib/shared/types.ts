@@ -11,6 +11,7 @@
 import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import type { Server as HttpsServer } from 'node:https';
 import type { ForecastMode, QWeatherSettings, WeatherProvider } from '../settings/index.js';
+import type { ForwardedClientHeaders } from './proxy.js';
 
 /** Minimal logger sink the Host may expose through `ctx.logger`. */
 export interface DshLogger {
@@ -61,6 +62,8 @@ export interface WebSocketClientInfo {
   id: string;
   label: string;
   ip: string;
+  /** Raw handshake User-Agent; shown on the system information page. */
+  userAgent: string;
   connectedAt: number;
   lastSeen: number;
 }
@@ -74,6 +77,12 @@ export interface WebSocketHubOptions {
   server: HttpServer | HttpsServer;
   path?: string;
   authorize?: (req: IncomingMessage, url: URL) => WebSocketAuthorizeDecision | undefined;
+  /**
+   * Resolve the address reported for one connection. Called once when the
+   * socket is accepted and again for every `info()` call, so a settings change
+   * applies to devices that are already connected.
+   */
+  clientIp?: (remoteAddress: string, headers: ForwardedClientHeaders) => string;
   onConnection?: (client: WebSocketClient) => void;
   onMessage?: (client: WebSocketClient, message: unknown) => void;
   onClose?: (client: WebSocketClient) => void;
