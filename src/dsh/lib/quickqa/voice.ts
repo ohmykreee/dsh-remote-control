@@ -9,41 +9,13 @@
  */
 
 import type { DshContext } from '../shared/types.js';
-
-export interface SpeechProviderView {
-  id?: string;
-  name?: string;
-  languages?: readonly string[];
-  preparation?: {
-    phase?: string;
-    message?: string;
-    download?: { resource?: string; completedBytes?: number; totalBytes?: number } | null;
-  } | null;
-}
-
-export interface SpeechCatalogView {
-  providers?: readonly SpeechProviderView[];
-  selection?: {
-    providerId?: string;
-    language?: string;
-  } | null;
-  maxAudioBytes?: number;
-  maxDurationSeconds?: number;
-}
-
-export interface SpeechTranscriptionRequest {
-  audioBase64: string;
-  providerId?: string;
-  language?: string;
-}
+import type { SpeechCatalog, TranscriptionRequest } from '@deepseek-ai/dsh-experimental-api-speech-to-text/types';
+import type { SpeechProviderView, Transcript } from '@deepseek-ai/dsh-experimental-speech-to-text/types';
 
 /** The public contract the DSH client also calls through its `speech` namespace. */
 export interface SpeechControllerService {
-  catalog?(): SpeechCatalogView;
-  transcribe?(
-    request: SpeechTranscriptionRequest,
-    signal: AbortSignal,
-  ): Promise<{ text?: string; audioSeconds?: number } | undefined>;
+  catalog?(): SpeechCatalog;
+  transcribe?(request: TranscriptionRequest, signal: AbortSignal): Promise<Transcript>;
 }
 
 export interface VoiceStatus {
@@ -83,7 +55,7 @@ function controllerService(ctx: DshContext): SpeechControllerService | undefined
   }
 }
 
-function catalogOf(ctx: DshContext): SpeechCatalogView | undefined {
+function catalogOf(ctx: DshContext): SpeechCatalog | undefined {
   const service = controllerService(ctx);
   if (!service?.catalog) return undefined;
   try {
@@ -93,9 +65,9 @@ function catalogOf(ctx: DshContext): SpeechCatalogView | undefined {
   }
 }
 
-function voiceStatusOf(catalog: SpeechCatalogView | undefined): VoiceStatus {
+function voiceStatusOf(catalog: SpeechCatalog | undefined): VoiceStatus {
   if (!catalog) return { ready: false, providerName: '', language: '', phase: 'missing' };
-  const providers = Array.isArray(catalog.providers) ? catalog.providers : [];
+  const providers: readonly SpeechProviderView[] = Array.isArray(catalog.providers) ? catalog.providers : [];
   const selectedId = catalog.selection?.providerId ?? '';
   const language = catalog.selection?.language || '';
   const provider = providers.find((entry) => entry.id === selectedId) ?? null;

@@ -15,6 +15,19 @@ import type { PluginLocale, QuickQaWorkspaceProfile, RemoteControlSettings } fro
 import { isRecord, type DshContext, type JsonRecord, type WebSocketClient } from '../shared/types.js';
 import { safeString, serializeError } from '../shared/util.js';
 import type { RemoteSettingsPayload } from '../server/types.js';
+import type {
+  PromptContentPart,
+  SessionCancelRequest,
+  SessionCancelValue,
+  SessionCreateRequest,
+  SessionCreateValue,
+  SessionFollowFrame,
+  SessionFollowRequest,
+  SessionPromptRequest,
+  SessionPromptValue,
+  SessionSelectModelRequest,
+  SessionSelectModelValue,
+} from '@deepseek-ai/dsh-api-session-controller/types';
 import {
   bestQuickQaSelection,
   createQuickQaCatalog,
@@ -80,16 +93,11 @@ interface WorkspaceRegistryService {
 }
 
 interface SessionControllerService {
-  create?(request: Record<string, unknown>): Promise<{ sessionId?: string; agentPreset?: string }>;
-  prompt?(request: Record<string, unknown>, signal?: AbortSignal): Promise<{ accepted?: boolean }>;
-  follow?(request: Record<string, unknown>, signal: AbortSignal): AsyncIterable<unknown>;
-  cancel?(request: { sessionId: string }): { accepted?: boolean } | void;
-  selectModel?(request: {
-    sessionId: string;
-    provider: string;
-    model: string;
-    reasoningEffort?: string;
-  }): Promise<unknown>;
+  create?(request: SessionCreateRequest): Promise<SessionCreateValue>;
+  prompt?(request: SessionPromptRequest, signal?: AbortSignal): Promise<SessionPromptValue>;
+  follow?(request: SessionFollowRequest, signal: AbortSignal): AsyncIterable<SessionFollowFrame>;
+  cancel?(request: SessionCancelRequest): SessionCancelValue;
+  selectModel?(request: SessionSelectModelRequest): Promise<SessionSelectModelValue>;
 }
 
 interface QuickQaRun {
@@ -178,7 +186,7 @@ async function selectModel(
   }
   try {
     await controller.selectModel({
-      sessionId,
+      sessionId: sessionId as SessionSelectModelRequest['sessionId'],
       provider: selection.provider,
       model: selection.model,
       ...(selection.reasoningEffort ? { reasoningEffort: selection.reasoningEffort } : {}),
@@ -502,7 +510,10 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
 
     try {
       const iterable = controller.follow(
-        { address: { kind: 'session', sessionId: run.sessionId }, assistantStream: true },
+        {
+          address: { kind: 'session', sessionId: run.sessionId } as SessionFollowRequest['address'],
+          assistantStream: true,
+        },
         abort.signal,
       );
       const iterator = iterable[Symbol.asyncIterator]();
@@ -619,12 +630,12 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
       workspaceId: run.workspaceId,
       question: text,
     });
-    const content: JsonRecord[] = [{ type: 'text', text }];
+    const content: PromptContentPart[] = [{ type: 'text', text }];
     if (image) content.push({ type: 'image', mediaType: image.mediaType, data: image.data });
     try {
       await controller.prompt?.({
-        requestId: crypto.randomUUID(),
-        sessionId: run.sessionId,
+        requestId: crypto.randomUUID() as SessionPromptRequest['requestId'],
+        sessionId: run.sessionId as SessionPromptRequest['sessionId'],
         mode: 'queue',
         content,
       }, abort.signal);
@@ -683,7 +694,7 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
     runs.set(client.id, placeholder);
     try {
       const created = await controller.create({
-        ...(workspaceId ? { workspaceId } : {}),
+        ...(workspaceId ? { workspaceId: workspaceId as SessionCreateRequest['workspaceId'] } : {}),
         ...(profile.agentPreset ? { agentPreset: profile.agentPreset } : {}),
       });
       const sessionId = safeString(created?.sessionId, 300);
@@ -774,7 +785,7 @@ export function createQuickQaService(deps: QuickQaServiceOptions): QuickQaServic
   function cancelActiveTurn(run: QuickQaRun): void {
     const controller = service<SessionControllerService>(deps.ctx, 'sessionController');
     try {
-      controller?.cancel?.({ sessionId: run.sessionId });
+      controller?.cancel?.({ sessionId: run.sessionId as SessionCancelRequest['sessionId'] });
     } catch (errorValue) {
       deps.log(`quickqa: cancel failed: ${serializeError(errorValue)}`);
     }

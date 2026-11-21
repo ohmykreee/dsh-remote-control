@@ -18,6 +18,15 @@ pnpm build:rust  # 可选：原生探针
 
 `pnpm build` 的顺序是 `build:dsh` → `build:web`。`build-dsh` 先清理旧的 `index.js`、`client.js`、`lib/`、`.build/`，避免半旧产物；`build-web` 只写 `web/`。不要反过来依赖两者的副作用。
 
+## DSH 公开类型依赖
+
+`devDependencies` 里固定了三个只用于 `import type` 的 DSH 包（`0.2.2-rc.5`）：`@deepseek-ai/dsh-api-session-controller`、`@deepseek-ai/dsh-experimental-api-speech-to-text`、`@deepseek-ai/dsh-experimental-speech-to-text`。
+
+- 它们只用于类型检查；编译后不会出现在 `index.js` / `lib/` 里，运行时也不安装。
+- `tsc` 不下载任何包；`pnpm install` 会从 npm 安装这些 devDependencies。CI 不需要安装 DSH Desktop，但需要能访问 registry（或命中 pnpm store）；跳过 devDependencies 安装时，类型检查会因为找不到模块而失败。
+- pnpm 的隔离布局只暴露直接依赖；不要依赖 `@deepseek-ai/dsh` 的传递依赖来提供类型，也不要把 `@deepseek-ai/dsh`（CLI，不导出这些服务契约）加进来。
+- 升级 DSH 时三个包一起改到同一版本，并同步 README 徽章上的版本。
+
 ## build-dsh
 
 `scripts/build-dsh.mjs`：

@@ -5,6 +5,7 @@ import type { DshContext, DshEventHandler, JsonRecord } from '../shared/types.js
 import { hostMessage } from '../i18n/index.js';
 import type { PluginLocale } from '../settings/index.js';
 import { basename, finiteNumber, serializeError } from '../shared/util.js';
+import type { SessionState, SessionStateRequest } from '@deepseek-ai/dsh-api-session-controller/types';
 
 /** Console status of one session row, ranked in this order. */
 export type SessionStatus = 'question' | 'running' | 'error' | 'done';
@@ -142,15 +143,9 @@ interface AgentService {
   } | null | undefined;
 }
 
-/** One passive Session state sample returned by the public Session controller. */
-interface SessionStateLike {
-  active?: boolean;
-  running?: boolean;
-}
-
 /** Minimal `sessionController` service: only the passive state read is used. */
 interface SessionControllerService {
-  state?(request: { sessionId: string }, signal: AbortSignal): Promise<SessionStateLike | null | undefined>;
+  state?(request: SessionStateRequest, signal: AbortSignal): Promise<SessionState>;
 }
 
 /** Minimal `sessionTitle` service. */
@@ -752,15 +747,15 @@ export function createPendingTracker(ctx: DshContext, options: PendingTrackerOpt
 async function readSessionStates(
   ctx: DshContext,
   sessions: readonly SessionLike[],
-): Promise<Map<string, SessionStateLike>> {
-  const states = new Map<string, SessionStateLike>();
+): Promise<Map<string, SessionState>> {
+  const states = new Map<string, SessionState>();
   const controller = ctx.get?.('sessionController') as SessionControllerService | undefined;
   if (!controller?.state) return states;
   const signal = AbortSignal.timeout(5_000);
   await Promise.all(sessions.map(async (session) => {
     const id = String(session.id);
     try {
-      const state = await controller.state!({ sessionId: id }, signal);
+      const state = await controller.state!({ sessionId: id as SessionStateRequest['sessionId'] }, signal);
       if (state && typeof state === 'object') states.set(id, state);
     } catch {
       /* a Session that detached mid-read has no authoritative state */

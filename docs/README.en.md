@@ -6,10 +6,9 @@
 
 <div align="center">
   <p><strong>A touch-first LAN console for DeepSeek Harness</strong></p>
-  <p><em>把局域网里的手机变成 DSH 的触屏中控台</em></p>
 
   <p>
-    <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat&logo=deepseek&logoColor=white" alt="Powered by dsh"></a>
+    <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DSH_Plugin_for-_0.2.2--rc.5-4D6BFE?style=flat&logo=deepseek&logoColor=white" alt="DeepSeek Harness Plugin for 0.2.2-rc.5"></a>
     <a href="https://github.com/ohmykreee/dsh-remote-control/actions/workflows/checks.yml"><img src="https://github.com/ohmykreee/dsh-remote-control/actions/workflows/checks.yml/badge.svg" alt="Checks"></a>
     <a href="https://www.npmjs.com/package/@ohmykreee/dsh-remote-control"><img src="https://img.shields.io/npm/v/@ohmykreee/dsh-remote-control?style=flat&color=4D6BFE" alt="npm"></a>
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-4D6BFE?style=flat" alt="Windows / Linux / macOS">
