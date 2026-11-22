@@ -371,8 +371,9 @@ export async function runProbe(args: string[], options: RunProbeOptions = {}): P
 export async function materializeThumbnail(result: ProbeMediaResult): Promise<ProbeMediaResult> {
   const media = result?.media;
   if (!media || media.thumbnail || !media.thumbnailUrl) return result;
-  // CDP covers are plain image URLs; let the control-end browser fetch and
-  // cache them directly instead of downloading the image on every poll.
+  // CDP covers normally arrive as a data URL encoded by the page; when only a
+  // URL is present, let the control-end browser fetch and cache it instead of
+  // downloading the image on every poll.
   if (String(media.providerDetail || '').toLowerCase().includes('cdp')) return result;
   if (!/^https?:\/\//i.test(media.thumbnailUrl)) return result;
   const controller = new AbortController();

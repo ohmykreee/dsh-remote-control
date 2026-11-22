@@ -62,7 +62,7 @@ dsh-probe location request [--open-settings]
 - `index.ts`：按 `process.platform` / `process.arch` 定位二进制，`DSH_RC_PROBE` 可覆盖；`DSH_RC_DISABLE_RUST_PROBE` 强制不可用（测试用）。`execFile` 取 stdout 中**最后一个以 `{` 开头的行**解析；15 s 失败冷却；临时目录默认仓库 `.probe-tmp/`，`DSH_RC_TMPDIR` 可覆盖。
 - `daemon.ts`：daemon 启动、按 id 匹配响应、超时、崩溃 / 退出处理；只读命令可重放。
 - `adapter.ts`：只调用 Rust 媒体 / 音量命令，失败直接返回错误，不静默回退。媒体缓存 1.4 s、音量缓存 3 s、错误缓存 5 s，命中时带 `cached: true`。
-- 封面：SMTC / MPRIS 的 data URL 或 `file://` 由探针处理；HTTP(S) 封面由 Node 的 `materializeThumbnail()` 下载（3.5 s 超时、4 MiB 上限、只接受 `image/*`，CDP 封面 URL 跳过下载交给浏览器）。
+- 封面：SMTC / MPRIS 的 data URL 或 `file://` 由探针处理；HTTP(S) 封面由 Node 的 `materializeThumbnail()` 下载（3.5 s 超时、4 MiB 上限、只接受 `image/*`，CDP 封面跳过下载）。网易云 CDP 模式下封面由页面把已加载的图片编码成 data URL 直接随快照返回，`thumbnailUrl` 仅作兜底。
 - `performance/index.ts`、`notifications/index.ts`、`apps/index.ts` 的投影见 [`host.md`](host.md)。
 
 ## 载荷

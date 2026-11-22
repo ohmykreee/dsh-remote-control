@@ -12,10 +12,10 @@
 2. **命中 vendor** → `src/rust/src/media/vendor/<client>.rs`：
    - 所有 vendor 都先尝试完整系统会话（元数据、播放状态、时间轴、控制与 seek）；
    - 只有系统会话缺失或不完整时，才用 CDP / 窗口标题 / Cider / UIA 补齐；
-   - 网易云：系统会话完整时 CDP 只补红心；不完整时 CDP 补精确进度和红心；系统完全缺失时 CDP 提供歌曲信息 / 封面 URL / 播放控制；两者都不可用时窗口 + UIA 兜底，仍取不到就返回空。
+   - 网易云：系统会话完整时 CDP 只补红心；不完整时 CDP 补精确进度和红心；系统完全缺失时 CDP 提供歌曲信息 / 封面（页面内已加载图片的 data URL）/ 播放控制；两者都不可用时窗口 + UIA 兜底，仍取不到就返回空。
 3. **未命中 vendor**（浏览器、未知播放器）→ 直接使用系统媒体接口（Windows SMTC / Linux MPRIS / macOS MediaRemote）。
 
-**不访问任何外部 Web API。** 封面来自 SMTC `Thumbnail`、MPRIS `mpris:artUrl`、网易云 CDP 页面数据或 Cider 的本地文件；歌曲信息不通过网易云 / QQ 音乐等网络接口查询，也不从客户端本地图片缓存补封面。
+**不访问任何外部 Web API。** 封面来自 SMTC `Thumbnail`、MPRIS `mpris:artUrl`、网易云 CDP 页面数据或 Cider 的本地文件；网易云 CDP 模式下由页面把已加载的封面编码成 `data:` URL。歌曲信息不通过网易云 / QQ 音乐等网络接口查询，也不从客户端本地缓存目录读文件补封面。
 
 适配思路参考 [Widdit/now-playing-service](https://github.com/Widdit/now-playing-service)（MIT）的 `GetMusicStatus`；Rust 侧为独立实现。
 
@@ -118,8 +118,9 @@ seek 规则：
 
 - CDP 协议栈是 `netease.rs` 的文件内部实现（`CdpConnection` / `cdp_evaluate` 等不对外导出），不是通用库。新增需要 CDP 的 vendor 时，不要假设可以复用，也不要把网易云的 CDP 逻辑上移到通用层：要么先抽成独立通用 CDP 模块（架构改动，需要同步更新本文件），要么在目标 vendor 文件内实现自己的私有桥。
 - 客户端专属的 JS 表达式必须留在自己的 vendor 文件。
-- 从页面 webpack runtime 取 store 时，`webpackJsonp.push` 只传 `[[chunkId], { moduleId: factory }]` 不会执行 factory；必须再传第三参数 `[[moduleId]]`（webpack 4 的 executeModules）。标题 / 歌手 / 专辑 / 封面 / trackId 只从 store 取，DOM 仅用于进度、播放状态和红心。详细注释在 `netease.rs` 的 `CDP_STORE_HELPER` 上方。
-- 封面只能来自系统 API 或该客户端自己的页面数据，不从本地图片缓存补。
+- 从页面 webpack runtime 取 store 时，`webpackJsonp.push` 只传 `[[chunkId], { moduleId: factory }]` 不会执行 factory；必须再传第三参数 `[[moduleId]]`（webpack 4 的 executeModules）。标题 / 歌手 / 专辑 / 封面 URL / trackId 只从 store 取；红心状态优先取 `async:hostResource.likeTrackIds`（客户端自己把它当作喜欢列表全集，`likeTrackCount` 直接取 `length`），列表为空或不可用时才回退到播放条按钮。DOM 仅用于进度、播放状态和红心按钮。详细注释在 `netease.rs` 的 `CDP_STORE_HELPER` 上方。
+- 封面字节由页面自己产生：优先取已渲染的大尺寸同专辑图片，否则通过客户端的 `orpheus://cache` 图片缓存协议取 UI 同款 336px 变体，页面用 `fetch` 读字节、按魔数判定格式后 `btoa` 编码成 data URL 随媒体快照返回；探针不落盘、不另开 HTTP 客户端。`thumbnailUrl` 仍作为兜底保留。
+- 封面只能来自系统 API 或该客户端自己的页面数据，不从本地图片缓存目录读文件。
 
 ## Node 侧
 

@@ -1,9 +1,14 @@
 //! NetEase Cloud Music vendor adapter: CDP bridge and window-title parser.
 //!
 //! The CDP bridge reads the page's webpack store (never the DOM) for title,
-//! artist, album, cover URL, track id, playback state and progress. The window
-//! title and UI Automation remain the fallback when CDP is unavailable. It never
-//! writes to the client, never calls a network API and never extracts cookies.
+//! artist, album, cover URL, track id, playback state and progress, plus the
+//! client's liked-track id list for the heart state. Cover bytes are taken from
+//! the image the page already loaded and encoded as a `data:` URL inside the
+//! page, so neither the probe nor the Node bridge downloads or caches artwork.
+//! The player-bar DOM is only the fallback for progress, playback status and the
+//! like control. The window title and UI Automation remain the fallback when CDP
+//! is unavailable. The bridge never writes to the client, never calls a network
+//! API and never extracts cookies.
 //!
 //! When the client was launched with `/remote-debugging-port=<port>` (or
 //! `--remote-debugging-port=<port>`, default port `2015`), the CDP bridge also
@@ -72,6 +77,9 @@ pub struct CdpState {
     pub position: Option<f64>,
     pub duration: Option<f64>,
     pub liked: Option<bool>,
+    /// `store` when the liked state came from the webpack store, `dom` when it
+    /// fell back to the player-bar button. Diagnostics only.
+    pub liked_source: Option<String>,
     pub can_like: bool,
     pub can_set_liked: bool,
 }
@@ -86,6 +94,9 @@ struct CdpTrack {
     artist: String,
     album: String,
     cover_url: Option<String>,
+    /// Cover bytes already loaded by the client, encoded as a `data:` URL by
+    /// the page. Never downloaded by the probe or the Node bridge.
+    cover_data_url: Option<String>,
     position: Option<f64>,
     duration: Option<f64>,
     playing: Option<bool>,
@@ -100,6 +111,10 @@ struct CdpTrack {
 const CDP_DEFAULT_PORT: u16 = 2015;
 const CDP_CONNECT_TIMEOUT: Duration = Duration::from_millis(250);
 const CDP_IO_TIMEOUT: Duration = Duration::from_millis(1500);
+/// The page encodes the loaded cover itself; anything past this is not a
+/// credible cover and would only bloat the probe payload. The page caps the
+/// source image at 1.2 MB, so a valid base64 payload stays below this limit.
+const CDP_COVER_DATA_URL_MAX: usize = 1_700_000;
 
 /// Store/audio progress are preferred when the client's webpack runtime is
 /// reachable; the visible player bar is a layout-independent fallback. The
@@ -112,11 +127,14 @@ __STORE_HELPER__
   const position = (await readProgress()) ?? dom.position ?? null;
   const effectiveDuration = duration || dom.duration || null;
   const button = pickLikeButton(false);
+  const domLiked = readLiked(button);
+  const liked = likedFromStore !== null ? likedFromStore : domLiked;
   return {
     trackId: track.id ? String(track.id) : null,
     position,
     duration: effectiveDuration,
-    liked: readLiked(button),
+    liked,
+    likedSource: likedFromStore !== null ? 'store' : (domLiked !== null ? 'dom' : null),
     canLike: !!button,
     canSetLiked: !!button && button.getAttribute('aria-disabled') !== 'true'
   };
@@ -147,8 +165,9 @@ const CDP_CLICK_LIKE_EXPRESSION: &str = r#"
 
 /// Attempt to resolve the live store through the NetEase webpack runtime. The
 /// module id changes between client builds, so inspect the loaded module cache
-/// instead of hard-coding one id. The player bar remains only a fallback for
-/// progress, playback status and the like control.
+/// instead of hard-coding one id. Liked state comes from `likeTrackIds` and the
+/// cover bytes from the page's image cache; the player bar remains only the
+/// fallback for progress, playback status and the like control.
 const CDP_STORE_HELPER: &str = r#"
   const req = (() => {
     if (window.__dsh_cm_require__) return window.__dsh_cm_require__;
@@ -207,15 +226,25 @@ const CDP_STORE_HELPER: &str = r#"
   const storeTitle = String(track.name || playing.resourceName || '').trim();
   const storeArtist = artistList.join(' / ');
   const storeAlbum = String((track.album && track.album.name) || '');
-  const coverUrl = String(
+  const rawCoverUrl = String(
     (track.album && (track.album.picUrl || track.album.cover))
     || playing.resourceCoverUrl
     || ''
-  ).trim().replace(/^http:/, 'https:');
+  ).trim();
+  const coverUrl = rawCoverUrl.replace(/^http:/, 'https:');
   const rawDuration = Number(track.duration || 0);
   const storeDuration = Number(playing.resourceDuration || 0);
   const duration = rawDuration > 1000 ? rawDuration / 1000 : (storeDuration || rawDuration || 0);
   const storePlaying = Number(playing.playingState);
+  const hostResource = (store && store['async:hostResource']) || {};
+  const likeTrackIds = Array.isArray(hostResource.likeTrackIds) ? hostResource.likeTrackIds : null;
+  const currentTrackId = track.id ? String(track.id) : '';
+  // The client keeps every liked track id here and updates it once the like
+  // request settles. An empty list means "not hydrated yet" rather than
+  // "nothing liked", so it falls back to the player-bar button.
+  const likedFromStore = likeTrackIds && likeTrackIds.length && currentTrackId
+    ? likeTrackIds.some((value) => String(value) === currentTrackId)
+    : null;
 
   const findAudio = () => {
     if (!req) return null;
@@ -301,6 +330,106 @@ const CDP_STORE_HELPER: &str = r#"
     });
   };
 
+  const sniffImageMime = (bytes) => {
+    if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+      return 'image/jpeg';
+    }
+    if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50
+      && bytes[2] === 0x4e && bytes[3] === 0x47) {
+      return 'image/png';
+    }
+    if (bytes.length >= 2 && bytes[0] === 0x42 && bytes[1] === 0x4d) {
+      return 'image/bmp';
+    }
+    if (bytes.length >= 12 && bytes[0] === 0x47 && bytes[1] === 0x49
+      && bytes[2] === 0x46 && bytes[3] === 0x38) {
+      return 'image/gif';
+    }
+    if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49
+      && bytes[2] === 0x46 && bytes[3] === 0x46 && bytes[8] === 0x57
+      && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
+      return 'image/webp';
+    }
+    return null;
+  };
+  const bytesToBase64 = (bytes) => {
+    let binary = '';
+    const chunk = 0x8000;
+    for (let index = 0; index < bytes.length; index += chunk) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(index, index + chunk));
+    }
+    return btoa(binary);
+  };
+  const coverCacheKey = String(
+    (track.album && (track.album.picId || track.album.picUrl)) || rawCoverUrl || ''
+  );
+  // Prefer a large cover of this album that the page already rendered;
+  // otherwise ask the client's own image cache (`orpheus://cache`) for the same
+  // 336px variant its UI uses. The probe never downloads the image itself.
+  const coverSourceUrls = () => {
+    const picId = String((track.album && track.album.picId) || '');
+    const fileName = (rawCoverUrl.split('/').pop() || '').split('?')[0];
+    const match = picId || fileName;
+    const loaded = match
+      ? Array.from(document.images)
+        .filter((img) => img.naturalWidth >= 300
+          && String(img.currentSrc || img.src || '').includes(match))
+        .sort((left, right) => right.naturalWidth - left.naturalWidth)
+        .map((img) => img.currentSrc || img.src)
+      : [];
+    if (!rawCoverUrl) return loaded;
+    const separator = rawCoverUrl.includes('?') ? '&' : '?';
+    const cached = 'orpheus://cache/?' + rawCoverUrl + separator
+      + 'imageView=&thumbnail=336y336&type=webp&rotate=0&tostatic=0';
+    return loaded.concat(cached);
+  };
+  const readCoverDataUrl = () => {
+    if (!coverCacheKey) return Promise.resolve(null);
+    const state = window.__dsh_cm_cover__ || (window.__dsh_cm_cover__ = {});
+    if (state.key !== coverCacheKey) {
+      state.key = coverCacheKey;
+      state.dataUrl = null;
+      state.pending = null;
+      state.failedAt = 0;
+    }
+    if (state.dataUrl) return Promise.resolve(state.dataUrl);
+    if (state.failedAt && Date.now() - state.failedAt < 30000) return Promise.resolve(null);
+    if (state.pending) return state.pending;
+    const key = coverCacheKey;
+    let task = null;
+    task = (async () => {
+      for (const source of coverSourceUrls()) {
+        let timer = null;
+        try {
+          const controller = new AbortController();
+          timer = setTimeout(() => controller.abort(), 2500);
+          const response = await fetch(source, { signal: controller.signal });
+          if (!response.ok) continue;
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          if (!bytes.length || bytes.length > 1200000) continue;
+          // The track may have changed while the image was loading.
+          if (state.key !== key) return null;
+          const mime = sniffImageMime(bytes) || 'image/jpeg';
+          state.dataUrl = 'data:' + mime + ';base64,' + bytesToBase64(bytes);
+          return state.dataUrl;
+        } catch (error) {
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      }
+      if (state.key === key) state.failedAt = Date.now();
+      return null;
+    })().then((dataUrl) => {
+      if (state.pending === task) state.pending = null;
+      return dataUrl;
+    }, () => {
+      if (state.pending === task) state.pending = null;
+      return null;
+    });
+    state.pending = task;
+    return task;
+  };
+
   // DOM is used only for the like control, which is not exposed by the store.
   // Pick a visible button so mini, expanded and comment-area layouts all work.
   const allLikeButtons = () => Array.from(
@@ -351,16 +480,19 @@ const CDP_STORE_HELPER: &str = r#"
   };
 "#;
 
-/// Full CDP snapshot for the no-SMTC case. Track, album and cover come from
-/// the webpack store; the player bar is only a progress/status fallback.
+/// Full CDP snapshot for the no-SMTC case. Track, album and the cover reference
+/// come from the webpack store; cover bytes come from the page's loaded image and
+/// the player bar is only a progress/status fallback.
 #[allow(dead_code)] // called by `cdp_media` on every platform.
 const CDP_MEDIA_TEMPLATE: &str = r#"
 (async () => {
 __STORE_HELPER__
   const dom = domMedia();
+  const coverPromise = readCoverDataUrl();
   const position = (await readProgress()) ?? dom.position ?? null;
-  // Track, album and cover come from the webpack store only. The player-bar
-  // DOM is used only for progress, playback status and the like control.
+  // Track, album and the cover reference come from the webpack store; the
+  // cover bytes are encoded by the page, and the player-bar DOM is used only
+  // for progress, playback status and the like control.
   const effectiveTitle = storeTitle;
   const effectiveArtist = storeArtist;
   const effectiveDuration = duration || dom.duration || null;
@@ -368,16 +500,27 @@ __STORE_HELPER__
   const effectivePlaying = storePlaying === 2 ? true
     : storePlaying === 1 ? false : (dom.playing ?? null);
   const likeButton = pickLikeButton(false);
+  const domLiked = readLiked(likeButton);
+  const liked = likedFromStore !== null ? likedFromStore : domLiked;
+  // Wait briefly for a first cover load; a slow cache entry is picked up by the
+  // next poll instead of blocking the snapshot.
+  await Promise.race([coverPromise, new Promise((resolve) => setTimeout(resolve, 700))]);
+  const coverState = window.__dsh_cm_cover__;
+  const coverDataUrl = coverState && coverState.key === coverCacheKey
+    ? (coverState.dataUrl || null)
+    : null;
   return {
     trackId: track.id ? String(track.id) : null,
     title: effectiveTitle,
     artist: effectiveArtist,
     album: storeAlbum,
     coverUrl: effectiveCover,
+    coverDataUrl,
     position,
     duration: effectiveDuration,
     playing: effectivePlaying,
-    liked: readLiked(likeButton),
+    liked,
+    likedSource: likedFromStore !== null ? 'store' : (domLiked !== null ? 'dom' : null),
     canLike: !!likeButton,
     canSetLiked: !!likeButton && likeButton.getAttribute('aria-disabled') !== 'true',
     canPlayPause: !!effectiveTitle,
@@ -746,6 +889,17 @@ pub fn cdp_identity() -> Option<(String, String)> {
     }
 }
 
+/// MIME type of a `data:<mime>;base64,` URL, if it is an image.
+fn data_url_mime(value: &str) -> Option<String> {
+    let rest = value.strip_prefix("data:")?;
+    let (mime, payload) = rest.split_once(";base64,")?;
+    if mime.starts_with("image/") && !payload.is_empty() {
+        Some(mime.to_string())
+    } else {
+        None
+    }
+}
+
 fn parse_cdp_track(value: &Value) -> Option<CdpTrack> {
     let object = value.as_object()?;
     let string = |key: &str| {
@@ -777,6 +931,15 @@ fn parse_cdp_track(value: &Value) -> Option<CdpTrack> {
             .get("coverUrl")
             .and_then(Value::as_str)
             .filter(|value| value.starts_with("http://") || value.starts_with("https://"))
+            .map(str::to_string),
+        cover_data_url: object
+            .get("coverDataUrl")
+            .and_then(Value::as_str)
+            .filter(|value| {
+                value.starts_with("data:image/")
+                    && value.len() <= CDP_COVER_DATA_URL_MAX
+                    && data_url_mime(value).is_some()
+            })
             .map(str::to_string),
         position: number("position").filter(|value| *value >= 0.0),
         duration: number("duration").filter(|value| *value > 0.0),
@@ -821,6 +984,8 @@ pub fn cdp_media() -> Option<Media> {
     // transport control, but only an explicitly seekable SMTC session may
     // report a seekable timeline to the client.
     media.can_seek = false;
+    media.thumbnail_type = track.cover_data_url.as_deref().and_then(data_url_mime);
+    media.thumbnail = track.cover_data_url;
     media.thumbnail_url = track.cover_url;
     media.track_id = track.track_id;
     media.liked = track.liked;
@@ -922,6 +1087,11 @@ fn parse_cdp_state(value: &Value) -> Option<CdpState> {
         position: number("position").filter(|value| *value >= 0.0),
         duration: number("duration").filter(|value| *value > 0.0),
         liked: object.get("liked").and_then(Value::as_bool),
+        liked_source: object
+            .get("likedSource")
+            .and_then(Value::as_str)
+            .filter(|value| *value == "store" || *value == "dom")
+            .map(str::to_string),
         can_like: flag("canLike"),
         can_set_liked: flag("canSetLiked"),
     };
@@ -981,6 +1151,8 @@ pub fn cdp_diagnostic() -> Value {
                     "album": media.album,
                     "hasCover": media.thumbnail.is_some() || media.thumbnail_url.is_some(),
                     "thumbnailType": media.thumbnail_type,
+                    "thumbnailFromPage": media.thumbnail.is_some(),
+                    "coverUrl": media.thumbnail_url,
                     "position": media.position,
                     "duration": media.end_time,
                     "playbackStatus": media.playback_status,
@@ -1000,6 +1172,7 @@ pub fn cdp_diagnostic() -> Value {
                     "position": state.position,
                     "duration": state.duration,
                     "liked": state.liked,
+                    "likedSource": state.liked_source,
                     "canLike": state.can_like,
                     "canSetLiked": state.can_set_liked,
                 },
@@ -1244,6 +1417,7 @@ mod tests {
             "position": 21.012,
             "duration": 103.0,
             "liked": true,
+            "likedSource": "store",
             "canLike": true,
             "canSetLiked": true
         });
@@ -1252,9 +1426,42 @@ mod tests {
         assert!((state.position.unwrap() - 21.012).abs() < 0.001);
         assert!((state.duration.unwrap() - 103.0).abs() < 0.001);
         assert_eq!(state.liked, Some(true));
+        assert_eq!(state.liked_source.as_deref(), Some("store"));
         assert!(state.can_like);
         assert!(state.can_set_liked);
         assert!(parse_cdp_state(&json!({ "liked": null })).is_none());
+    }
+
+    #[test]
+    fn parses_cdp_cover_data_url() {
+        let value = json!({
+            "title": "晴天",
+            "artist": "周杰伦",
+            "coverUrl": "https://p1.music.126.net/cover.jpg",
+            "coverDataUrl": "data:image/webp;base64,AAAA"
+        });
+        let track = parse_cdp_track(&value).unwrap();
+        assert_eq!(
+            track.cover_data_url.as_deref(),
+            Some("data:image/webp;base64,AAAA")
+        );
+
+        let invalid = json!({
+            "title": "晴天",
+            "coverDataUrl": "data:text/html;base64,AAAA"
+        });
+        assert!(parse_cdp_track(&invalid).unwrap().cover_data_url.is_none());
+    }
+
+    #[test]
+    fn extracts_image_mime_from_data_url() {
+        assert_eq!(
+            data_url_mime("data:image/jpeg;base64,AAAA").as_deref(),
+            Some("image/jpeg")
+        );
+        assert!(data_url_mime("data:text/plain;base64,AAAA").is_none());
+        assert!(data_url_mime("data:image/webp;base64,").is_none());
+        assert!(data_url_mime("https://p1.music.126.net/cover.jpg").is_none());
     }
 
     #[test]
