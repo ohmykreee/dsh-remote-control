@@ -39,7 +39,7 @@
 
 | 模块 | 规则 |
 |---|---|
-| `state.svelte.ts` | 持有 WebSocket 快照、设置、页面状态；`applySettings()` 应用语言 / 主题 / 计时器 / 唤醒锁 / 自定义地址 |
+| `state.svelte.ts` | 持有 WebSocket 快照、设置、页面状态；`applySettings()` 应用语言 / 主题 / 页面主题色 / 计时器 / 唤醒锁 / 自定义地址 |
 | `ws.ts` | 连接与重连；`sendLive()` 在断开时返回 false；握手的 `?token=` 来自 `session-token.ts` |
 | `session-token.ts` | Host 轮换令牌后经 `token` 帧下发；只存内存，重签 `dsh_rc` cookie 并供下一次握手使用 |
 | `media.ts` | 播放状态、可 seek 判定、进度钳制 |
@@ -98,6 +98,14 @@
 - 文案全部走 `t()`（`i18n.svelte.ts`）；日期用 `localeTag()`；`applySettings()` 调 `setLocale()`，切换语言无需刷新。
 - 例外：农历日期与节气只对中文有意义，`format.ts` 在非中文时返回空；`sourceLabel` 里的品牌名不翻译。
 - `<html lang>` 初始为 `en-US`，收到第一个设置快照后才切到实际语言；不要在 `index.html` 里写死中文。
+
+### 页面主题色
+
+- `settings.pageThemeColor` 随 `welcome` / `settings` / `overview.settings` 下发；`applySettings()` 用 `normalizePageThemeColor()` 归一化后写入 `app.pageThemeColor`，空字符串表示保持内置配色。
+- `App.svelte` 的 effect 把它写进 `<html>` 的 `--page-accent`，并给 `<body>` 加 `data-page-accent`；空值同时移除变量与标记。
+- `global.css` 只在这两个状态同时存在时重算 token：`--brand` / `--primary` 用 `oklch(from ... clamp(...))` 保留色相并夹紧明度（深色主题偏亮、浅色主题偏暗），`--brand-soft`、`--ring`、`--chart-1` 由 `color-mix()` 从 `--brand` 派生。整块包在 `@supports (color: oklch(from ...))` 里，不支持相对颜色语法的浏览器继续使用内置配色。
+- 组件只读 token（`var(--brand)`、`bg-brand` 等），不要在新组件里直接用 `--page-accent`；未设置颜色时 token 与原来完全一致。
+- 性能页四个占用圆环统一读 `--brand`；右侧最高温度条用 `color-mix(in srgb, var(--brand) 18%, transparent)`，比传感器行（13%）稍深。不要再给占用环用 `--chart-*` / `--success`，否则页面主题色不会作用到它们。
 
 ## 浏览器限制与 CSP
 

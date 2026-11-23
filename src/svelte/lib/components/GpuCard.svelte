@@ -75,7 +75,7 @@
       </div>
 
       <div class="pane-body">
-        <RadialGauge value={usagePercent} color="var(--chart-4)" />
+        <RadialGauge value={usagePercent} color="var(--brand)" />
         <div class="grid w-full grid-cols-2 gap-2">
           <div class="fact-tile">
             <span>{t('coreClock')}</span>
@@ -101,7 +101,7 @@
       </div>
 
       <div class="pane-body">
-        <RadialGauge value={vramPercent} color="var(--chart-2)" />
+        <RadialGauge value={vramPercent} color="var(--brand)" />
         <div class="grid w-full grid-cols-2 gap-2">
           <div class="fact-tile">
             <span>{t('memoryUsed')}</span>
@@ -120,7 +120,7 @@
 <style>
   :global(.graphics-card) {
     background:
-      radial-gradient(90% 110% at 100% 0%, color-mix(in srgb, var(--chart-4) 7%, transparent), transparent 57%),
+      radial-gradient(90% 110% at 100% 0%, color-mix(in srgb, var(--brand) 7%, transparent), transparent 57%),
       var(--card);
   }
 
@@ -131,7 +131,7 @@
     width: 210px;
     height: 210px;
     border-radius: 50%;
-    border: 1px solid color-mix(in srgb, var(--chart-4) 11%, transparent);
+    border: 1px solid color-mix(in srgb, var(--brand) 11%, transparent);
     pointer-events: none;
   }
 

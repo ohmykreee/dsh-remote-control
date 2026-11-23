@@ -94,7 +94,7 @@
       </div>
 
       <div class="pane-body">
-        <RadialGauge value={percentShown} color="var(--success)" />
+        <RadialGauge value={percentShown} color="var(--brand)" />
         <div class="grid w-full grid-cols-2 gap-2">
           <div class="fact-tile">
             <span>{t('memoryUsed')}</span>

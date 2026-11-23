@@ -6,6 +6,7 @@ import {
   DEFAULT_COUNTDOWN_PRESETS,
   normalizeCountdown,
   normalizeNavPosition,
+  normalizePageThemeColor,
   normalizePomodoro,
 } from './settings-normalize';
 import { setWakeLockEnabled } from './wake-lock';
@@ -45,6 +46,7 @@ export const app: ConsoleState = $state({
   },
   balanceDisplay: { showPeakValley: true, spendWindow: 'calendar' },
   customPageUrl: DEFAULT_CUSTOM_PAGE_URL,
+  pageThemeColor: '',
   pageOrder: [...DEFAULT_ORDER],
   pageEnabled: { home: true, sessions: true, quickqa: true, music: true, performance: true, custom: false },
   pageRevision: 0,
@@ -226,6 +228,11 @@ export function applySettings(settings: ConsoleSettings | undefined): void {
   // The custom page address rides on every settings snapshot; an older Host
   // that omits it leaves the built-in default in place.
   if (settings.customPageUrl !== undefined) app.customPageUrl = resolveCustomPageUrl(settings.customPageUrl);
+  // An empty accent is meaningful: it returns the console to the shipped
+  // palette, so every snapshot replaces the previous value instead of keeping it.
+  if (settings.pageThemeColor !== undefined) {
+    app.pageThemeColor = normalizePageThemeColor(settings.pageThemeColor);
+  }
   // Every settings push carries the full page configuration, so only a real
   // change may bump the revision: bumping unconditionally re-runs the pager's
   // scroll reconciliation while the user may be swiping.

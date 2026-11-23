@@ -17,6 +17,7 @@ const {
   COUNTDOWN_PRESET_LIMIT,
   createSettingsStore,
   normalizeDshLocale,
+  normalizePageThemeColor,
   resolveLocale,
 } = await import('../../lib/settings/index.js');
 const { zh, en, hostMessage } = await import('../../lib/i18n/index.js');
@@ -94,6 +95,24 @@ assert.equal(store.get().pageEnabled.custom, false);
 assert.equal(store.get().customPageUrl, '');
 assert.equal(store.public().pageEnabled.custom, false);
 assert.equal(store.public().customPageUrl, '');
+
+// The page theme color is opaque hex only; an empty value keeps the phone's
+// shipped palette, and short form is expanded to the same normalized hex.
+assert.equal(store.get().pageThemeColor, '');
+assert.equal(store.public().pageThemeColor, '');
+assert.equal(normalizePageThemeColor(' #ABC '), '#aabbcc');
+assert.equal(normalizePageThemeColor('#1E2F3A'), '#1e2f3a');
+assert.equal(normalizePageThemeColor('red'), '');
+assert.equal(normalizePageThemeColor('#12345'), '');
+assert.equal(normalizePageThemeColor('#11223344'), '', 'alpha colors are not accepted');
+assert.equal(normalizePageThemeColor(null), '');
+store.update({ pageThemeColor: '#ABC' });
+assert.equal(store.get().pageThemeColor, '#aabbcc');
+assert.equal(store.public().pageThemeColor, '#aabbcc');
+const reloadedColor = createSettingsStore();
+assert.equal(reloadedColor.get().pageThemeColor, '#aabbcc', 'the color survives a reload');
+store.update({ pageThemeColor: 'blue' });
+assert.equal(store.get().pageThemeColor, '', 'an invalid color falls back to the default palette');
 
 // Bare hosts gain https, http(s) survives, and everything else is dropped.
 store.update({ customPageUrl: 'www.example.com/show' });

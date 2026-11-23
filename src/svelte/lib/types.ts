@@ -31,6 +31,8 @@ export interface ConsoleSettings {
   quickqa?: QuickQaSettings;
   /** Address embedded by the custom page; missing or empty uses the built-in default. */
   customPageUrl?: string;
+  /** Accent color for the console as `#rrggbb`; empty keeps the shipped palette. */
+  pageThemeColor?: string;
   pageOrder?: string[];
   pageEnabled?: Partial<Record<PageKey, boolean>>;
 }
@@ -301,6 +303,8 @@ export interface ConsoleState {
   balanceDisplay: { showPeakValley: boolean; spendWindow: 'calendar' | 'rolling' };
   /** Address embedded by the custom page; never empty once normalized. */
   customPageUrl: string;
+  /** Accent color for the console as `#rrggbb`; empty keeps the shipped palette. */
+  pageThemeColor: string;
   pageOrder: PageKey[];
   pageEnabled: Record<PageKey, boolean>;
   pageRevision: number;

@@ -5,6 +5,7 @@ import {
   DEFAULT_COUNTDOWN_PRESETS,
   normalizeCountdown,
   normalizeNavPosition,
+  normalizePageThemeColor,
   normalizePomodoro,
 } from '../../src/svelte/lib/settings-normalize.ts';
 import type { CountdownSettings, PomodoroSettings } from '../../src/svelte/lib/types.ts';
@@ -26,6 +27,22 @@ describe('normalizeNavPosition', () => {
     expect(normalizeNavPosition('diagonal')).toBe('left');
     expect(normalizeNavPosition(undefined)).toBe('left');
     expect(normalizeNavPosition(null)).toBe('left');
+  });
+});
+
+describe('normalizePageThemeColor', () => {
+  it('keeps opaque hex colors and expands the short form', () => {
+    expect(normalizePageThemeColor('#AABBCC')).toBe('#aabbcc');
+    expect(normalizePageThemeColor(' #abc ')).toBe('#aabbcc');
+    expect(normalizePageThemeColor('#1e2f3a')).toBe('#1e2f3a');
+  });
+
+  it('clears anything the Host would reject', () => {
+    expect(normalizePageThemeColor('red')).toBe('');
+    expect(normalizePageThemeColor('#12345')).toBe('');
+    expect(normalizePageThemeColor('#11223344')).toBe('');
+    expect(normalizePageThemeColor(42)).toBe('');
+    expect(normalizePageThemeColor(undefined)).toBe('');
   });
 });
 

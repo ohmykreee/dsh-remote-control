@@ -64,6 +64,8 @@ export interface RemoteSettingsPayload {
   };
   /** Address embedded by the phone's custom page; empty means its default. */
   customPageUrl: string;
+  /** Accent color for the phone console as `#rrggbb`; empty keeps the shipped palette. */
+  pageThemeColor: string;
   pageOrder: string[];
   pageEnabled: Record<string, boolean>;
   /** Quick Q&A workspace choices, voice readiness, and page defaults. */

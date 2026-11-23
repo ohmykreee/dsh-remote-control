@@ -936,6 +936,46 @@ export const CSS = `
   align-items: flex-start;
 }
 
+/* Page theme color: the native picker is the control, so only the swatch and
+ * its readout need styling. The reset button appears only with a saved color. */
+.drc-color {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.drc-color-input {
+  width: 40px;
+  height: 26px;
+  padding: 0;
+  border: 0.5px solid var(--drc-border);
+  border-radius: var(--drc-radius-sm);
+  background: transparent;
+  appearance: none;
+  cursor: pointer;
+}
+
+.drc-color-input::-webkit-color-swatch-wrapper { padding: 2px; }
+
+.drc-color-input::-webkit-color-swatch {
+  border: 0;
+  border-radius: calc(var(--drc-radius-sm) - 1px);
+}
+
+.drc-color-input::-moz-color-swatch {
+  border: 0;
+  border-radius: calc(var(--drc-radius-sm) - 1px);
+}
+
+.drc-color-value {
+  color: var(--drc-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
 .drc-qr {
   display: flex;
   align-items: center;

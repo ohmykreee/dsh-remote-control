@@ -129,6 +129,21 @@
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', app.theme === 'light' ? '#eef2f8' : '#151a23');
   });
 
+  // The page accent arrives as a plain hex color. Keep it in one shared CSS
+  // variable and flag the body, so global.css can derive every accent token
+  // from it; an empty setting removes both and restores the shipped palette.
+  $effect(() => {
+    const accent = app.pageThemeColor;
+    const root = document.documentElement;
+    if (accent) {
+      root.style.setProperty('--page-accent', accent);
+      document.body.dataset.pageAccent = 'custom';
+    } else {
+      root.style.removeProperty('--page-accent');
+      delete document.body.dataset.pageAccent;
+    }
+  });
+
   function scheduleEdgeJump(jumpTo: number, count: number): void {
     if (jumpTimer) clearTimeout(jumpTimer);
     jumpTimer = setTimeout(() => {

@@ -150,6 +150,7 @@ const welcome = messages.find((message) => message.type === 'welcome');
 assert.equal(welcome.now, undefined);
 assert.equal(welcome.settings.temperatureUnit, 'celsius');
 assert.equal(welcome.settings.customPageUrl, '');
+assert.equal(welcome.settings.pageThemeColor, '');
 assert.deepEqual(welcome.settings.tls, { enabled: false, advanced: { wakeLock: false } });
 assert.equal('certPath' in welcome.settings.tls, false);
 const overview = messages.find((message) => message.type === 'overview');
@@ -170,6 +171,7 @@ assert.deepEqual(overview.data.settings.pageEnabled, {
   custom: false,
 });
 assert.equal(overview.data.settings.customPageUrl, '');
+assert.equal(overview.data.settings.pageThemeColor, '');
 
 /* ----------------------------- settings reach the phone without HTTPS */
 
@@ -209,6 +211,60 @@ await withTimeout(
   10_000,
   'restoring the wake lock default',
 );
+
+/* ------------------------------------------------ page theme color */
+
+// The accent is normalized before it reaches the socket, and the empty value
+// means "keep the phone's shipped palette". Saving it also pushes a `settings`
+// frame so a connected phone repaints without reconnecting.
+const accentSocket = new WebSocket(wsUrl);
+const accentWelcome = await new Promise((resolve, reject) => {
+  const timer = setTimeout(() => {
+    accentSocket.close();
+    reject(new Error('page-theme-color welcome timeout'));
+  }, 15_000);
+  accentSocket.addEventListener('message', (event) => {
+    const message = JSON.parse(event.data);
+    if (message.type !== 'welcome') return;
+    clearTimeout(timer);
+    resolve(message.settings.pageThemeColor);
+  });
+  accentSocket.addEventListener('error', () => {
+    clearTimeout(timer);
+    reject(new Error('page-theme-color welcome failed'));
+  });
+});
+assert.equal(accentWelcome, '');
+
+const accentPush = new Promise((resolve, reject) => {
+  const timer = setTimeout(() => {
+    accentSocket.close();
+    reject(new Error('page-theme-color push timeout'));
+  }, 15_000);
+  const onMessage = (event) => {
+    const message = JSON.parse(event.data);
+    if (message.type !== 'settings') return;
+    clearTimeout(timer);
+    accentSocket.removeEventListener('message', onMessage);
+    resolve(message.data.pageThemeColor);
+  };
+  accentSocket.addEventListener('message', onMessage);
+});
+await withTimeout(
+  service.applySettings({ pageThemeColor: '#ABC' }),
+  10_000,
+  'saving the page theme color',
+);
+assert.equal(service.settingsStore.get().pageThemeColor, '#aabbcc');
+assert.equal(await accentPush, '#aabbcc');
+accentSocket.close();
+
+await withTimeout(
+  service.applySettings({ pageThemeColor: '' }),
+  10_000,
+  'clearing the page theme color',
+);
+assert.equal(service.settingsStore.get().pageThemeColor, '');
 
 /* ------------------------------------------ trusted reverse proxies */
 

@@ -1,8 +1,12 @@
 /** Preferences section: plugin language, units, theme, page order, and navigation placement. */
 
 import type * as React from 'react';
-import { Seg, Toggle, groupHead, h, sectionHead } from '../ui.js';
-import { clampCustomPageUrlInput } from '../logic.js';
+import { Btn, Row, Seg, Toggle, groupHead, h, sectionHead } from '../ui.js';
+import {
+  clampCustomPageUrlInput,
+  defaultPageThemeColor,
+  normalizePageThemeColor,
+} from '../logic.js';
 import type { PanelApi } from '../types.js';
 
 function languageGroup(api: PanelApi): React.ReactElement {
@@ -40,6 +44,33 @@ function unitGroup(api: PanelApi): React.ReactElement {
   );
 }
 
+/**
+ * Native color picker for the phone accent. An empty setting is not shown as
+ * "no color": the swatch previews the phone's shipped accent for the theme the
+ * console currently uses. The readout and the reset action only appear once a
+ * color has actually been picked.
+ */
+function pageThemeColorControl(api: PanelApi): React.ReactElement {
+  const { t, settings, stage } = api;
+  const saved = normalizePageThemeColor(settings.pageThemeColor);
+  return h('div', { className: 'drc-color' },
+    h('input', {
+      className: 'drc-color-input',
+      type: 'color',
+      value: saved || defaultPageThemeColor(settings),
+      'aria-label': t('pageThemeColorPick'),
+      title: t('pageThemeColorPick'),
+      onChange: (event: React.ChangeEvent<HTMLInputElement>) => stage({
+        pageThemeColor: normalizePageThemeColor(event.target.value),
+      }),
+    }),
+    saved ? h('span', { className: 'drc-color-value' }, saved.toUpperCase()) : null,
+    saved
+      ? h(Btn, { small: true, onClick: () => stage({ pageThemeColor: '' }) }, t('pageThemeColorReset'))
+      : null,
+  );
+}
+
 function themeGroup(api: PanelApi): React.ReactElement {
   const { t, settings, stage } = api;
   return h('div', { className: 'drc-group' },
@@ -54,6 +85,10 @@ function themeGroup(api: PanelApi): React.ReactElement {
         value: settings.theme,
         onChange: (value) => stage({ theme: value }),
       }),
+    ),
+    h('div', { className: 'drc-divider' }),
+    h(Row, { title: t('pageThemeColor'), description: t('pageThemeColorHint') },
+      pageThemeColorControl(api),
     ),
   );
 }

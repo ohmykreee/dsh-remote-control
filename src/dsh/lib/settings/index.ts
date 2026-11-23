@@ -263,6 +263,8 @@ export interface RemoteControlSettings {
   quickqa: QuickQaSettings;
   /** Address embedded by the phone's "custom page"; empty means the page default. */
   customPageUrl: string;
+  /** Accent color for the phone console as `#rrggbb`; empty keeps the shipped palette. */
+  pageThemeColor: string;
   pageOrder: PageKey[];
   pageEnabled: Record<PageKey, boolean>;
   updatedAt: number;
@@ -287,6 +289,8 @@ export interface PublicSettings {
   countdown: CountdownSettings;
   quickqa: QuickQaSettings;
   customPageUrl: string;
+  /** Accent color for the phone console as `#rrggbb`; empty keeps the shipped palette. */
+  pageThemeColor: string;
   pageOrder: PageKey[];
   pageEnabled: Record<PageKey, boolean>;
   updatedAt: number;
@@ -372,6 +376,7 @@ export function defaultSettings(): RemoteControlSettings {
       allowImages: false,
     },
     customPageUrl: '',
+    pageThemeColor: '',
     pageOrder: ['home', 'sessions', 'quickqa', 'music', 'performance', 'custom'],
     pageEnabled: { home: true, sessions: true, quickqa: true, music: true, performance: true, custom: false },
     updatedAt: now,
@@ -506,6 +511,21 @@ function normalizeCustomPageUrl(value: unknown): string {
   } catch {
     return '';
   }
+}
+
+/**
+ * Normalize the phone console's accent color.
+ *
+ * Only opaque `#rgb` / `#rrggbb` values are kept. Anything else becomes empty,
+ * which tells the phone to keep its shipped palette, so a hand-edited file can
+ * never hand the console an unparsable color.
+ */
+export function normalizePageThemeColor(value: unknown): string {
+  const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!raw) return '';
+  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/u.exec(raw);
+  if (short) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`;
+  return /^#[0-9a-f]{6}$/u.test(raw) ? raw : '';
 }
 
 function normalizeQWeatherSettings(value: unknown): QWeatherSettings {
@@ -651,6 +671,7 @@ function normalize(raw: unknown): RemoteControlSettings {
     countdown: countdownSettings,
     quickqa: normalizeQuickQaSettings(input.quickqa),
     customPageUrl: normalizeCustomPageUrl(input.customPageUrl),
+    pageThemeColor: normalizePageThemeColor(input.pageThemeColor),
     pageOrder: normalizedOrder,
     pageEnabled,
     updatedAt: Number.isFinite(Number(input.updatedAt)) ? Number(input.updatedAt) : Date.now(),
@@ -796,6 +817,7 @@ export function createSettingsStore(): SettingsStore {
         allowImages: current.quickqa.allowImages,
       },
       customPageUrl: current.customPageUrl,
+      pageThemeColor: current.pageThemeColor,
       pageOrder: [...current.pageOrder],
       pageEnabled: { ...current.pageEnabled },
       updatedAt: current.updatedAt,

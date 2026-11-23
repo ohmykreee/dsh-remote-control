@@ -149,7 +149,9 @@
     position: absolute;
     inset: 0 auto 0 0;
     width: var(--heat, 0%);
-    background: color-mix(in srgb, var(--success) 16%, transparent);
+    /* The max-temperature bar keeps the page accent, a touch deeper than the
+     * sensor rows below it so the hero still reads as the headline. */
+    background: color-mix(in srgb, var(--brand) 18%, transparent);
     pointer-events: none;
   }
 

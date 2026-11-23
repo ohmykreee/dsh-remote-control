@@ -40,7 +40,7 @@ Host 代码在 `src/dsh/lib`，由 `src/dsh/lib/service.ts` 组合，运行在 D
 
 ### schema
 
-当前 `SETTINGS_VERSION = 3`。字段定义以 `src/dsh/lib/settings/index.ts` 的 `RemoteControlSettings` 为准，包括：token / 网卡、主题与语言、温度单位、天气、余额、通知、TLS、导航位置、番茄钟 / 倒计时、快速问答、页面顺序 / 开关、自定网页地址。
+当前 `SETTINGS_VERSION = 3`。字段定义以 `src/dsh/lib/settings/index.ts` 的 `RemoteControlSettings` 为准，包括：token / 网卡、主题与语言、温度单位、天气、余额、通知、TLS、导航位置、番茄钟 / 倒计时、快速问答、页面顺序 / 开关、自定网页地址、页面主题色。
 
 修改字段时必须：
 
@@ -58,6 +58,7 @@ Host 代码在 `src/dsh/lib`，由 `src/dsh/lib/service.ts` 组合，运行在 D
 - **可信反向代理**：`tls.trustedProxies` 是 IP / CIDR 列表，由 `shared/proxy.ts` 归一化（只接受英文逗号分隔，IPv4 CIDR 归约到网络地址）。加载旧文件时丢弃无效项；设置请求里出现无效项则整单拒绝，不能静默保存成更短的列表。
 - **番茄钟 / 倒计时**：互斥；手改文件同时开启时保留番茄钟。番茄钟分钟允许两位小数；倒计时预设 1–5 个，按分 / 秒填写。
 - **页面**：`custom` 固定在末尾且默认关闭；全部页面关闭时回退 `home`。`customPageUrl` 裸主机补 `https://`，只接受 http(s)，留空时手机端用内置地址。
+- **页面主题色**：`pageThemeColor` 只接受不透明 `#rgb` / `#rrggbb`，统一保存为小写六位；非法值、带 alpha 的值和留空都归一化为空字符串，表示手机端保持内置配色（颜色推导见 [`mobile.md`](mobile.md#页面主题色)）。
 - **快速问答**：`profiles` 只为默认 / 置顶工作区保存 `agentPreset` / `permissionPreset`；未置顶的工作区不保存。
 - **令牌**：24 字节随机 `base64url`。设置对象不含 token；`/api/info` 与 `/api/settings` 的 `info` 会带配对 URL / 二维码路径，token 只出现在 URL query，客户端存为 cookie。轮换有两条路径：`/api/token/rotate` 换新并断开全部设备；`/api/disconnect` 在访问验证开启时先断目标再换新，把新令牌通过 `/ws` 推给剩下的设备（见 [`protocol.md`](protocol.md)）。
 - **更新**：`update(patch)` 浅合并 + 嵌套对象合并；`applySettings()` 还会做下面这些副作用。

@@ -253,6 +253,8 @@ export interface RemoteSettings {
   tokenEnabled: boolean;
   allowedInterfaces: string[] | null;
   theme: string;
+  /** Theme the phone console actually renders: `dsh` resolved to light or dark. */
+  effectiveTheme?: string;
   /** Plugin language preference: `dsh`, `zh`, or `en`. */
   language?: string;
   /** Resolved console language computed by the Host. */
@@ -264,6 +266,8 @@ export interface RemoteSettings {
   quickqa?: QuickQaSettings;
   /** Address embedded by the phone's custom page; empty means its default. */
   customPageUrl?: string;
+  /** Accent color for the phone console as `#rrggbb`; empty keeps the shipped palette. */
+  pageThemeColor?: string;
   pageOrder?: string[];
   pageEnabled?: Record<string, boolean>;
   weather?: WeatherSettings;
@@ -440,6 +444,7 @@ export interface StagedSettings {
   pomodoro?: PomodoroSettings;
   countdown?: CountdownSettings;
   quickqa?: QuickQaSettings;
+  pageThemeColor?: string;
   pageOrder?: string[];
   pageEnabled?: Record<string, boolean>;
   tls?: TlsSettings;
@@ -460,6 +465,7 @@ export interface SavePatch {
   countdown: { enabled: boolean; presets: number[] };
   quickqa: QuickQaSettings;
   customPageUrl: string;
+  pageThemeColor: string;
   pageOrder: string[];
   pageEnabled?: Record<string, boolean>;
   tls: {

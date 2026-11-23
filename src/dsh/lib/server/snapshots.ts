@@ -189,6 +189,7 @@ export function createSnapshots(deps: SnapshotDeps): Snapshots {
         },
       },
       customPageUrl: value.customPageUrl,
+      pageThemeColor: value.pageThemeColor,
       pageOrder: [...value.pageOrder],
       pageEnabled: { ...value.pageEnabled },
       quickqa: quickqa.remoteSettings(),

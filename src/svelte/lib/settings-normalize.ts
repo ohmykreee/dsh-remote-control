@@ -18,6 +18,18 @@ export function normalizeNavPosition(value: unknown): NavPosition {
   return NAV_POSITIONS.includes(value as NavPosition) ? (value as NavPosition) : 'left';
 }
 
+/**
+ * Accept only the opaque hex accent the Host validates. Anything else clears,
+ * which returns the console to its shipped palette instead of guessing a hue.
+ */
+export function normalizePageThemeColor(value: unknown): string {
+  const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!raw) return '';
+  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/u.exec(raw);
+  if (short) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`;
+  return /^#[0-9a-f]{6}$/u.test(raw) ? raw : '';
+}
+
 export function normalizePomodoro(input: Partial<PomodoroSettings> | undefined, base: PomodoroSettings): PomodoroSettings {
   const minutes = (value: unknown, fallback: number, max: number): number => {
     const number = Number(value);

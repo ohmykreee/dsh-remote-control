@@ -97,7 +97,7 @@ The **Remote control** sidebar has these groups:
 | Group | Contents |
 |---|---|
 | Connection | QR code, console address, allowed interfaces, access verification, HTTPS (with trusted reverse proxy IPs), and advanced features (wake lock needs a secure context) |
-| Preferences | Plugin language, temperature unit, theme, page order and toggles (the custom page takes a web address), navigation position |
+| Preferences | Plugin language, temperature unit, theme and page theme color, page order and toggles (the custom page takes a web address), navigation position |
 | Quick Q&A | Official voice-input status, reply model and reasoning effort, default / pinned workspaces with their mode and permission behavior |
 | Pomodoro / countdown | Enable switch (mutually exclusive), focus / break lengths, countdown presets, alert sound |
 | Weather | Data provider, location mode, city search, QWeather JWT credentials and monthly limit, call-count sync, hourly / 7-day display, location access |

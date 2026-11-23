@@ -202,6 +202,32 @@ export function pageLabels(t: Translator): Record<string, string> {
   };
 }
 
+/** Shipped accent per phone theme; the picker shows it while the setting is empty. */
+export const DEFAULT_PAGE_THEME_COLORS: Record<'light' | 'dark', string> = {
+  dark: '#7d96ff',
+  light: '#3457d5',
+};
+
+/** Phone theme after resolving "follow DSH" against the last synced DSH theme. */
+export function effectivePageTheme(settings: RemoteSettings): 'light' | 'dark' {
+  if (settings.theme === 'light' || settings.theme === 'dark') return settings.theme;
+  return settings.effectiveTheme === 'light' ? 'light' : 'dark';
+}
+
+/** Default accent the picker shows; it mirrors the phone's shipped token. */
+export function defaultPageThemeColor(settings: RemoteSettings): string {
+  return DEFAULT_PAGE_THEME_COLORS[effectivePageTheme(settings)];
+}
+
+/** Keep only the opaque hex accents the Host accepts; invalid input clears. */
+export function normalizePageThemeColor(value: unknown): string {
+  const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!raw) return '';
+  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/u.exec(raw);
+  if (short) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`;
+  return /^#[0-9a-f]{6}$/u.test(raw) ? raw : '';
+}
+
 function text(value: unknown): string {
   return value === null || value === undefined ? '' : String(value);
 }
@@ -695,6 +721,7 @@ export function buildSavePatch(input: SavePatchInput): SavePatch {
     },
     quickqa: normalizeQuickQaForSave(settings.quickqa, input.quickQaImageInput),
     customPageUrl: clampCustomPageUrlInput(draft.customPageUrl),
+    pageThemeColor: normalizePageThemeColor(settings.pageThemeColor),
     pageOrder: [...order],
     pageEnabled: settings.pageEnabled,
     tls: {

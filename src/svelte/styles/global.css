@@ -85,6 +85,43 @@ body[data-theme="light"] {
   --hairline: rgb(20 33 59 / 8%);
 }
 
+/* Page theme color (phone console only).
+ *
+ * The palette above is the shipped look. When the user picks a page theme
+ * color, the Host pushes it, App.svelte stores it in `--page-accent` on <html>
+ * and marks <body> with `data-page-accent`. Only then do the accent tokens
+ * below leave their defaults:
+ * - oklch(from ...) keeps the chosen hue and clamps its lightness, so an accent
+ *   stays readable as text on the current surface (brighter on the dark canvas,
+ *   darker on the light one) and can never collapse to pure white or black;
+ * - color-mix() derives the translucent variants the components already use.
+ * An empty setting never matches these selectors, so the shipped colors stay
+ * exactly as they are.
+ */
+@supports (color: oklch(from red 0.5 0.1 250)) {
+  body[data-page-accent] {
+    --brand: oklch(from var(--page-accent) clamp(0.66, l, 0.88) min(c, 0.2) h);
+    --brand-soft: color-mix(in srgb, var(--brand) 13%, transparent);
+    --primary: oklch(from var(--page-accent) clamp(0.42, l, 0.49) min(c, 0.19) h);
+    --ring: var(--brand);
+    --chart-1: var(--brand);
+    background:
+      radial-gradient(900px 520px at 12% -12%, color-mix(in srgb, var(--brand) 12%, transparent), transparent 62%),
+      linear-gradient(140deg, #171c26 0%, var(--background) 54%, #131821 100%);
+  }
+
+  body[data-theme="light"][data-page-accent] {
+    --brand: oklch(from var(--page-accent) clamp(0.36, l, 0.49) min(c, 0.22) h);
+    --brand-soft: color-mix(in srgb, var(--brand) 8%, transparent);
+    --primary: oklch(from var(--page-accent) clamp(0.38, l, 0.49) min(c, 0.2) h);
+    --ring: var(--brand);
+    --chart-1: var(--brand);
+    background:
+      radial-gradient(900px 520px at 12% -12%, color-mix(in srgb, var(--brand) 9%, transparent), transparent 62%),
+      linear-gradient(140deg, #f4f7fc 0%, var(--background) 55%, #e9eef7 100%);
+  }
+}
+
 @theme inline {
   --font-sans: "Inter Variable", "Noto Sans SC Variable", system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", "Inter Variable", monospace;
