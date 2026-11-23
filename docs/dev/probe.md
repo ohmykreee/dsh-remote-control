@@ -44,7 +44,7 @@ dsh-probe location request [--open-settings]
 `dsh-probe daemon` 通过 stdin/stdout 按行收发 JSON，不开 socket。
 
 ```text
-<- {"event":"ready","ok":true,"protocol":1,"version":"1.1.3","pid":1234}
+<- {"event":"ready","ok":true,"protocol":1,"version":"1.1.4","pid":1234}
 -> {"id":1,"argv":["performance"]}
 <- {"id":1,"ok":true,"result":{...}}
 ```

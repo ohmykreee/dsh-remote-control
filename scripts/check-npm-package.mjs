@@ -11,7 +11,7 @@
  *
  * Usage:
  *   node scripts/check-npm-package.mjs                # manifest + artifacts + tarball
- *   node scripts/check-npm-package.mjs --tag v1.1.3   # also require a matching tag
+ *   node scripts/check-npm-package.mjs --tag v1.1.4   # also require a matching tag
  *   node scripts/check-npm-package.mjs --no-pack      # skip the tarball inspection
  *
  * Exit code 0 means the checkout is publishable; 1 lists every problem found.
@@ -29,7 +29,7 @@ const tag = tagIndex >= 0 ? String(args[tagIndex + 1] || '').trim() : '';
 const skipPack = args.includes('--no-pack');
 
 if (tagIndex >= 0 && !tag) {
-  console.error('--tag requires the pushed tag name, e.g. --tag v1.1.3');
+  console.error('--tag requires the pushed tag name, e.g. --tag v1.1.4');
   process.exit(2);
 }
 
@@ -226,7 +226,7 @@ if (tag) {
   if (normalized !== version) {
     fail(
       `tag ${JSON.stringify(tag)} does not match package version ${version}`,
-      'push the tag for the version that is actually in package.json, e.g. `git tag v1.1.3`',
+      'push the tag for the version that is actually in package.json, e.g. `git tag v1.1.4`',
     );
   } else {
     pass(`tag ${tag} matches version ${version}`);
