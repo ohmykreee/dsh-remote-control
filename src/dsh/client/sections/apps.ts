@@ -17,7 +17,7 @@ function AppMappingSection({ api }: { api: PanelApi }): React.ReactElement {
   return h('div', { className: 'drc-section' },
     sectionHead(t('appMapping'), t('appsPageHint')),
     h('div', { className: 'drc-group' },
-      groupHead(t('appNamesBlock'), t('appMappingHint')),
+      groupHead(t('appNamesBlock'), t('appMappingHint'), 'appNames'),
       apps.length > 0
         ? h('div', { className: 'drc-search' },
           h('input', {

@@ -1,7 +1,7 @@
 /** Connection section: pairing, reachable interfaces, access token, and TLS. */
 
 import type * as React from 'react';
-import { Btn, Field, Row, Toggle, groupHead, h, sectionHead } from '../ui.js';
+import { Btn, Field, LinkedHint, Row, Toggle, groupHead, h, sectionHead } from '../ui.js';
 import type { PanelApi } from '../types.js';
 
 function networkGroup(api: PanelApi): React.ReactElement {
@@ -45,7 +45,7 @@ function tlsGroup(api: PanelApi): React.ReactElement {
   const trustedProxiesInvalid = issues.trustedProxies;
   return h('div', { className: 'drc-group' },
     groupHead(t('tls'), t('tlsHint')),
-    h(Row, { title: t('tlsEnable') }, h(Toggle, {
+    h(Row, { title: t('tlsEnable'), anchor: 'tlsEnable' }, h(Toggle, {
       checked: settings.tls?.enabled,
       label: t('tlsEnable'),
       onChange: (checked) => {
@@ -97,13 +97,13 @@ function tlsGroup(api: PanelApi): React.ReactElement {
 }
 
 function advancedGroup(api: PanelApi): React.ReactElement {
-  const { t, settings, stage } = api;
+  const { t, settings, stage, jump } = api;
   const wakeLock = settings.tls?.advanced?.wakeLock === true;
   return h('div', { className: 'drc-group' },
-    groupHead(t('advanced'), t('advancedHint')),
+    groupHead(t('advanced'), h(LinkedHint, { hint: 'advancedHint', t, onJump: jump })),
     h(Row, {
       title: t('wakeLock'),
-      description: t('wakeLockHint'),
+      description: h(LinkedHint, { hint: 'wakeLockHint', t, onJump: jump }),
     }, h(Toggle, {
       checked: wakeLock,
       label: t('wakeLock'),

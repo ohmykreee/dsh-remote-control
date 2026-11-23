@@ -1,18 +1,18 @@
 /** Notifications section: remote answers, visible apps, and display limit. */
 
 import type * as React from 'react';
-import { Btn, Field, Row, Toggle, groupHead, h, sectionHead } from '../ui.js';
+import { Btn, Field, LinkedHint, Row, Toggle, groupHead, h, sectionHead } from '../ui.js';
 import { clampNotificationLimitInput } from '../logic.js';
 import type { PanelApi } from '../types.js';
 
 export function renderNotifications(api: PanelApi): React.ReactElement {
-  const { t, data, settings, draft, setDraft, stage, selectedApps, toggleApp, selectAllApps } = api;
+  const { t, data, settings, draft, setDraft, stage, selectedApps, toggleApp, selectAllApps, jump } = api;
   const apps = data.apps ?? [];
   return h('div', { className: 'drc-section' },
     sectionHead(t('notifications'), t('notificationsPageHint')),
     h('div', { className: 'drc-group' },
       groupHead(t('pushQuestions'), t('pushQuestionsHint')),
-      h(Row, { title: t('pushQuestionsToggle') },
+      h(Row, { title: t('pushQuestionsToggle'), anchor: 'pushQuestions' },
         h(Toggle, {
           checked: Boolean(settings.notifications?.pushQuestions),
           label: t('pushQuestions'),
@@ -21,7 +21,7 @@ export function renderNotifications(api: PanelApi): React.ReactElement {
       ),
     ),
     h('div', { className: 'drc-group' },
-      groupHead(t('notificationApps'), t('notificationsHint')),
+      groupHead(t('notificationApps'), h(LinkedHint, { hint: 'notificationsHint', t, onJump: jump })),
       apps.length === 0
         ? h('p', { className: 'drc-empty' }, t('noApps'))
         : h('div', { className: 'drc-apps' }, apps.map((app) => h('button', {

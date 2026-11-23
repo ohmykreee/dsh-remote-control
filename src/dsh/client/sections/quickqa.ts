@@ -7,7 +7,7 @@
  */
 
 import type * as React from 'react';
-import { Btn, Row, Select, Toggle, groupHead, h, sectionHead } from '../ui.js';
+import { Btn, LinkedHint, Row, Select, Toggle, groupHead, h, sectionHead } from '../ui.js';
 import { effectiveQuickQaModel, quickQaImageInput } from '../logic.js';
 import type {
   PanelApi,
@@ -283,11 +283,11 @@ function workspaceGroup(api: PanelApi): React.ReactElement {
     h('div', { className: 'drc-divider' }),
     h('div', { className: 'drc-row-main' }, h('div', { className: 'drc-row-title' }, t('quickqaPinnedWorkspaces'))),
     h('div', { className: 'drc-quickqa-workspaces', ref: api.workspaceListRef }, pinnedRows),
-    h('p', { className: 'drc-row-desc' }, t('quickqaPushHint')),
+    h('p', { className: 'drc-row-desc' }, h(LinkedHint, { hint: 'quickqaPushHint', t, onJump: api.jump })),
   );
 }
 function imageGroup(api: PanelApi): React.ReactElement {
-  const { t, settings, quickQaOptions, stage } = api;
+  const { t, settings, quickQaOptions, stage, jump } = api;
   const quickQa = settings.quickqa ?? {};
   const catalog = quickQaOptions?.model;
   const imageInput = quickQaImageInput(catalog, quickQa);
@@ -297,7 +297,7 @@ function imageGroup(api: PanelApi): React.ReactElement {
   const supported = imageInput === true;
   const disabled = quickQaOptions?.voice?.ready !== true || !supported;
   return h('div', { className: 'drc-group' },
-    groupHead(t('quickqaImageGroup'), t('quickqaImageHint')),
+    groupHead(t('quickqaImageGroup'), h(LinkedHint, { hint: 'quickqaImageHint', t, onJump: jump })),
     h(Row, { title: t('quickqaAllowImages') },
       h(Toggle, {
         checked: supported && quickQa.allowImages === true,
@@ -313,11 +313,11 @@ function imageGroup(api: PanelApi): React.ReactElement {
 }
 
 export function renderQuickQa(api: PanelApi): React.ReactElement {
-  const { t, quickQaOptions, quickQaBusy } = api;
+  const { t, quickQaOptions, quickQaBusy, jump } = api;
   const ready = quickQaOptions?.voice?.ready === true;
   const errors = quickQaOptions?.errors ?? [];
   return h('div', { className: 'drc-section' },
-    sectionHead(t('menuQuickQa'), t('quickqaPageHint')),
+    sectionHead(t('menuQuickQa'), h(LinkedHint, { hint: 'quickqaPageHint', t, onJump: jump })),
     quickQaBusy && !quickQaOptions ? h('p', { className: 'drc-row-desc' }, t('quickqaOptionsBusy')) : null,
     errors.length > 0
       ? h('p', { className: 'drc-banner is-error' }, `${t('quickqaOptionsError')} ${errors.join('; ')}`)

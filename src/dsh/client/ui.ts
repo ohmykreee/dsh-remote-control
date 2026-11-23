@@ -1,6 +1,7 @@
 /** Presentational primitives styled only through DSH theme tokens. */
 
 import * as React from 'react';
+import type { JumpTarget, Translator } from './types.js';
 
 export const h = React.createElement;
 
@@ -72,7 +73,9 @@ export interface SelectProps {
 
 export interface RowProps {
   title: string;
-  description?: string;
+  description?: React.ReactNode;
+  /** Jump anchor; targets `jump()` from a hint and flashes this row. */
+  anchor?: string;
   children?: React.ReactNode;
 }
 
@@ -164,7 +167,8 @@ export function Select({ label, value, options, onChange, disabled = false }: Se
   );
 }
 
-export function Row({ title, description, children }: RowProps): React.ReactElement {  return h('div', { className: 'drc-row' },
+export function Row({ title, description, anchor, children }: RowProps): React.ReactElement {
+  return h('div', { className: 'drc-row', 'data-drc-anchor': anchor },
     h('div', { className: 'drc-row-main' },
       h('div', { className: 'drc-row-title' }, title),
       description ? h('div', { className: 'drc-row-desc' }, description) : null,
@@ -191,16 +195,74 @@ export function Tag({ children, tone = 'neutral' }: { children?: React.ReactNode
   return h('span', { className: 'drc-tag', 'data-tone': tone }, children);
 }
 
-export function sectionHead(title: string, desc?: string): React.ReactElement {
+export function sectionHead(title: string, desc?: React.ReactNode): React.ReactElement {
   return h('div', { className: 'drc-section-head' },
     h('h2', { className: 'drc-section-title' }, title),
     desc ? h('p', { className: 'drc-intro' }, desc) : null,
   );
 }
 
-export function groupHead(title: string, desc?: string): React.ReactElement {
-  return h('div', { className: 'drc-group-head' },
+export function groupHead(title: string, desc?: React.ReactNode, anchor?: string): React.ReactElement {
+  return h('div', { className: 'drc-group-head', 'data-drc-anchor': anchor },
     h('h3', { className: 'drc-group-title' }, title),
     desc ? h('p', { className: 'drc-group-desc' }, desc) : null,
   );
+}
+
+/** Hints whose sentence contains one phrase that jumps to a related setting. */
+export type HintKey =
+  | 'advancedHint'
+  | 'wakeLockHint'
+  | 'quickqaPageHint'
+  | 'quickqaImageHint'
+  | 'quickqaPushHint'
+  | 'notificationsHint';
+
+interface HintLinkSpec {
+  /** i18n field for the link label; also the `{field}` placeholder in the text. */
+  field: string;
+  target: JumpTarget;
+}
+
+/**
+ * Link phrases stay in their own i18n fields and are referenced from the
+ * sentence by a `{field}` placeholder, so a link only underlines the phrase
+ * itself instead of the whole hint.
+ */
+const HINT_LINKS: Record<HintKey, readonly HintLinkSpec[]> = {
+  advancedHint: [{ field: 'secureContextLink', target: 'tlsEnable' }],
+  wakeLockHint: [{ field: 'secureContextLink', target: 'tlsEnable' }],
+  quickqaPageHint: [{ field: 'secureContextLink', target: 'tlsEnable' }],
+  quickqaImageHint: [{ field: 'secureContextLink', target: 'tlsEnable' }],
+  quickqaPushHint: [{ field: 'quickqaPushLink', target: 'pushQuestions' }],
+  notificationsHint: [{ field: 'appNamesLink', target: 'appNames' }],
+};
+
+export interface LinkedHintProps {
+  hint: HintKey;
+  t: Translator;
+  onJump: (target: JumpTarget) => void;
+}
+
+/** Render one hint sentence with its link fields replaced by jump buttons. */
+export function LinkedHint({ hint, t, onJump }: LinkedHintProps): React.ReactElement {
+  const text = t(hint);
+  const specs = HINT_LINKS[hint];
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+  for (const match of text.matchAll(/\{([A-Za-z0-9_]+)\}/g)) {
+    const spec = specs.find((entry) => entry.field === match[1]);
+    if (!spec) continue;
+    if (match.index > cursor) parts.push(text.slice(cursor, match.index));
+    parts.push(h('button', {
+      key: `${match.index}-${spec.field}`,
+      type: 'button',
+      className: 'drc-hint-link',
+      onClick: () => onJump(spec.target),
+    }, t(spec.field)));
+    cursor = match.index + match[0].length;
+  }
+  if (cursor === 0) return h(React.Fragment, null, text);
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return h(React.Fragment, null, ...parts);
 }

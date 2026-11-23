@@ -25,6 +25,11 @@
 - 菜单固定为九节：连接、偏好设置、快速问答、番茄钟 / 倒计时、天气设置、余额显示、通知设置、软件映射、系统信息。
 - 窗口窄于 767px 时导航由 `matchMedia` 切换为原生 `<select>`。
 
+### 提示内跳转
+
+- 部分 hint 用 `LinkedHint`（`ui.ts`）在句子里嵌入跳转短语：短语的文案单独放在 i18n 字段（如 `secureContextLink`），句子用 `{字段名}` 占位；`HINT_LINKS` 统一声明占位字段对应的目标设置。
+- 链接只比周围 hint 多一条下划线，颜色 / 字号 / 字重一致，没有 hover 效果；点击后 `PanelApi.jump()` 切到目标节，滚动到带 `data-drc-anchor` 的行 / 分组标题，并加 `drc-flash`。闪烁层由 `::before` 绝对定位铺满卡片整行，CSS 闪三次后自行透明；重复跳转时移除再添加 class 重启动画。新增跳转目标时同时补 `JumpTarget`、`JUMP_SECTIONS`、锚点和 `HINT_LINKS`。
+
 ### 草稿与保存
 
 - 设置页只改 `staged`，不直接发请求；保存补丁由 `buildSavePatch()` 统一构造，避免各节自己拼 JSON。

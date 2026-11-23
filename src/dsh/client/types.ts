@@ -528,6 +528,9 @@ export interface ClientContext {
 /** The translator shape used by every UI module. */
 export type Translator = (key: string) => string;
 
+/** Setting a hint can jump to: the HTTPS switch, remote answers, app names. */
+export type JumpTarget = 'tlsEnable' | 'pushQuestions' | 'appNames';
+
 /**
  * Everything the section renderers need from the panel. The panel owns state
  * and actions; sections stay presentational and can be tested/edited without
@@ -535,6 +538,8 @@ export type Translator = (key: string) => string;
  */
 export interface PanelApi {
   t: Translator;
+  /** Switch section, scroll to the related setting, and flash it. */
+  jump: (target: JumpTarget) => void;
   data: SettingsPayload;
   settings: RemoteSettings;
   draft: DraftState;

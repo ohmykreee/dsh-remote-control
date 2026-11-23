@@ -52,6 +52,7 @@ import { renderSystem } from './sections/system.js';
 import { renderWeather } from './sections/weather.js';
 import type {
   DraftState,
+  JumpTarget,
   LocationResult,
   PanelApi,
   QuickQaOptionsPayload,
@@ -81,6 +82,13 @@ const MENU: Array<{ key: SectionKey; labelKey: string; icon: string }> = [
 ];
 
 const NARROW_QUERY = '(max-width: 767px)';
+
+/** Section that each hint jump link belongs to. */
+const JUMP_SECTIONS: Record<JumpTarget, SectionKey> = {
+  tlsEnable: 'connection',
+  pushQuestions: 'notifications',
+  appNames: 'apps',
+};
 
 /** Keep the "saved" banner visible long enough to read after a save. */
 const SAVED_NOTICE_MS = 3200;
@@ -136,6 +144,10 @@ export function RemotePanel(): React.ReactElement {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [draggingWorkspaceId, setDraggingWorkspaceId] = useState<string | null>(null);
   const [workspaceDragIndex, setWorkspaceDragIndex] = useState<number | null>(null);
+  /** One-shot jump request from a hint link; drives section switch, scroll, flash. */
+  const [jumpRequest, setJumpRequest] = useState<{ target: JumpTarget; nonce: number } | null>(null);
+  const jumpNonceRef = useRef(0);
+  const mainRef = useRef<HTMLElement | null>(null);
   const orderListRef = useRef<HTMLDivElement | null>(null);
   const workspaceListRef = useRef<HTMLDivElement | null>(null);
   const dragCleanupRef = useRef<(() => void) | null>(null);
@@ -232,6 +244,27 @@ export function RemotePanel(): React.ReactElement {
   const stage = useCallback((patch: StagedSettings): void => {
     setStaged((current) => mergeStaged(current, patch));
   }, []);
+
+  /** Jump from a hint link: open the owning section, then scroll and flash. */
+  const jumpTo = useCallback((target: JumpTarget): void => {
+    jumpNonceRef.current += 1;
+    setSection(JUMP_SECTIONS[target]);
+    setJumpRequest({ target, nonce: jumpNonceRef.current });
+  }, []);
+
+  useEffect(() => {
+    if (!jumpRequest) return;
+    const element = mainRef.current?.querySelector<HTMLElement>(`[data-drc-anchor="${jumpRequest.target}"]`);
+    if (!element) return;
+    element.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    // Restart the CSS-only flash: the class can stay after the pulses finish,
+    // but removing and re-adding it restarts the animation on every jump.
+    if (element.classList.contains('drc-flash')) {
+      element.classList.remove('drc-flash');
+      void element.offsetWidth;
+    }
+    element.classList.add('drc-flash');
+  }, [jumpRequest]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -547,6 +580,7 @@ export function RemotePanel(): React.ReactElement {
 
   const api: PanelApi = {
     t,
+    jump: jumpTo,
     data,
     settings,
     draft,
@@ -647,7 +681,7 @@ export function RemotePanel(): React.ReactElement {
           h('span', { className: 'drc-nav-label' }, t(item.labelKey)),
           ))),
         ),
-      h('main', { className: 'drc-main' },
+      h('main', { className: 'drc-main', ref: mainRef },
         // The banner is a zero-height sticky overlay: it floats over the top
         // of the content instead of pushing the page down when it appears.
         (error || notice || formInvalid)

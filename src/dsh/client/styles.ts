@@ -362,6 +362,61 @@ export const CSS = `
   line-height: 18px;
 }
 
+/* Hint prose stays plain; the link differs only by an underline, with the
+ * same color, size, and weight as the surrounding text and no hover effect. */
+.drc-hint-link {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-align: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Jump confirmation: a CSS-only layer behind the target row. It spans the
+ * full card row without touching the row's layout, so it stays stable while
+ * the panel is scrolling. The class may survive the pulses; once they finish
+ * the layer is transparent, and the next jump removes and re-adds the class
+ * to restart it. */
+@keyframes drc-flash {
+  0%, 100% { background-color: transparent; }
+  50% { background-color: color-mix(in srgb, var(--drc-accent) 16%, transparent); }
+}
+
+/* Reduced motion: one steady tint that still ends transparent. */
+@keyframes drc-flash-hold {
+  0%, 100% { background-color: transparent; }
+  1%, 90% { background-color: color-mix(in srgb, var(--drc-accent) 16%, transparent); }
+}
+
+.drc-flash {
+  position: relative;
+  isolation: isolate;
+}
+
+.drc-flash::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -16px;
+  left: -16px;
+  z-index: -1;
+  border-radius: var(--drc-card-radius);
+  background-color: transparent;
+  animation: drc-flash 360ms ease-in-out 3;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drc-flash::before { animation: drc-flash-hold 1080ms linear 1; }
+}
+
 .drc-row-control,
 .drc-map-meta {
   flex: 0 0 auto;
@@ -428,6 +483,7 @@ export const CSS = `
 .drc-toggle:focus-visible,
 .drc-seg button:focus-visible,
 .drc-city-option:focus-visible,
+.drc-hint-link:focus-visible,
 .drc-app:focus-visible {
   outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary, var(--drc-accent)));
   outline-offset: 1px;
