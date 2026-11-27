@@ -1,37 +1,41 @@
-# 安装、更新与卸载
+# 安装指南
 
-两种安装方式：
+本插件以 DSH bundle 形式安装，支持 npm 包和源码 `link:` 两种方式。npm 包包含预构建产物；源码安装引用本地目录，注册前必须先完成构建。
 
-| 方式 | 适合 | 得到什么 |
+| 方式 | 适用场景 | 前置工具 |
 |---|---|---|
-| A. 从 npm 安装（推荐） | 只想用 | 编译好的插件，装完即可配对使用；媒体、音量、通知、GPU / 温度与系统定位需要另在本机构建一次组件 |
-| B. 源码 + `link:` | 改代码、参与开发 | 全部功能，构建一次即可 |
+| npm 包（推荐） | 直接安装和使用 | DSH；构建探针时再准备 Node.js、pnpm、git 与 Rust |
+| 源码 + `link:` | 本地修改和开发 | DSH、Node.js、pnpm、git；构建探针时还需要 Rust |
 
-功能说明见 [`README.md`](README.md)，架构与开发说明见 [`AGENTS.md`](AGENTS.md)。
+媒体、音量、通知、GPU / 温度和系统定位依赖可选的原生探针 `dsh-probe`。探针不随 npm 包分发，可在插件安装后单独编译；缺少探针不会阻止 DSH 加载插件。
 
-## 前置条件
+由 DSH agent 代装时，应让它先阅读包内的 [`README.md`](README.md) 和本文档，再按相同步骤执行。以下内容包括手动安装、验证、更新和故障恢复。
 
-| 组件 | 要求 | 说明 |
-|---|---|---|
-| DSH | 支持第三方 bundle（已在 `0.2.2-rc.1` 验证） | DSH Desktop 或 `dsh web` profile |
-| 网络 | npm registry；方式 B 还要 github.com | 构建 Rust 探针还需 crates.io / `static.rust-lang.org` |
-| Node.js | `>= 22` | 方式 B 与构建探针需要；方式 A 不需要 |
-| pnpm | 10 或更新（CI 固定 `12.8.1`） | 方式 B 需要；DSH 安装插件时用它自己的 pnpm |
-| git | 任意较新版本 | 方式 B 与构建探针需要 |
-| Rust（可选） | `1.89+` + C 工具链 | 只有构建 `dsh-probe` 时需要；不构建也能安装插件 |
-| 权限 | 安装目录可写 | Linux 安装 gcc 需要 `sudo`；Windows 构建探针建议用普通终端 |
+## 开始之前
 
-## 方式 A：从 npm 安装（推荐）
+| 项目 | 要求 |
+|---|---|
+| DSH | 支持第三方 bundle 的 DSH Desktop 或 `dsh web` profile |
+| 网络 | 安装时需要访问 npm registry；源码安装还需要 github.com，构建探针还需要 crates.io 与 `static.rust-lang.org` |
+| Node.js | `>= 22`，仅源码安装和构建探针需要 |
+| pnpm | 10 或更新，仅源码安装和构建探针需要 |
+| git | 较新版本，仅源码安装和构建探针需要 |
+| Rust | `1.89+` 与对应平台的 C 工具链，仅构建探针需要 |
+| 权限 | 安装目录可写；Linux 安装编译工具可能需要 `sudo` |
 
-插件已经发布到 npm，DSH 的插件管理器完成下载与安装，不需要 Node.js、pnpm 或 git。
+npm 包已经包含构建好的插件，所以普通安装不需要 Node.js、pnpm、git 或 Rust（除构建原生探针需要 Rust 手动编译）。
 
-**方式 A-1：DSH 插件管理器**
+## 方式 A：从 npm 安装
 
-1. 打开 DSH 设置 → 插件管理 → 安装插件。
-2. 填包名 `@ohmykreee/dsh-remote-control`（可加版本，如 `@ohmykreee/dsh-remote-control@1.1.4`）。
-3. 安装并启用，重启 DSH（或重新加载插件）。侧边栏会出现 **远程控制台**。
+### 在 DSH 中安装
 
-**方式 A-2：DSH CLI（DSH 未运行时）**
+1. 打开 **设置 → 插件管理 → 安装插件**。
+2. 输入 `@ohmykreee/dsh-remote-control`。需要指定版本时，可写成 `@ohmykreee/dsh-remote-control@1.1.4`。
+3. 安装并启用，然后重启 DSH。侧边栏应出现 **远程控制台**。
+
+### 用命令行安装
+
+DSH 未运行时，也可以使用 CLI。Desktop 与 Web profile 二选一：
 
 ```powershell
 dsh plugin --profile desktop add @ohmykreee/dsh-remote-control
@@ -41,24 +45,11 @@ dsh plugin --profile desktop add @ohmykreee/dsh-remote-control
 dsh plugin --profile web add @ohmykreee/dsh-remote-control
 ```
 
-`desktop` 对应 DSH Desktop，`web` 对应 `dsh web`。安装后 profile 的 `package.json` 会包含：
+CLI 会把依赖写入所选 profile，并注册 bundle。请确认 `--profile` 与实际运行 DSH 的 profile 一致。安装后重启 DSH；如果侧边栏没有出现 **远程控制台**，到插件管理器确认它已经启用。
 
-```json
-{
-  "dependencies": { "@ohmykreee/dsh-remote-control": "^1.1.4" },
-  "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@ohmykreee/dsh-remote-control"] } }
-}
-```
-
-装好即可使用：时钟、天气、通知、会话、余额、远程回答、音乐信息、音量与性能页。
-
-快速问答还需要在 DSH 的插件页启用官方 **语音输入** 插件，并在其详情中下载、加载语音模型；手机端录音要求控制台使用 HTTPS（或在本机回环页面打开），并在浏览器中授权麦克风。未准备好时快速问答会显示未就绪，其余功能不受影响。HTTPS / 安全上下文的具体做法见 [HTTPS 与浏览器安全上下文](#https-与浏览器安全上下文)。
-
-**这个包不含本机探测组件，也不声明任何安装脚本。** DSH 用 pnpm 安装组合包，pnpm 默认不执行依赖的构建脚本，所以「装完自动编译」不会发生。媒体、音量、通知、GPU / 温度与系统定位需要按 [构建原生探针](#rust-原生探针可选) 在本机构建一次；没有它时这些位置显示不可用，其余功能不受影响。
+npm 包不声明 `preinstall`、`install`、`postinstall` 或 `prepare` 脚本，安装过程不会自动编译探针。需要媒体、音量、通知、GPU / 温度或系统定位时，继续按 [Rust 原生探针](#rust-原生探针可选) 构建。
 
 ## 方式 B：从源码构建并注册
-
-适合改代码或需要完整功能、又不想单独指定探针路径的场景。
 
 ### 1. 克隆到固定目录
 
@@ -72,41 +63,42 @@ git clone https://github.com/ohmykreee/dsh-remote-control.git "$env:USERPROFILE\
 git clone https://github.com/ohmykreee/dsh-remote-control.git "$HOME/.dsh/plugins-src/dsh-remote-control"
 ```
 
-不要克隆到临时目录、`node_modules` 或会被 agent 清理的 workspace；后面注册的是这个目录的绝对路径。路径建议保持 ASCII、无空格，Windows 的 `link:` spec 用正斜杠更稳（`link:D:/path/to/dsh-remote-control`）。已克隆过时用 `git pull --ff-only` 更新，不要重复 clone。
+请选一个以后不会随意移动或清理的目录，不要放进临时目录、`node_modules` 或 agent 的工作区。路径最好只含 ASCII 字符且不带空格。已经克隆过时，进入目录执行 `git pull --ff-only` 即可，不要重复克隆。
 
-### 2. 构建
+### 2. 构建插件
+
+在刚才的源码目录执行：
 
 ```powershell
-cd "$env:USERPROFILE\.dsh\plugins-src\dsh-remote-control"
 pnpm install
 pnpm build
 ```
 
-`pnpm install` 只装依赖，`pnpm build` 编译 Host（`index.js`、`lib/`）与手机端（`web/`）、侧边栏（`client.js`）。退出码为 0 且根目录出现 `index.js`、`client.js`、`lib/`、`web/` 即成功。
+`pnpm build` 生成 Host 入口 `index.js` 与 `lib/`、侧边栏 `client.js`、手机端 `web/`。命令退出码为 0 且这些路径都存在，才算构建完成。必须在源码目录执行；在 DSH profile 目录执行会出现 `Missing script: "build"`。
 
-探针可选，按需构建：
+探针可以现在一起构建，也可以以后补：
 
 ```powershell
 pnpm build:rust
 ```
 
-没有 Rust 时会失败，跳过这一步也能安装插件，只是媒体、音量、通知、GPU / 温度与系统定位不可用。
-
-> 构建必须在源码目录里做。在 DSH profile 目录执行 `pnpm build` 会报 `Missing script: "build"`。
+这一步需要 Rust。跳过它不影响插件安装，但媒体、音量、通知、GPU / 温度和系统定位会不可用。
 
 ### 3. 注册到 DSH
 
-**先构建，再安装 / 启用。** 未构建的 bundle 一旦启用，DSH 启动会直接报 import 错误。
+先完成构建，再注册或启用插件，否则 DSH 会因缺少入口文件而加载失败。
 
-**方式 B-1：DSH 插件管理器**
+**在插件管理器中：**
 
-1. 打开 DSH 设置 → 插件管理 → 安装插件。
-2. 选择「从本地目录 / 路径安装」，spec 填 `link:D:/path/to/dsh-remote-control`（换成第 1 步的绝对路径；Linux/macOS 示例 `link:/home/you/.dsh/plugins-src/dsh-remote-control`）。
-3. 安装并启用，重启 DSH（或重新加载插件）。
+1. 打开 **设置 → 插件管理 → 安装插件**。
+2. 选择从本地目录或路径安装，输入源码目录的 `link:` 地址，例如：
+   - Windows：`link:D:/path/to/dsh-remote-control`
+   - Linux / macOS：`link:/home/you/.dsh/plugins-src/dsh-remote-control`
+3. 安装并启用，重启 DSH。
 
-如果让 DSH 里的 agent 代装，让它调用插件管理器的 `install_bundle`，target 同样是上面的 `link:` spec。
+Windows 的 `link:` 路径建议使用正斜杠。让 agent 代装时，插件管理器的安装目标也应使用这个 `link:` 地址。
 
-**方式 B-2：DSH CLI（DSH 未运行时）**
+**或者使用 CLI（DSH 未运行时）：**
 
 ```powershell
 dsh plugin --profile desktop add "link:D:/path/to/dsh-remote-control"
@@ -116,107 +108,88 @@ dsh plugin --profile desktop add "link:D:/path/to/dsh-remote-control"
 dsh plugin --profile web add "link:$HOME/.dsh/plugins-src/dsh-remote-control"
 ```
 
-CLI 只负责加入 profile 依赖；如果插件管理器里没有自动出现，请在管理器里启用一次，或确认 profile 的 `package.json` 中 `dsh.profile.bundles` 已包含 `@ohmykreee/dsh-remote-control`。DSH 正在运行时优先用管理器，避免 profile 文件锁。
+如果插件管理器没有自动显示插件，请手动启用一次，并确认 profile 的 `package.json` 中，`dsh.profile.bundles` 已包含 `@ohmykreee/dsh-remote-control`。DSH 正在运行时优先使用插件管理器，避免同时修改 profile 文件。
 
-安装后 profile 的 `package.json` 应包含：
+## 安装后验证与连接
 
-```json
-{
-  "dependencies": { "@ohmykreee/dsh-remote-control": "link:D:/path/to/dsh-remote-control" },
-  "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@ohmykreee/dsh-remote-control"] } }
-}
-```
+1. 重启 DSH，打开侧边栏 **远程控制台 → 连接**。页面应显示二维码、控制台地址和链接验证开关。
+2. 确保手机与电脑在同一局域网，用手机扫码打开完整地址。
+3. 在 **系统信息** 中确认服务正在运行，并查看探针是否可用。
 
-### 4. 验收
+手机返回 401，通常是因为地址缺少验证信息。重新扫码，或使用 **连接** 页复制的完整地址，不要只手动输入 IP 和端口。
 
-1. 重启 DSH 后打开设置，侧边栏应出现 **远程控制台**。
-2. 进入「连接」页，能看到二维码、控制台地址和「链接验证」开关。
-3. 手机与电脑在同一局域网，扫码打开控制台；页面、`/assets/` 资源和 WebSocket 都应正常。
-4. 在「系统信息」里确认服务状态为运行中，并检查 `dsh-probe` 与 Node.js 能力。
+## 快速问答前置条件
 
-手机打开返回 401 说明链接缺少令牌：重新扫码，或使用「连接」页复制的完整地址。
+快速问答需要先启用 DSH 官方 **语音输入** 插件，并在插件详情中下载、加载语音模型。未准备好时，其他页面不受影响。
 
-## HTTPS 与浏览器安全上下文
-
-手机端的录音和屏幕唤醒锁都要求浏览器把页面视为**安全上下文**。直接打开 `http://<局域网 IP>:38765` 通常不满足；`http://localhost`、`http://127.0.0.1` 仅在浏览器所在设备本机访问时例外。没有安全上下文时，麦克风授权和唤醒锁会失败，快速问答也无法录音。
-
-任选一种方式：
-
-1. **反向代理**：用 Caddy、Nginx 等在前面终止 HTTPS，并转发到插件的局域网端口（默认 `38765`）。手机打开代理的 `https://` 地址。
-2. **配置证书**：在「连接」页填写 PEM 证书和私钥并启用 HTTPS。证书要覆盖手机访问的域名或 IP；保存后用新的 `https://` 地址重新打开。自签证书还需要在手机上信任。
-3. **仅开发 / 测试时使用浏览器白名单**：
-   - Chrome / Edge：打开 `chrome://flags/#unsafely-treat-insecure-origin-as-secure`，填入 `http://<局域网 IP>:38765`，设为 Enabled，重启浏览器。
-   - Firefox：打开 `about:config`，新建字符串 `dom.securecontext.allowlist`，值为 `http://<局域网 IP>:38765`；多个地址用逗号分隔，然后重启浏览器。
-   - Safari：没有等价的“允许非安全来源”白名单；请使用 HTTPS 反向代理、可信证书或本机 localhost。iOS Safari 不提供这类调试开关。
-
-白名单只对当前浏览器和当前设备有效，手机浏览器通常也不提供这些开关；正式使用建议配置 HTTPS。页面从 HTTP 切换到 HTTPS 后端口保持不变，但手机需要重新打开新地址。
+手机浏览器只有在安全环境中才允许录音，屏幕唤醒锁也有同样要求。请按 [HTTPS 与浏览器安全上下文](#https-与浏览器安全上下文) 配置。
 
 ## Rust 原生探针（可选）
 
-探针 `dsh-probe` 提供媒体、音量、性能 / GPU / 温度、通知和系统定位。不构建它不影响插件加载：
+探针 `dsh-probe` 负责读取和控制媒体、音量、通知、GPU / 温度及系统定位。它需要在目标电脑上编译，不随 npm 包分发。
 
-| 未构建探针时 | 状态 |
+不构建也可以正常使用插件：
+
+| 功能 | 没有探针时 |
 |---|---|
-| 时钟、番茄钟、天气（时区回退）、会话、余额、设置、配对、HTTPS | 可用 |
-| 媒体、音量、通知 | 显示「探针不可用」 |
-| GPU、温度 | 空 / 错误状态 |
-| CPU、内存 | Node 的 `os.cpus()` / `os.totalmem()` 兜底 |
-| 系统定位 | 时区兜底 |
+| 时钟、番茄钟、天气、会话、余额、设置、配对、HTTPS | 正常可用 |
+| CPU、内存 | 仍可查看 |
+| 媒体、音量、通知 | 显示不可用 |
+| GPU、温度 | 无读数或显示错误 |
+| 系统定位 | 天气改用时区推断位置 |
 
-探针是按平台编译的二进制，不随 npm 包分发。方式 B 构建一次即可；继续用方式 A 时按下面两步补上：
+**方式 B：** 在源码目录执行 `pnpm build:rust`，完成后重启 DSH，无需设置路径。
 
-1. 把仓库克隆到任意固定目录，`pnpm install` 后执行 `pnpm build:rust`，产物在 `native/bin/<platform>-<arch>/dsh-probe[.exe]`。
-2. 把环境变量 `DSH_RC_PROBE` 设为该产物的绝对路径（Windows 在「系统属性 → 环境变量」里添加，Linux / macOS 写进 shell 配置），然后完全退出并重启 DSH。
+**方式 A：** 另找一个固定目录克隆仓库，执行 `pnpm install` 和 `pnpm build:rust`。产物位于 `native/bin/<platform>-<arch>/dsh-probe[.exe]`。把环境变量 `DSH_RC_PROBE` 设置为该文件的绝对路径，然后完全退出并重启 DSH。
 
-也可以在 DSH 安装插件的目录里直接构建，但插件一更新就会被覆盖，不推荐。
+- Windows 可在 **系统属性 → 环境变量** 中添加。
+- Linux / macOS 可写入当前 shell 的配置文件，并确保启动 DSH 时能读到。
+- 不建议直接在 npm 插件目录里构建，因为升级会覆盖其中的产物。
 
 ### Windows
 
-需要 Rust（MSVC 工具链）和 Visual Studio Build Tools 的「使用 C++ 的桌面开发」组件（会编译内置 SQLite）。
+安装 Rust MSVC 工具链，以及 Visual Studio Build Tools 中的 **使用 C++ 的桌面开发** 组件。然后在普通 PowerShell 中执行：
 
 ```powershell
-# 在普通 PowerShell 中执行，不要用被沙箱限制的终端
 node scripts/build-rust.mjs
-# 产物：native\bin\win32-x64\dsh-probe.exe
+# 64 位产物：native\bin\win32-x64\dsh-probe.exe
 ```
 
-脚本会自动查找并加载 `vcvars64.bat`，可用 `DSH_RC_VCVARS` 指定路径。如果在沙箱 / 低完整性终端里构建过，`.build`、`lib` 可能带上拒绝删除的 ACL，之后 `pnpm build` 会报 `EPERM`；在普通终端删除 `.build` 后重试即可。等价手动命令（Developer PowerShell）：`cargo build --release --manifest-path src/rust/Cargo.toml`。
+脚本会寻找并加载 `vcvars64.bat`；找不到时，可用 `DSH_RC_VCVARS` 指定它的路径。不要使用受沙箱或低完整性限制的终端，否则生成的目录可能带有无法删除的权限标记。
 
 ### Linux
 
 ```bash
 # Fedora / RHEL
 sudo dnf install -y gcc gcc-c++ make
-# Debian / Ubuntu: sudo apt install build-essential
+# Debian / Ubuntu：sudo apt install build-essential
 
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source "$HOME/.cargo/env"
 node scripts/build-rust.mjs
-# 产物：native/bin/linux-x64/dsh-probe
+# 64 位产物：native/bin/linux-x64/dsh-probe
 ```
 
-MPRIS 需要会话 D-Bus；GeoClue2 需要 `geoclue2` 服务和桌面授权；音量按 `wpctl` → `pactl` → `amixer` 顺序探测；NVIDIA 需要 `nvidia-smi`（驱动自带，可选）；AMD 使用 sysfs，无需额外包。
+媒体控制需要会话 D-Bus；系统定位需要 GeoClue2 服务和桌面授权。音量工具会依次尝试 `wpctl`、`pactl`、`amixer`。NVIDIA 读数需要驱动附带的 `nvidia-smi`，AMD 读数无需额外安装。
 
-#### Intel 核显 / 独显（可选）
+#### Intel GPU 利用率（可选）
 
-Intel i915 / xe 的名称与频率直接读取 sysfs；利用率需要可选的 `intel_gpu_top`：
+Intel GPU 的名称和频率可以直接读取；利用率需要 `intel-gpu-tools`：
 
 ```bash
 # Fedora / RHEL
 sudo dnf install -y intel-gpu-tools
-# Debian / Ubuntu: sudo apt install intel-gpu-tools
-# Arch: sudo pacman -S intel-gpu-tools
+# Debian / Ubuntu：sudo apt install intel-gpu-tools
+# Arch：sudo pacman -S intel-gpu-tools
 ```
 
-普通用户默认无权读取 i915 / xe 的 PMU，需要给该工具 `CAP_PERFMON`：
+普通用户通常还要允许它读取性能计数器：
 
 ```bash
 sudo setcap cap_perfmon+ep /usr/bin/intel_gpu_top
 ```
 
-- 未安装或未授权时，探针仍会显示 Intel GPU 名称、当前 / 最大频率，利用率留空。
-- `setcap` 会允许该二进制读取性能计数器；如果不希望修改系统工具权限，可以给 DSH 进程授予同样的 capability，或接受 Intel 利用率不可用。`setcap` 缺失时 Fedora 安装 `libcap`，Debian/Ubuntu 安装 `libcap2-bin`。
-- GPU 名称通常来自 `lspci`（`pciutils`）；没有该命令时显示通用的 “Intel Graphics”。
+未安装或未授权时，只缺少利用率，名称和频率仍可显示。如果不想修改系统工具权限，可以给 DSH 进程授予同样的 capability，或保留空读数。`setcap` 不存在时，Fedora 安装 `libcap`，Debian / Ubuntu 安装 `libcap2-bin`。GPU 名称通常来自 `lspci`（`pciutils`），缺少该命令时会显示通用名称。
 
 ### macOS
 
@@ -227,25 +200,7 @@ source "$HOME/.cargo/env"
 node scripts/build-rust.mjs
 ```
 
-macOS 已在 macOS 26 上进行初步测试；媒体读取使用系统 MediaRemote，无需安装额外工具；GPU / 温度不实现；AX 读进度需要给运行 `dsh-probe` 的父进程授予「辅助功能」权限。
-
-### 网易云音乐 CDP（可选，红心/精确进度）
-
-新版网易云的 SMTC 只提供歌曲信息与播放状态，不汇报进度。若需要手机端显示精确进度并点击红心，让网易云带 Chromium 远程调试端口启动。
-
-1. 完全退出网易云音乐（包括托盘图标）。
-2. 右键桌面快捷方式 →「属性」→「目标」，在末尾追加（前面有空格）：
-   ```text
-   /remote-debugging-port=2015
-   ```
-   或直接运行：
-   ```powershell
-   & 'C:\Program Files\Netease\CloudMusic\cloudmusic.exe' /remote-debugging-port=2015
-   ```
-3. 访问 `http://127.0.0.1:2015/json`，能看到 `orpheus://orpheus/pub/app.html` 即成功。
-4. 重启 DSH（或等下一次媒体轮询）。音乐页会显示精确进度；登录后红心可点击。
-
-其他端口在启动 DSH 前设置 `DSH_RC_NETEASE_CDP_PORT`（探针继承该变量）。SMTC 可用时 CDP 只补进度和红心，传输控制仍走 SMTC；SMTC 不可用时 CDP 接管歌曲信息、封面与播放控制。未开启 CDP 时，进度回退到窗口 / UIA，红心显示为未知且不读取本地数据库。CDP 只监听回环地址，不调用外部数据接口、不导出 Cookie；删除快捷方式参数并重启网易云即可关闭。
+macOS 26 已做初步测试。媒体读取无需额外工具，GPU 与温度不可用。若需要读取播放进度，请给运行 `dsh-probe` 的父进程授予 **辅助功能** 权限。
 
 ### 验证探针
 
@@ -257,92 +212,127 @@ macOS 已在 macOS 26 上进行初步测试；媒体读取使用系统 MediaRemo
 ./native/bin/linux-x64/dsh-probe version
 ```
 
-应输出一行 JSON，包含 `"ok": true` 和 `"name": "dsh-probe"`。之后重启 DSH，或在「系统信息」里确认能力状态。用 `DSH_RC_PROBE` 指向其他位置时，同样可以直接执行那个路径验证。
+输出应是一行 JSON，包含 `"ok": true` 和 `"name": "dsh-probe"`。使用 `DSH_RC_PROBE` 时，请直接执行变量所指向的文件。验证后重启 DSH，再到 **系统信息** 查看状态。
 
-### Windows 低完整性工作区（定位被拒绝）
+### Windows 低完整性目录导致定位被拒绝
 
-Windows 只允许 Medium 完整性及以上的进程访问定位。插件目录若由低完整性进程创建，会带上 `Low Mandatory Level`，`dsh-probe.exe` 继承后 WinRT 直接返回 `Denied`，即使系统位置开关已打开。
+Windows 不允许低完整性进程访问定位。如果插件目录由这类进程创建，即使系统定位已经开启，也可能返回 `Denied`。
 
 ```powershell
-icacls .                                              # 出现 "Mandatory Label\Low Mandatory Level" 即命中
-native\bin\win32-x64\dsh-probe.exe location request   # 返回 "lowIntegrity": true
+icacls .
+native\bin\win32-x64\dsh-probe.exe location request
 ```
 
-`node scripts/build-rust.mjs` 会自动把项目根目录提升到 Medium，并在必要时重建 `native/`。父目录本身是 Low 时需要管理员执行：
+如果第一条结果包含 `Mandatory Label\Low Mandatory Level`，或第二条返回 `"lowIntegrity": true`，重新运行 `node scripts/build-rust.mjs` 通常可以修复。父目录也带低完整性标记时，需要管理员执行：
 
 ```powershell
 icacls "D:\path\to\dsh-remote-control" /setintegritylevel "(OI)(CI)Medium" /T
 node scripts/build-rust.mjs
 ```
 
-也可以把插件放到没有 Low 标签的普通目录（如 `%LOCALAPPDATA%`）重新构建。修复后仍被拒绝，再到「天气设置 → 请求定位权限」开启系统隐私开关。
+也可以把源码移到没有该标记的普通目录后重新构建。修复目录权限后仍被拒绝，再到 **天气设置 → 请求定位权限** 检查系统隐私授权。
+
+### 网易云音乐 CDP（可选，红心 / 精确进度）
+
+新版网易云音乐默认只提供歌曲信息和播放状态。需要精确进度和手机端红心时，让它带远程调试端口启动：
+
+1. 完全退出网易云音乐，包括托盘图标。
+2. 右键桌面快捷方式，打开 **属性**，在 **目标** 末尾追加一个空格和：
+
+   ```text
+   /remote-debugging-port=2015
+   ```
+
+   也可以直接运行：
+
+   ```powershell
+   & 'C:\Program Files\Netease\CloudMusic\cloudmusic.exe' /remote-debugging-port=2015
+   ```
+
+3. 打开 `http://127.0.0.1:2015/json`。页面包含 `orpheus://orpheus/pub/app.html` 就说明已经生效。
+4. 重启 DSH。音乐页随后会显示精确进度，登录后可以使用红心。
+
+需要换端口时，在启动 DSH 前设置 `DSH_RC_NETEASE_CDP_PORT`。该端口只监听本机回环地址，不导出 Cookie。删除快捷方式里的参数并重启网易云音乐，即可关闭这项功能。未开启时仍可使用常规歌曲信息与播放控制，但红心状态和精确进度可能不可用。
+
+## HTTPS 与浏览器安全上下文
+
+录音和屏幕唤醒锁要求浏览器把页面视为安全环境。`http://localhost` 和 `http://127.0.0.1` 只在浏览器所在设备上有效；手机打开 `http://<局域网 IP>:38765` 通常不符合要求。
+
+可以任选一种办法：
+
+1. **使用 HTTPS 反向代理。** 用 Caddy、Nginx 等转发到插件端口（默认 `38765`），手机打开代理的 `https://` 地址。
+2. **给插件配置证书。** 在 **连接** 页填写 PEM 证书与私钥路径并启用 HTTPS。证书必须覆盖手机访问的域名或 IP，自签证书还需要在手机上信任。保存后，用新的 `https://` 地址重新打开控制台。
+3. **仅在开发或测试时使用浏览器白名单。**
+   - Chrome / Edge：打开 `chrome://flags/#unsafely-treat-insecure-origin-as-secure`，填入 `http://<局域网 IP>:38765`，设为 Enabled，重启浏览器。
+   - Firefox：打开 `about:config`，新建字符串 `dom.securecontext.allowlist`，值为 `http://<局域网 IP>:38765`；多个地址用逗号分隔，然后重启浏览器。
+   - Safari：没有等价白名单，请使用 HTTPS 或本机 localhost。iOS Safari 也没有这个调试开关。
+
+白名单只对当前设备和浏览器有效，手机浏览器通常无法这样设置，正式使用建议配置 HTTPS。HTTP 切换为 HTTPS 后端口不变，但手机必须重新打开新地址。
 
 ## 更新
 
-**方式 A：** 在 DSH 插件管理器里升级 **远程控制台**；没有升级入口时，用 CLI 装一次目标版本：
+**npm 安装：** 在 DSH 插件管理器中升级 **远程控制台**，然后重启 DSH。没有升级入口时，可以用 CLI 安装目标版本：
 
 ```powershell
-dsh plugin --profile desktop add @ohmykreee/dsh-remote-control@1.1.4   # 换成目标版本
+dsh plugin --profile desktop add @ohmykreee/dsh-remote-control@1.1.4
 ```
 
-更新后重启 DSH。插件目录里的 `native/bin` 不随包更新，用 `DSH_RC_PROBE` 指向外部探针时无需重建。
+把 `1.1.4` 换成需要的版本。使用 `DSH_RC_PROBE` 指向外部探针时，插件更新不会影响它。
 
-**方式 B：** profile 链接的是源码目录，更新不需要重新安装：
+**源码安装：** 不需要重新注册，拉取并重新构建即可：
 
 ```powershell
-$Repo = "D:\path\to\dsh-remote-control"    # 换成第 1 步的克隆目录
+$Repo = "D:\path\to\dsh-remote-control"  # 换成你的源码目录
 git -C $Repo pull --ff-only
 pnpm -C $Repo install
 pnpm -C $Repo build
 ```
 
-探针也要重编时再加 `pnpm -C $Repo build:rust`。然后重启 DSH（或在插件管理器里重新加载插件）。只改文档不需要重启。
+需要同时更新探针时，再执行 `pnpm -C $Repo build:rust`。最后重启 DSH；只改文档无需重启。
 
 ## 卸载
 
-1. 在 DSH 插件管理器中卸载 / 禁用 **远程控制台**。
-2. DSH 无法启动或需要手动清理时，编辑对应 profile 的 `package.json`（Windows 默认 `%USERPROFILE%\.dsh\profiles\desktop\package.json`，Web profile 为 `~/.dsh/profiles/web/package.json`）：从 `dsh.profile.bundles` 和 `dependencies` 中删除 `"@ohmykreee/dsh-remote-control"`，在该 profile 目录执行 `pnpm install`，然后重启 DSH。
-3. 方式 B 还要删除源码目录。
-4. 如需清除令牌、页面配置和软件映射，删除 `DSH_HOME/remote-control/`（存在 `DSH_PROFILE_DIR` 时优先使用 `<DSH_PROFILE_DIR>/remote-control/`）。
+1. 在 DSH 插件管理器中卸载或禁用 **远程控制台**。
+2. 如果 DSH 已无法启动，备份并编辑对应 profile 的 `package.json`：从 `dsh.profile.bundles` 和 `dependencies` 中删除 `@ohmykreee/dsh-remote-control`，在该目录执行 `pnpm install`，再启动 DSH。
+   - Windows Desktop 默认路径：`%USERPROFILE%\.dsh\profiles\desktop\package.json`
+   - Web profile 默认路径：`~/.dsh/profiles/web/package.json`
+3. 源码安装可同时删除源码目录；不再需要探针时，移除 `DSH_RC_PROBE` 环境变量。
+4. 如需连同链接验证、页面配置和软件映射一起清除，删除 `DSH_HOME/remote-control/`。存在 `DSH_PROFILE_DIR` 时，改删 `<DSH_PROFILE_DIR>/remote-control/`。
 
 ## 故障排查
 
-| 现象 | 处理 |
+| 现象 | 怎么处理 |
 |---|---|
-| `Failed to load plugins`、`web boot: 1 entry did not activate`、`import failed` | bundle 已启用但 `index.js` 缺失或加载失败。方式 B 先 `pnpm build`；仍失败时按「从加载失败中恢复」处理 |
-| `ERR_MODULE_NOT_FOUND` 指向 `index.js` | 构建产物缺失：方式 B 重新构建；方式 A 重新安装插件 |
-| 插件管理器里搜不到本插件 | 直接填完整包名 `@ohmykreee/dsh-remote-control`；确认网络能访问 npm registry |
-| 安装时报 `build-blocked` / `Ignored build scripts` | 本插件不声明安装脚本。待批准的脚本来自其他包，确认来源后再决定是否授权 |
-| `dsh: pnpm was not found` 或退出码 127 | 安装 pnpm 或 `corepack enable pnpm`（DSH 自带的 pnpm 不经过 `PATH` 时会用到） |
-| `spawnSync cargo ENOENT` | 没有 Rust 工具链，这是可选的；安装后重跑 `pnpm build:rust` |
-| `native probe not built` | 未构建探针：按上文构建并（方式 A）设置 `DSH_RC_PROBE`。媒体 / 音量 / 通知 / GPU / 温度 / 定位会不可用 |
-| `EPERM` / 无法删除 `.build`、`lib` | 目录带拒绝删除 ACL；在普通终端删除 `.build` 后重试 |
-| `Missing script: "build"` | 在 DSH profile 目录里构建；回到源码目录 |
-| 侧边栏没有「远程控制台」 | 检查 bundle 是否启用、`client.js` 是否存在，重启 DSH |
-| 手机打不开 / 一直转圈 | 检查同一局域网、防火墙、开放网卡与令牌；放行端口后重新扫码 |
-| 页面 401 | 地址缺少令牌；用二维码或「连接」页复制的完整地址 |
-| 系统定位被拒绝 | 用「请求定位权限」；低完整性按上文修复 |
-| 端口被占用 | 设置 `DSH_REMOTE_CONTROL_PORT`；服务也会回退随机端口 |
+| `Failed to load plugins`、`web boot: 1 entry did not activate`、`import failed` | 源码安装先回源码目录执行 `pnpm build`；仍失败时按下面的恢复步骤处理 |
+| `ERR_MODULE_NOT_FOUND` 指向 `index.js` | 构建产物缺失。源码安装重新构建，npm 安装重新安装插件 |
+| 插件管理器搜不到 | 直接输入完整包名 `@ohmykreee/dsh-remote-control`，并检查 npm registry 网络 |
+| `build-blocked` / `Ignored build scripts` | 本插件没有安装脚本。提示来自其他依赖，确认来源后再决定是否授权 |
+| `dsh: pnpm was not found` 或退出码 127 | 安装 pnpm，或执行 `corepack enable pnpm` |
+| `spawnSync cargo ENOENT` | Rust 尚未安装或不在 PATH 中；装好后重跑 `pnpm build:rust` |
+| `native probe not built` | 按上文构建探针；npm 安装还要设置 `DSH_RC_PROBE` |
+| `EPERM`，无法删除 `.build` 或 `lib` | 目录带有异常权限标记。换普通终端删除 `.build` 后重试 |
+| `Missing script: "build"` | 当前在 DSH profile 目录，请回到源码目录 |
+| 侧边栏没有 **远程控制台** | 检查插件是否启用、`client.js` 是否存在，然后重启 DSH |
+| 手机打不开或一直转圈 | 检查同一局域网、防火墙、允许访问的网卡和链接验证；放行端口后重新扫码 |
+| 页面返回 401 | 使用二维码或 **连接** 页复制的完整地址 |
+| 系统定位被拒绝 | 使用 **请求定位权限**；Windows 低完整性问题按上文修复 |
+| 端口被占用 | 服务会自动选择可用端口，也可设置 `DSH_REMOTE_CONTROL_PORT` 指定端口 |
 
 ### 从加载失败中恢复
 
-1. 完全退出 DSH。
-2. 备份并编辑对应 profile 的 `package.json`，从 `dsh.profile.bundles` 移除 `"@ohmykreee/dsh-remote-control"`（只移除这一项）。若 DSH 仍无法启动，再从 `dependencies` 移除并在该目录执行 `pnpm install`。
-3. 启动 DSH，确认能进入设置。插件已停用。
-4. 方式 B：回到源码目录重新构建，确认 `index.js`、`client.js`、`lib/`、`web/` 都存在。方式 A：重新安装插件。
-5. 重新注册 / 启用，重启 DSH。
+插件管理器还能打开时，直接禁用或卸载即可。否则：
 
-插件管理器还能打开时，优先在界面里禁用 / 卸载。
+1. 完全退出 DSH。
+2. 备份对应 profile 的 `package.json`，从 `dsh.profile.bundles` 中删除 `@ohmykreee/dsh-remote-control`，其他条目不要动。
+3. 如果仍无法启动，再从 `dependencies` 删除同一项，在该目录执行 `pnpm install`。
+4. 启动 DSH，确认可以进入设置。
+5. 源码安装重新执行 `pnpm build`，确认 `index.js`、`client.js`、`lib/`、`web/` 都存在；npm 安装则重新安装插件。
+6. 再次注册或启用，重启 DSH。
 
 ## 不支持的安装方式
 
-| 方式 | 结果 |
-|---|---|
-| `npm install -g @ohmykreee/dsh-remote-control` | 全局包不属于任何 profile，DSH 不会加载 |
-| `dsh plugin add github:ohmykreee/dsh-remote-control` | 走 git 依赖，不会构建，缺 `index.js` 时 bundle 无法加载 |
-| 把 GitHub 地址填进插件安装框 | 同上 |
-| 只复制构建产物到 profile | 更新、探针和路径解析都会失效 |
-| 在 profile 里只 `pnpm add` 而不注册 bundle | 依赖装上了，但 DSH 不会加载 |
-| 指望 `npm install` / 插件安装时自动编译探针 | 包不声明安装脚本，pnpm 也不会执行依赖的构建脚本 |
-
-正确做法：**从 DSH 插件管理器安装 npm 包**，或者 **clone 源码 → 在源码目录构建 → 用 `link:` 注册这个目录**。
+- `npm install -g @ohmykreee/dsh-remote-control`：全局包不属于任何 DSH profile，不会被加载。
+- `dsh plugin add github:ohmykreee/dsh-remote-control`，或把 GitHub 地址填进安装框：不会自动构建，插件入口可能不存在。
+- 只复制几个构建产物到 profile：升级、路径解析和探针都会出问题。
+- 只在 profile 中 `pnpm add`，却不注册 bundle：依赖存在，但 DSH 不会加载。
+- 等待安装脚本自动编译探针：插件没有安装脚本，探针需要按上文单独构建。
